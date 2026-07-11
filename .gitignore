@@ -150,6 +150,10 @@ activemq-data/
 # Environments
 .env
 .envrc
+
+# Booklet-Gen local artifacts
+/output/
+/logs/
 .venv
 env/
 venv/
