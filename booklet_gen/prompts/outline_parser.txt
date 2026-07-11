@@ -4,7 +4,7 @@ Output rules:
 - Output ONLY a single JSON object, no prose, no code fences, no commentary.
 - Schema:
   {
-    "subject": string,             // e.g. "Mathematics"
+    "subject": string,             // Normalize to one of: "Mathematics", "Science", "English"
     "year_level": string,          // e.g. "Year 8"; always populated as its own field
     "topics": [
       {
@@ -20,7 +20,8 @@ Output rules:
     ]
   }
 - Difficulty is RELATIVE to the year level (a "hard" Year 8 question is not a hard Year 12 question).
-- Prefer 1-3 topics with 2-4 subtopics each. Question types should be short strings like "simplification", "word problem", "solve for x".
+- Prefer 1-3 topics with 2-4 subtopics each. Question types should be short strings like "simplification", "word problem", "solve for x", "balance equation", "comprehension", "grammar correction".
+- If the subject isn't obvious, infer from the topic words ("fractions" -> Mathematics, "cells" -> Science, "grammar" -> English).
 
 Examples:
 
@@ -32,6 +33,18 @@ Input: "Year 10 algebra, linear equations and quadratics intro"
 Output:
 {"subject":"Mathematics","year_level":"Year 10","topics":[{"name":"Linear Equations","subtopics":[{"name":"Solving one-step equations","difficulty_hint":"easy","question_types":["solve for x"]},{"name":"Solving multi-step equations","difficulty_hint":"medium","question_types":["solve for x"]},{"name":"Equations with variables on both sides","difficulty_hint":"medium","question_types":["solve for x"]}]},{"name":"Quadratics","subtopics":[{"name":"Expanding brackets","difficulty_hint":"easy","question_types":["expand"]},{"name":"Factorising simple quadratics","difficulty_hint":"medium","question_types":["factorise"]}]}]}
 
-Input: "Year 7 maths — decimals and percentages"
+Input: "Year 9 science, chemical reactions and stoichiometry"
 Output:
-{"subject":"Mathematics","year_level":"Year 7","topics":[{"name":"Decimals","subtopics":[{"name":"Place value and rounding","difficulty_hint":"easy","question_types":["rounding"]},{"name":"Adding and subtracting decimals","difficulty_hint":"easy","question_types":["computation"]},{"name":"Multiplying and dividing decimals","difficulty_hint":"medium","question_types":["computation"]}]},{"name":"Percentages","subtopics":[{"name":"Converting between fractions, decimals, and percentages","difficulty_hint":"easy","question_types":["conversion"]},{"name":"Percentage of a quantity","difficulty_hint":"medium","question_types":["word problem"]}]}]}
+{"subject":"Science","year_level":"Year 9","topics":[{"name":"Chemical Reactions","subtopics":[{"name":"Balancing chemical equations","difficulty_hint":"medium","question_types":["balance equation"]},{"name":"Types of reactions","difficulty_hint":"easy","question_types":["classification","short answer"]}]},{"name":"Stoichiometry","subtopics":[{"name":"Mole calculations","difficulty_hint":"medium","question_types":["computation"]},{"name":"Reaction yield problems","difficulty_hint":"hard","question_types":["word problem"]}]}]}
+
+Input: "Year 7 science — cells and body systems"
+Output:
+{"subject":"Science","year_level":"Year 7","topics":[{"name":"Cells","subtopics":[{"name":"Parts of a cell","difficulty_hint":"easy","question_types":["short answer","labeling"]},{"name":"Plant vs animal cells","difficulty_hint":"medium","question_types":["comparison"]}]},{"name":"Body Systems","subtopics":[{"name":"Digestive system","difficulty_hint":"medium","question_types":["short answer"]},{"name":"Respiratory system","difficulty_hint":"medium","question_types":["short answer"]}]}]}
+
+Input: "Year 8 English, grammar and comprehension"
+Output:
+{"subject":"English","year_level":"Year 8","topics":[{"name":"Grammar","subtopics":[{"name":"Subject-verb agreement","difficulty_hint":"easy","question_types":["grammar correction"]},{"name":"Punctuation","difficulty_hint":"medium","question_types":["punctuation fix"]},{"name":"Sentence types","difficulty_hint":"medium","question_types":["identification"]}]},{"name":"Reading Comprehension","subtopics":[{"name":"Main idea and supporting details","difficulty_hint":"medium","question_types":["comprehension"]},{"name":"Inference","difficulty_hint":"hard","question_types":["comprehension"]}]}]}
+
+Input: "Year 10 English — persuasive writing and language techniques"
+Output:
+{"subject":"English","year_level":"Year 10","topics":[{"name":"Language Techniques","subtopics":[{"name":"Identifying rhetorical devices","difficulty_hint":"medium","question_types":["identification"]},{"name":"Analysing tone and mood","difficulty_hint":"medium","question_types":["short answer"]}]},{"name":"Persuasive Writing","subtopics":[{"name":"Structuring an argument","difficulty_hint":"medium","question_types":["planning"]},{"name":"Using evidence and appeals","difficulty_hint":"hard","question_types":["short answer","planning"]}]}]}

@@ -49,13 +49,13 @@
   <div class="wrap">
     <div class="card">
       <h1>Practice Booklet Generator</h1>
-      <p class="sub">Type the topic and year level. We'll build a validated maths booklet.</p>
+      <p class="sub">Type the topic and year level for Maths, Science, or English. We'll build a validated booklet.</p>
       {% if error %}<div class="error">{{ error }}</div>{% endif %}
       <form method="post" action="/generate">
         <div class="field">
           <label for="description">Topic and year level</label>
-          <textarea id="description" name="description" placeholder="e.g. Year 8 maths, fractions and ratios" required></textarea>
-          <div class="hint">A short description is fine — no upload needed.</div>
+          <textarea id="description" name="description" placeholder="e.g. Year 8 maths, fractions and ratios&#10;   Year 9 science, chemical reactions&#10;   Year 10 English, persuasive writing" required></textarea>
+          <div class="hint">A short description is fine — no upload needed. Works for maths, science, and English.</div>
         </div>
         <div class="field row">
           <div>
