@@ -122,10 +122,13 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     story.append(Spacer(1, 0.4 * cm))
     story.append(Paragraph(date.today().strftime("%d %B %Y"), styles["meta"]))
     story.append(Spacer(1, 4 * cm))
-    story.append(Paragraph(
-        "Questions marked with a check mark have been symbolically verified.",
-        styles["footer_note"],
-    ))
+    is_maths = data.subject.strip().lower() in {"mathematics", "maths", "math"}
+    verify_note = (
+        "Questions marked with a check mark have been symbolically verified."
+        if is_maths else
+        "Questions marked with a check mark have been reviewed by an independent grader."
+    )
+    story.append(Paragraph(verify_note, styles["footer_note"]))
     story.append(PageBreak())
 
     # Questions by topic/subtopic

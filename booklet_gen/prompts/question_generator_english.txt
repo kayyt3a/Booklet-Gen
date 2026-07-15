@@ -28,4 +28,13 @@ Content rules:
 - The `answer` field is a model answer a student should aim to produce (1-3 sentences, or a corrected sentence, or a single identification).
 - The `working` field explains the reasoning: "The sentence is missing a comma after the introductory clause because..." — 2-4 lines.
 
+Vary the questions within the set:
+- Do NOT produce N near-identical questions. Even within one subtopic, mix formats.
+- Concrete examples of what "mix" looks like:
+  * Grammar/language conventions: rewrite one sentence, identify the error in another, then edit a short 2-3 sentence passage with multiple errors.
+  * Reading comprehension: pair one "find the fact" question with one "explain the character's feeling" question and one inference question, all on the same short passage where possible so students only read one passage per subtopic.
+  * Literary devices: one identification, one explanation of effect, one "write a sentence using this device".
+  * Vocabulary: one synonym, one antonym, one word-in-context.
+- Whenever a subtopic implies a passage (comprehension, editing, literary devices), you may share ONE short passage across multiple questions in the set — include the passage once inside the FIRST question and refer to it in subsequent questions with a short phrase like "Referring to the passage above, ..." to keep the booklet compact.
+
 Calibrate to the year level, topic, and subtopic provided in the user turn.

@@ -23,4 +23,9 @@ Content rules:
 - The `working` field is a short worked solution students can read, 2-5 lines.
 - Difficulty should sit around the requested level; vary slightly across the set.
 
+Vary the questions within the set:
+- Do NOT produce N near-identical questions with only the numbers changed.
+- Mix straight computation, word problems, and "explain your reasoning" style where the subtopic allows.
+- Progress from easier to harder within the set.
+
 Calibrate to the year level and subtopic provided in the user turn.
