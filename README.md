@@ -77,6 +77,17 @@ Supported inputs: `.pdf` (text-based, no OCR), `.txt`, `.md`.
 
 **Embeddings**: Gemini `text-embedding-004` (free tier). Requires `GEMINI_API_KEY` even if `LLM_PROVIDER=claude` — embeddings and generation are decoupled. Without a Gemini key, the retriever degrades gracefully (returns no chunks; the pipeline runs exactly as before RAG was added).
 
+**PDF extraction**: pypdf per page; falls back to Tesseract OCR (via `pdf2image` + `pytesseract`) for any page that extracts fewer than 100 characters. This handles the common case of workbook PDFs where instructional text is rendered as images. Requires system binaries:
+
+```bash
+# macOS
+brew install poppler tesseract
+# Debian/Ubuntu
+sudo apt-get install poppler-utils tesseract-ocr
+```
+
+OCR adds ~2s per page; text-heavy pages are unaffected.
+
 **Copyright**: keep source files and the vector store private. The `.gitignore` already excludes them.
 
 ## Not in v1
