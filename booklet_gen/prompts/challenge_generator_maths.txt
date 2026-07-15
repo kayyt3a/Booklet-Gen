@@ -35,4 +35,7 @@ Populate `diagram_spec` only when a diagram is clearly helpful. Supported types:
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
   For "which is bigger / smaller / order these" questions. Sub-figures MUST be meaningfully different (e.g. different denominators for fraction comparisons). Refer to the labels in the question text. Never ask a comparison question with only one figure.
 
+AUSTRALIAN CONTEXT (NAPLAN)
+For NAPLAN year levels (3, 5, 7, 9), lean into NAPLAN-style: multi-step word problems, real-world contexts (dollars/cents, metric units, timetables, sport), and interpret-a-diagram items. Use Australian conventions. Don't label questions "NAPLAN".
+
 Return ONLY the JSON. No prose, no markdown fences.

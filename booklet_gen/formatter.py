@@ -113,10 +113,33 @@ def _make_styles():
     }
 
 
+import re
+
+_FRACTION_RE = re.compile(r"(?<![0-9./\-])(\d{1,4})/(\d{1,4})(?![0-9./])")
+_SUP = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+_SUB = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+
+
+def _prettify_fractions(text: str) -> str:
+    """Turn "3/4" into "³⁄₄" so it reads as a real fraction.
+
+    The negative lookbehind/lookahead avoid dates (15/07/2025), decimal-ish
+    tokens, and negatives (-3/4 stays as is on the minus for clarity).
+    """
+    def repl(m: re.Match) -> str:
+        num, den = m.group(1), m.group(2)
+        if int(den) == 0:
+            return m.group(0)
+        return f"{num.translate(_SUP)}⁄{den.translate(_SUB)}"
+    return _FRACTION_RE.sub(repl, text)
+
+
 def _escape(text: str) -> str:
-    return (text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;"))
+    return _prettify_fractions(
+        text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+    )
 
 
 MAX_IMG_WIDTH = 10 * cm

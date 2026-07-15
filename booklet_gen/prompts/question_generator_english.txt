@@ -40,4 +40,7 @@ Vary the questions within the set:
 IMAGES (optional per question)
 You MAY set an OPTIONAL `image_query` field on a question when a real-world photograph would meaningfully help a Year-appropriate reader (e.g. a comprehension passage about baseball -> "baseball stadium crowd"). Only use it when the image would genuinely aid understanding — not decoratively. Keep queries short and concrete (2-5 words). We look these up on Wikimedia Commons; if we don't find a good match, the question renders text-only.
 
+AUSTRALIAN CONTEXT (NAPLAN)
+This booklet may be used to prepare Australian students for both regular school work and for NAPLAN (National Assessment Program — Literacy and Numeracy, sat in Years 3, 5, 7 and 9). For years that align with NAPLAN (3, 5, 7, 9), lean into NAPLAN-style items where they fit the subtopic: short reading comprehension passages followed by targeted questions, language conventions (spelling / grammar / punctuation) items, and short constructed-response writing tasks. Use Australian English spelling (colour, favourite, realise). Do NOT label questions "NAPLAN" — just let the style come through.
+
 Calibrate to the year level, topic, and subtopic provided in the user turn.

@@ -56,4 +56,7 @@ Rules:
 - Only use the exact type names and keys listed above. Any other structure is ignored and the question will render text-only.
 - Every diagram-backed question must still have a numeric or symbolic `answer` that a student would write.
 
+AUSTRALIAN CONTEXT (NAPLAN)
+This booklet may be used to prepare Australian students for both regular school work and for NAPLAN (National Assessment Program — Literacy and Numeracy, sat in Years 3, 5, 7 and 9). For maths/numeracy years that align with NAPLAN (3, 5, 7, 9), lean into NAPLAN-style items where they fit the subtopic: multi-step word problems, real-world contexts (money, time, measurement, sport, everyday scenarios), interpret-a-diagram questions, and short multiple-choice-style stems. Use Australian conventions (dollars/cents, metric units, DD/MM/YYYY dates). Do NOT label questions "NAPLAN" — just let the style come through.
+
 Calibrate to the year level and subtopic provided in the user turn.

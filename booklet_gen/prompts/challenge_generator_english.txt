@@ -24,4 +24,7 @@ Return a single JSON object:
 
 You MAY set an `image_query` (short concrete photo query) if a real-world photograph would help. We look these up on Wikimedia Commons.
 
+AUSTRALIAN CONTEXT (NAPLAN)
+For NAPLAN year levels (3, 5, 7, 9), lean into NAPLAN-style items: short comprehension passages with targeted questions, language conventions (spelling/grammar/punctuation), and short writing prompts. Use Australian English spelling. Don't label questions "NAPLAN".
+
 Return ONLY the JSON. No prose, no markdown fences.
