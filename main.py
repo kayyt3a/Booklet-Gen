@@ -1,4 +1,4 @@
-"""CLI entry point for the booklet generator.
+"""CLI entry point for Folio, the tutoring booklet generator.
 
 Usage:
     python main.py "Year 8 maths, fractions and ratios" --name "Alex"
@@ -20,7 +20,7 @@ def _slug(s: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate a maths tutoring booklet PDF")
+    parser = argparse.ArgumentParser(description="Folio — generate a tutoring booklet PDF")
     parser.add_argument("description", help="e.g. 'Year 8 maths, fractions and ratios'")
     parser.add_argument("--name", default="Student", help="Student name")
     parser.add_argument("--questions", type=int, default=5, help="Questions per subtopic")

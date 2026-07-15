@@ -36,6 +36,11 @@ def _make_styles():
             "meta", parent=base["Normal"], fontName="Helvetica",
             fontSize=10, alignment=TA_CENTER, textColor=colors.HexColor("#888888"),
         ),
+        "wordmark": ParagraphStyle(
+            "wordmark", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=12, alignment=TA_CENTER, textColor=colors.HexColor("#1F3A5F"),
+            spaceAfter=4,
+        ),
         "topic": ParagraphStyle(
             "topic", parent=base["Heading1"], fontName="Helvetica-Bold",
             fontSize=18, leading=22, spaceBefore=6, spaceAfter=8,
@@ -238,7 +243,7 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
         topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
         title=f"{data.subject} Practice Booklet",
-        author="Booklet-Gen",
+        author="Folio",
     )
     doc._header_text = f"{data.subject} — {data.year_level} — {data.student_name}"
 
@@ -252,7 +257,9 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     story = []
 
     # Cover
-    story.append(Spacer(1, 4 * cm))
+    story.append(Spacer(1, 3 * cm))
+    story.append(Paragraph("FOLIO", styles["wordmark"]))
+    story.append(Spacer(1, 0.6 * cm))
     story.append(Paragraph(f"{data.subject}", styles["title"]))
     story.append(Paragraph(f"Practice Booklet — {data.year_level}", styles["subtitle"]))
     story.append(Spacer(1, 1.5 * cm))
