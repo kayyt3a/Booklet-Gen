@@ -50,12 +50,38 @@ file that has been ingested before is deleted and re-added, not duplicated.
 
 - **SCSA (WA curriculum)** — https://k10outline.scsa.wa.edu.au/ — free,
   official, exactly the calibration you want for school-focused booklets.
-- **NAPLAN past papers** — https://nap.edu.au/naplan/results-and-reports/example-tests
-  — free and public. Single biggest lift for NAPLAN quality.
+- **NAPLAN past papers** — https://www.acara.edu.au/assessment/naplan
+  (start at "NAPLAN 2012–2016 test papers" for the full archive). Free
+  and public. Single biggest lift for NAPLAN quality.
 - **Cambridge / other textbooks** — copyrighted. Fine to use privately in
   your own RAG library to guide *style* (the generated questions are your
   own new content, not copies). Don't distribute the PDFs. If you ever
   commercialise this tool, drop them and use only open/licensed sources.
+
+## Bulk downloading
+
+To grab every PDF linked on a page in one shot, use the included downloader:
+
+    python scripts/download_pdfs.py <URL> --into <folder>
+
+Examples:
+
+    # Every PDF on the ACARA NAPLAN 2012-2016 page, sorted into Y5 Numeracy
+    python scripts/download_pdfs.py \
+      https://www.acara.edu.au/assessment/naplan/naplan-2012-2016-test-papers \
+      --into "rag_sources/Mathematics/Year 5/NAPLAN" \
+      --contains numeracy
+
+    # Same, but Reading into the English folder
+    python scripts/download_pdfs.py \
+      https://www.acara.edu.au/assessment/naplan/naplan-2012-2016-test-papers \
+      --into "rag_sources/English/Year 5/NAPLAN" \
+      --contains reading
+
+`--contains <substring>` filters URLs by path — helpful when a listing page
+has all year levels and subjects mixed together. `--dry-run` prints what
+would be downloaded without touching disk. Files that already exist are
+skipped, so re-running is safe.
 
 ## Notes
 
