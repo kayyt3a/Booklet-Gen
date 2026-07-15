@@ -84,6 +84,30 @@ has all year levels and subjects mixed together. `--dry-run` prints what
 would be downloaded without touching disk. Files that already exist are
 skipped, so re-running is safe.
 
+## Fastest path: download an ACARA archive page end-to-end
+
+ACARA listing pages mix every year level and subject together, and a
+single `--contains` filter can't safely capture "year AND subject" at
+once (e.g. `--contains numeracy` on its own would pull Year 3, 5, 7 and 9
+numeracy into whichever folder you point it at). Instead, dump everything
+into a staging folder and let the sorter route each file by filename:
+
+    python scripts/download_pdfs.py <ACARA-page-URL> --into rag_sources/_staging
+    python scripts/sort_naplan_staging.py --dry-run   # check the plan
+    python scripts/sort_naplan_staging.py             # move for real
+    python scripts/ingest_folder.py
+
+`sort_naplan_staging.py` detects year level (`y3`/`yr5`/`year7`/`Y09`...)
+and subject (`numeracy` -> Mathematics, `reading`/`language`/`writing`/
+`convention`/`persuasive`/`narrative` -> English) from each filename and
+moves it into `rag_sources/<Subject>/<Year>/NAPLAN/`. Files it can't
+confidently classify are left in `_staging` and printed at the end —
+move those into the right folder by hand.
+
+Run it again for other ACARA archive pages (2008–2011, 2017+, example
+tests, ...) any time — the staging folder starts fresh each run since
+sorted files are moved out of it.
+
 ## Notes
 
 - Files sitting loose at the top level of `rag_sources/` are skipped with a
