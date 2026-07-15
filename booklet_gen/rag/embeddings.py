@@ -13,7 +13,7 @@ class GeminiEmbedder:
     """Gemini text-embedding-004. Free tier is generous enough for a
     personal library that grows over time."""
 
-    MODEL = "models/text-embedding-004"
+    MODEL = "models/gemini-embedding-001"
 
     def __init__(self, config: Config | None = None):
         cfg = config or load_config()
