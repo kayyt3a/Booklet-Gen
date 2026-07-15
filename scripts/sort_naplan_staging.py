@@ -32,11 +32,17 @@ ENGLISH_RE = re.compile(
 
 
 def classify(name: str) -> tuple[str, str] | None:
-    """Return (subject, year_folder) or None if undetectable."""
+    """Return (subject, year_folder) or None if undetectable.
+
+    Subject detection is required; year is not. ACARA writing prompts are
+    shared across multiple year levels ("years 3 and 5", "all year levels")
+    so they never carry a single year token — those get routed to the "All
+    Years" wildcard folder instead of being left unsorted. Files with a year
+    but no detectable subject (e.g. combined-subject answer-key PDFs) are
+    left unmatched — the subject is genuinely mixed within the file.
+    """
     year_m = YEAR_RE.search(name)
-    if not year_m:
-        return None
-    year = f"Year {year_m.group(1)}"
+    year = f"Year {year_m.group(1)}" if year_m else "All Years"
 
     is_math = bool(MATH_RE.search(name))
     is_english = bool(ENGLISH_RE.search(name))
@@ -91,9 +97,13 @@ def main() -> int:
         for pdf in unmatched:
             print(f"  ? {pdf.name}")
         print(
-            "\nMove these manually into rag_sources/<Subject>/<Year>/<Tag>/ — "
-            "the filename didn't clearly contain both a year level (y3/yr5/year7...) "
-            "and a subject (numeracy/reading/language/writing...)."
+            "\nThese have no detectable subject (numeracy/reading/language/writing) "
+            "in the filename — usually combined-subject answer-key PDFs, where the "
+            "content itself mixes every subject and can't be routed automatically. "
+            "Either open each one and drop it in the matching "
+            "rag_sources/<Subject>/<Year>/NAPLAN/ folder by hand, or skip them — "
+            "the test papers you already sorted carry the calibration signal; "
+            "answer keys add comparatively little."
         )
     return 0
 
