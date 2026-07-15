@@ -42,6 +42,14 @@ Supported spec types (use exactly these keys):
   Labelled rectangle. Use for perimeter/area questions.
 - {"type":"l_shape","outer_length":12,"outer_width":10,"cut_length":4,"cut_width":3,"unit":"m"}
   L-shape (rectangle with a corner cut out). All six sides get labelled with the computed dimensions.
+- {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
+  A composite figure showing 2-4 sub-diagrams side by side, each labelled underneath. USE THIS whenever the question asks the student to compare things ("which has more shaded", "which is bigger", "which fraction is larger", "put these in order"). Any of the other types can be a sub-spec.
+
+COMPARISON QUESTIONS — hard rules:
+- Any question that asks the student to compare two or more visual things MUST use `compare`. Never render only one figure for a comparison question — the student cannot compare against something they cannot see.
+- The sub-figures in a `compare` must be MEANINGFULLY DIFFERENT. For fractions, that almost always means DIFFERENT DENOMINATORS (e.g. 3/4 vs 2/3, not 1/4 vs 2/4). If the denominators are the same, the comparison is trivial — either change the denominators or don't use a comparison.
+- Label each sub-figure with a short tag (usually "A", "B", ...) and REFER TO THOSE LABELS in the question text: "Circle A is divided into 4 equal parts with 3 shaded. Circle B is divided into 3 equal parts with 2 shaded. Which has the bigger portion shaded?"
+- The `answer` must name the labelled winner, e.g. "A" or "Circle A (3/4 > 2/3)".
 
 Rules:
 - When you use a diagram, phrase the question in terms of what the DIAGRAM shows ("The figure below shows...", "What fraction is shaded in the figure?") — do NOT re-describe the shape in words.

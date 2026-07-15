@@ -26,6 +26,14 @@ Supported spec types
   "cut_length": 4, "cut_width": 3, "unit": "m" }
     An L-shape formed by a rectangle with one corner cut out. All sides
     labelled with dimensions, so the shape is unambiguous.
+
+{ "type": "compare", "items": [
+    {"label": "A", "spec": {...}},
+    {"label": "B", "spec": {...}}
+  ] }
+    A composite figure showing 2-4 sub-diagrams side by side, each with a
+    label underneath. Use this for "which is bigger?" style comparison
+    questions. Sub-specs may be any of the other types.
 """
 from __future__ import annotations
 
@@ -265,10 +273,72 @@ def _pretty_num(x: float) -> str:
     return f"{x:g}"
 
 
+def _compare(spec: dict, out: Path) -> None:
+    """Render 2-4 sub-diagrams side by side, each with a label underneath.
+
+    We render each sub-spec through the normal render_diagram path (so caching
+    and validation apply), then compose them into a single PNG with Pillow.
+    """
+    from PIL import Image as PILImage, ImageDraw, ImageFont
+
+    items = spec.get("items") or []
+    if not (2 <= len(items) <= 4):
+        raise ValueError(f"compare needs 2-4 items, got {len(items)}")
+
+    tiles: list[tuple[PILImage.Image, str]] = []
+    for i, item in enumerate(items):
+        sub_spec = item.get("spec")
+        label = str(item.get("label") or chr(ord("A") + i))
+        if not isinstance(sub_spec, dict):
+            raise ValueError(f"compare item {i} missing 'spec' dict")
+        if sub_spec.get("type") == "compare":
+            raise ValueError("compare items cannot themselves be compare")
+        sub_path = render_diagram(sub_spec)
+        if sub_path is None:
+            raise ValueError(f"compare item {i} ({sub_spec.get('type')}) failed to render")
+        tiles.append((PILImage.open(sub_path).convert("RGBA"), label))
+
+    # Normalise heights so tiles sit on the same baseline.
+    target_h = max(img.height for img, _ in tiles)
+    resized: list[tuple[PILImage.Image, str]] = []
+    for img, label in tiles:
+        if img.height != target_h:
+            ratio = target_h / img.height
+            img = img.resize((int(img.width * ratio), target_h), PILImage.LANCZOS)
+        resized.append((img, label))
+
+    gap = 40
+    label_h = 44
+    pad = 20
+    total_w = pad * 2 + sum(img.width for img, _ in resized) + gap * (len(resized) - 1)
+    total_h = pad * 2 + target_h + label_h
+
+    canvas = PILImage.new("RGBA", (total_w, total_h), (255, 255, 255, 255))
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26,
+        )
+    except Exception:
+        font = ImageFont.load_default()
+
+    draw = ImageDraw.Draw(canvas)
+    x = pad
+    for img, label in resized:
+        canvas.paste(img, (x, pad), img)
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw = bbox[2] - bbox[0]
+        draw.text((x + img.width / 2 - tw / 2, pad + target_h + 6),
+                  label, fill=(31, 58, 95, 255), font=font)
+        x += img.width + gap
+
+    canvas.save(out, "PNG")
+
+
 _RENDERERS = {
     "circle_slices": _circle_slices,
     "bar_model": _bar_model,
     "number_line": _number_line,
     "rectangle": _rectangle,
     "l_shape": _l_shape,
+    "compare": _compare,
 }
