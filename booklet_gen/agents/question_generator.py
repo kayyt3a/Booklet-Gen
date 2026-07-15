@@ -40,7 +40,14 @@ class QuestionGeneratorAgent:
             self._system_by_subject[key] = load_prompt(_prompt_file_for(subject))
         return self._system_by_subject[key]
 
-    def generate(self, subject: str, year_level: str, topic: str, subtopic: Subtopic) -> QuestionSet:
+    def generate(
+        self,
+        subject: str,
+        year_level: str,
+        topic: str,
+        subtopic: Subtopic,
+        reference_chunks: list[str] | None = None,
+    ) -> QuestionSet:
         system = self._system_prompt(subject)
         base_user = (
             f"Subject: {subject}\n"
@@ -51,6 +58,13 @@ class QuestionGeneratorAgent:
             f"Question types: {', '.join(subtopic.question_types) or 'any suitable'}\n"
             f"Generate exactly {self._n} questions."
         )
+        if reference_chunks:
+            joined = "\n\n---\n\n".join(reference_chunks)
+            base_user += (
+                "\n\nReference material (real textbook/exam excerpts at this level — "
+                "use these to calibrate style, phrasing, and difficulty; do NOT copy "
+                "questions verbatim):\n\n" + joined
+            )
         error_feedback = ""
         for attempt in range(1, self._max_retries + 1):
             user = base_user if not error_feedback else (

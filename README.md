@@ -59,11 +59,31 @@ python app.py
 
 Outputs land in `output/`. Structured JSONL logs land in `logs/`.
 
-## Not in v1 (extensible architecture)
+## Resource library (RAG)
 
-- **RAG resource library** — retrieval runs before Question Generator per subtopic. Chunks pass into the generator context (and to the LLM-judge as grounding) for style/phrasing/difficulty calibration.
-- **File-upload outlines** — the Outline Parser already handles arbitrary text; a PDF upload path just extracts text and calls the same agent.
+The pipeline reads from a local, private ChromaDB store before each subtopic runs. Retrieved chunks are passed to the Question Generator as reference material (for style/difficulty calibration) and to the LLM-judge as grounding (for cross-checking answers against real textbook material).
+
+**Ingest a source:**
+```bash
+python -m booklet_gen.rag.ingest path/to/file.pdf \
+    --subject Mathematics --year "Year 6" --topics "Fractions,Decimals"
+```
+
+Supported inputs: `.pdf` (text-based, no OCR), `.txt`, `.md`.
+
+**Where things live** (all gitignored):
+- Raw source files: `rag_sources/` (recommended — not enforced)
+- Vector store: `rag_store/`
+
+**Embeddings**: Gemini `text-embedding-004` (free tier). Requires `GEMINI_API_KEY` even if `LLM_PROVIDER=claude` — embeddings and generation are decoupled. Without a Gemini key, the retriever degrades gracefully (returns no chunks; the pipeline runs exactly as before RAG was added).
+
+**Copyright**: keep source files and the vector store private. The `.gitignore` already excludes them.
+
+## Not in v1
+
+- **File-upload outlines** — the Outline Parser already handles arbitrary text; a PDF upload path in the web UI just needs to extract text and call the same agent.
 - **Additional subjects** — add a `prompts/question_generator_<subject>.txt` file, register the subject in `question_generator.py`, and optionally add a subject-specific validator (e.g. a chemistry-equation-balancing rules engine to strengthen science validation).
+- **Senior maths sympy adapters** (integration, implicit differentiation, vectors) — currently fall back to LLM-judge; a real sympy adapter would give rigorous symbolic verification for Year 11-12 topics.
 - **Analytics / auth** — v2.
 
 ## Layout

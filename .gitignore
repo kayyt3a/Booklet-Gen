@@ -154,6 +154,11 @@ activemq-data/
 # Booklet-Gen local artifacts
 /output/
 /logs/
+
+# RAG library — private, may contain third-party textbook excerpts.
+# Keep the store and the raw source files out of the repo.
+/rag_store/
+/rag_sources/
 .venv
 env/
 venv/

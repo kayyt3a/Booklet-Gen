@@ -28,7 +28,13 @@ class LLMJudgeValidator:
         self._client = client
         self._system = load_prompt("validator_llm_judge.txt")
 
-    def validate(self, subject: str, year_level: str, q: Question) -> ValidationResult:
+    def validate(
+        self,
+        subject: str,
+        year_level: str,
+        q: Question,
+        reference_chunks: list[str] | None = None,
+    ) -> ValidationResult:
         user = (
             f"Subject: {subject}\n"
             f"Year level: {year_level}\n"
@@ -36,6 +42,13 @@ class LLMJudgeValidator:
             f"Proposed answer: {q.answer}\n"
             f"Proposed working: {q.working}"
         )
+        if reference_chunks:
+            joined = "\n\n---\n\n".join(reference_chunks)
+            user += (
+                "\n\nReference material for grounding (real textbook/exam excerpts "
+                "at this level — cross-check answers against these when relevant):\n\n"
+                + joined
+            )
         try:
             raw = self._client.complete(self._system, user, tier="strong", temperature=0.0)
             data = extract_json(raw)
