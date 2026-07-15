@@ -5,13 +5,19 @@ Expected layout:
 
     rag_sources/
       <Subject>/                e.g. Mathematics, English, Science
-        <Year>/                 e.g. "Year 5"
+        <Year>/                 e.g. "Year 5", or "All Years" (wildcard)
           <TopicTag>/           e.g. NAPLAN, SCSA, Cambridge, Textbook
             some-source.pdf
             another.pdf
 
 Every PDF gets tagged with subject=<Subject>, year=<Year>, and one topic tag
 = <TopicTag>. Drop a new PDF anywhere in the tree and re-run this script.
+
+The special year folder name "All Years" (case-insensitive) becomes the
+wildcard year "Any" in the store — the retriever matches "Any" chunks
+against every year-level query. Use this for cross-year curriculum documents
+like SCSA scope-and-sequence PDFs that cover multiple year levels in one
+file.
 
 Files sitting loose at the top level of rag_sources/ are ingested with
 minimal metadata and logged as a warning — prefer the structured layout.
@@ -47,11 +53,18 @@ def _meta_from_path(pdf: Path, root: Path) -> tuple[str, str, list[str]] | None:
     # Also accept: <Subject>/<Year>/file.pdf (len 3), with topic derived from filename stem
     if len(parts) >= 4:
         subject, year, topic_tag = parts[0], parts[1], parts[2]
-        return subject, year, [topic_tag]
+        return subject, _normalise_year(year), [topic_tag]
     if len(parts) == 3:
         subject, year = parts[0], parts[1]
-        return subject, year, [pdf.stem]
+        return subject, _normalise_year(year), [pdf.stem]
     return None
+
+
+def _normalise_year(year: str) -> str:
+    """Map wildcard-style folder names to the store's "Any" tag."""
+    if year.strip().lower() in {"all years", "all", "any", "p-10", "k-10"}:
+        return "Any"
+    return year
 
 
 def main() -> int:

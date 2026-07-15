@@ -54,9 +54,14 @@ class Retriever:
             log.warning("rag.embed_query_failed", extra={"error": str(e)[:200]})
             return []
 
-        # Try strict subject+year filter first; fall back to subject-only.
-        for where in ({"$and": [{"subject": subject}, {"year_level": year_level}]},
-                      {"subject": subject}):
+        # Strict filter: subject AND (year matches OR year is the wildcard "Any",
+        # used for cross-year curriculum docs like the SCSA scope-and-sequence).
+        # Fallback: subject-only.
+        strict = {"$and": [
+            {"subject": subject},
+            {"$or": [{"year_level": year_level}, {"year_level": "Any"}]},
+        ]}
+        for where in (strict, {"subject": subject}):
             try:
                 hits = self._store.query(vecs[0], top_k=self._top_k, where=where)
             except Exception as e:

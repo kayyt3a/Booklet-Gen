@@ -14,6 +14,8 @@ re-run.
     rag_sources/
       <Subject>/                Mathematics, English, Science
         <Year>/                 "Year 3", "Year 5", "Year 7", "Year 9", ...
+                                — OR the wildcard "All Years" for
+                                  cross-year curriculum docs.
           <TopicTag>/           free-form; conventional: NAPLAN, SCSA,
                                 Cambridge, Textbook, PastPapers
             some-source.pdf
@@ -26,17 +28,16 @@ Example populated tree:
 
     rag_sources/
       Mathematics/
+        All Years/
+          SCSA/
+            scsa-maths-scope-and-sequence-P10.pdf   ← retrieved for any year
+            scsa-maths-year-descriptions-P10.pdf
         Year 3/
           NAPLAN/
             naplan-2019-y3-numeracy.pdf
-            naplan-2021-y3-numeracy.pdf
-          SCSA/
-            wa-curriculum-y3-maths.pdf
         Year 5/
           NAPLAN/
             naplan-2022-y5-numeracy.pdf
-          Cambridge/
-            cambridge-primary-maths-y5.pdf
       English/
         Year 5/
           NAPLAN/
