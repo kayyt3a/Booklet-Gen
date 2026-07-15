@@ -44,9 +44,27 @@ class ValidatedQuestion(BaseModel):
     image_attribution: Optional[str] = None
 
 
+class WorkedExample(BaseModel):
+    """A fully worked example shown before the practice questions."""
+    question: str
+    steps: List[str] = Field(default_factory=list)
+    answer: str
+    diagram_spec: Optional[dict] = None
+    # Resolved after rendering.
+    image_path: Optional[str] = None
+
+
+class SubtopicTeaching(BaseModel):
+    """What the intro_writer agent produces for a subtopic."""
+    intro_paragraphs: List[str] = Field(default_factory=list)
+    key_points: List[str] = Field(default_factory=list)
+    worked_example: WorkedExample
+
+
 class SubtopicOutput(BaseModel):
     topic: str
     subtopic: str
+    teaching: Optional[SubtopicTeaching] = None
     questions: List[ValidatedQuestion]
     failure_rate: float = 0.0
 
@@ -56,3 +74,4 @@ class BookletData(BaseModel):
     year_level: str
     student_name: str
     sections: List[SubtopicOutput]
+    challenge_questions: List[ValidatedQuestion] = Field(default_factory=list)

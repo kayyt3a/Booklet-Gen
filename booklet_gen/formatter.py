@@ -14,7 +14,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib.utils import ImageReader
 
-from .schemas import BookletData
+from .schemas import BookletData, ValidatedQuestion, WorkedExample
 
 
 PAGE_MARGIN = 2.0 * cm
@@ -46,6 +46,38 @@ def _make_styles():
             fontSize=13, leading=16, spaceBefore=4, spaceAfter=6,
             textColor=colors.HexColor("#333333"),
         ),
+        "intro_para": ParagraphStyle(
+            "intro_para", parent=base["Normal"], fontName="Helvetica",
+            fontSize=10.5, leading=14, alignment=TA_LEFT, spaceAfter=5,
+        ),
+        "key_point": ParagraphStyle(
+            "key_point", parent=base["Normal"], fontName="Helvetica",
+            fontSize=10, leading=13, leftIndent=14, bulletIndent=2,
+            spaceAfter=2,
+        ),
+        "we_label": ParagraphStyle(
+            "we_label", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=10, leading=13, textColor=colors.HexColor("#1F3A5F"),
+            spaceAfter=3,
+        ),
+        "we_question": ParagraphStyle(
+            "we_question", parent=base["Normal"], fontName="Helvetica",
+            fontSize=10.5, leading=14, spaceAfter=6,
+        ),
+        "we_step": ParagraphStyle(
+            "we_step", parent=base["Normal"], fontName="Helvetica",
+            fontSize=10, leading=13, leftIndent=12, spaceAfter=2,
+        ),
+        "we_answer": ParagraphStyle(
+            "we_answer", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=10.5, leading=14, spaceBefore=4,
+            textColor=colors.HexColor("#1B8A3A"),
+        ),
+        "practice_label": ParagraphStyle(
+            "practice_label", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=11, leading=14, spaceBefore=8, spaceAfter=6,
+            textColor=colors.HexColor("#1F3A5F"),
+        ),
         "question": ParagraphStyle(
             "question", parent=base["Normal"], fontName="Helvetica",
             fontSize=11, leading=15, alignment=TA_LEFT,
@@ -64,6 +96,16 @@ def _make_styles():
             fontSize=20, leading=24, alignment=TA_CENTER, spaceAfter=12,
             textColor=colors.HexColor("#1F3A5F"),
         ),
+        "challenge_heading": ParagraphStyle(
+            "challenge_heading", parent=base["Heading1"], fontName="Helvetica-Bold",
+            fontSize=22, leading=26, alignment=TA_CENTER, spaceAfter=6,
+            textColor=colors.HexColor("#8B1E3F"),
+        ),
+        "challenge_blurb": ParagraphStyle(
+            "challenge_blurb", parent=base["Normal"], fontName="Helvetica-Oblique",
+            fontSize=11, leading=14, alignment=TA_CENTER, spaceAfter=14,
+            textColor=colors.HexColor("#555555"),
+        ),
         "footer_note": ParagraphStyle(
             "footer_note", parent=base["Normal"], fontName="Helvetica-Oblique",
             fontSize=9, textColor=colors.HexColor("#888888"), alignment=TA_CENTER,
@@ -79,23 +121,71 @@ def _escape(text: str) -> str:
 
 MAX_IMG_WIDTH = 10 * cm
 MAX_IMG_HEIGHT = 7 * cm
+WE_IMG_WIDTH = 8 * cm
+WE_IMG_HEIGHT = 5.5 * cm
 
 
-def _make_image(path: str | None):
-    """Return a scaled reportlab Image for the given path, or None."""
+def _make_image(path: str | None, max_w=MAX_IMG_WIDTH, max_h=MAX_IMG_HEIGHT):
     if not path:
         return None
-    from pathlib import Path as _P
-    p = _P(path)
+    p = Path(path)
     if not p.exists():
         return None
     try:
         reader = ImageReader(str(p))
         iw, ih = reader.getSize()
-        scale = min(MAX_IMG_WIDTH / iw, MAX_IMG_HEIGHT / ih, 1.0)
+        scale = min(max_w / iw, max_h / ih, 1.0)
         return Image(str(p), width=iw * scale, height=ih * scale)
     except Exception:
         return None
+
+
+def _worked_example_flowable(styles, we: WorkedExample):
+    """Return a bordered box containing the worked example."""
+    inner = [
+        Paragraph("Worked example", styles["we_label"]),
+        Paragraph(_escape(we.question), styles["we_question"]),
+    ]
+    img = _make_image(we.image_path, max_w=WE_IMG_WIDTH, max_h=WE_IMG_HEIGHT)
+    if img is not None:
+        inner.append(Spacer(1, 0.15 * cm))
+        inner.append(img)
+        inner.append(Spacer(1, 0.15 * cm))
+    for i, step in enumerate(we.steps, 1):
+        inner.append(Paragraph(f"<b>{i}.</b> {_escape(step)}", styles["we_step"]))
+    inner.append(Paragraph(f"Answer: {_escape(we.answer)}", styles["we_answer"]))
+
+    tbl = Table([[inner]], colWidths=[A4[0] - 2 * PAGE_MARGIN - 0.4 * cm])
+    tbl.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#B7C3D4")),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F4F7FB")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return tbl
+
+
+def _question_block(styles, q_num: int, vq: ValidatedQuestion):
+    symbol_html = f' <font color="#1B8A3A"><b>✓</b></font>' if vq.verified else ""
+    block = [
+        Paragraph(
+            f"<b>{q_num}.</b> {_escape(vq.question.question)}{symbol_html}",
+            styles["question"],
+        ),
+    ]
+    img = _make_image(vq.image_path)
+    if img is not None:
+        block.append(Spacer(1, 0.3 * cm))
+        block.append(img)
+        if vq.image_attribution:
+            block.append(Paragraph(
+                f"<i>Image: {_escape(vq.image_attribution)}</i>",
+                styles["footer_note"],
+            ))
+    block.append(Spacer(1, 0.9 * cm))
+    return KeepTogether(block)
 
 
 def _draw_page_chrome(canvas, doc):
@@ -153,39 +243,47 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     story.append(Paragraph(verify_note, styles["footer_note"]))
     story.append(PageBreak())
 
-    # Questions by topic/subtopic
+    # Body: per subtopic — heading, lesson, worked example, practice questions
     q_num = 0
-    numbering: list[tuple[int, str, str]] = []  # (q_num, verified_symbol, answer)
     current_topic = None
     for section in data.sections:
         if section.topic != current_topic:
             story.append(Paragraph(_escape(section.topic), styles["topic"]))
             current_topic = section.topic
         story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+
+        if section.teaching is not None:
+            for para in section.teaching.intro_paragraphs:
+                story.append(Paragraph(_escape(para), styles["intro_para"]))
+            if section.teaching.key_points:
+                story.append(Spacer(1, 0.15 * cm))
+                for kp in section.teaching.key_points:
+                    story.append(Paragraph(
+                        f"• {_escape(kp)}", styles["key_point"],
+                    ))
+            story.append(Spacer(1, 0.3 * cm))
+            story.append(_worked_example_flowable(styles, section.teaching.worked_example))
+            story.append(Spacer(1, 0.35 * cm))
+            story.append(Paragraph("Now you try:", styles["practice_label"]))
+
         for vq in section.questions:
             q_num += 1
-            symbol = "✓" if vq.verified else ""
-            numbering.append((q_num, symbol, vq.question.answer))
-            symbol_html = f' <font color="#1B8A3A"><b>✓</b></font>' if vq.verified else ""
-            block = [
-                Paragraph(
-                    f"<b>{q_num}.</b> {_escape(vq.question.question)}{symbol_html}",
-                    styles["question"],
-                ),
-            ]
-            img = _make_image(vq.image_path)
-            if img is not None:
-                block.append(Spacer(1, 0.3 * cm))
-                block.append(img)
-                if vq.image_attribution:
-                    block.append(Paragraph(
-                        f"<i>Image: {_escape(vq.image_attribution)}</i>",
-                        styles["footer_note"],
-                    ))
-            block.append(Spacer(1, 0.9 * cm))
-            story.append(KeepTogether(block))
+            story.append(_question_block(styles, q_num, vq))
 
-    # Answers section
+    # Final Challenge section
+    if data.challenge_questions:
+        story.append(PageBreak())
+        story.append(Spacer(1, 1 * cm))
+        story.append(Paragraph("Final Challenge", styles["challenge_heading"]))
+        story.append(Paragraph(
+            "Let's see how well you know the content — questions from across everything you just practised.",
+            styles["challenge_blurb"],
+        ))
+        for vq in data.challenge_questions:
+            q_num += 1
+            story.append(_question_block(styles, q_num, vq))
+
+    # Answers section (practice + challenge)
     story.append(PageBreak())
     story.append(Paragraph("Answers &amp; Worked Solutions", styles["answers_heading"]))
 
@@ -198,19 +296,31 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
         for vq in section.questions:
             q_num += 1
-            symbol_html = f' <font color="#1B8A3A"><b>✓ verified</b></font>' if vq.verified else ""
-            block = [
-                Paragraph(
-                    f"<b>{q_num}.</b> Answer: {_escape(vq.question.answer)}{symbol_html}",
-                    styles["answer"],
-                ),
-            ]
-            for line in vq.question.working.splitlines():
-                line = line.strip()
-                if line:
-                    block.append(Paragraph(_escape(line), styles["working"]))
-            block.append(Spacer(1, 0.35 * cm))
-            story.append(KeepTogether(block))
+            story.append(_answer_block(styles, q_num, vq))
+
+    if data.challenge_questions:
+        story.append(Paragraph("Final Challenge", styles["topic"]))
+        for vq in data.challenge_questions:
+            q_num += 1
+            story.append(_answer_block(styles, q_num, vq))
 
     doc.build(story)
     return out_path
+
+
+def _answer_block(styles, q_num: int, vq: ValidatedQuestion):
+    symbol_html = (
+        f' <font color="#1B8A3A"><b>✓ verified</b></font>' if vq.verified else ""
+    )
+    block = [
+        Paragraph(
+            f"<b>{q_num}.</b> Answer: {_escape(vq.question.answer)}{symbol_html}",
+            styles["answer"],
+        ),
+    ]
+    for line in vq.question.working.splitlines():
+        line = line.strip()
+        if line:
+            block.append(Paragraph(_escape(line), styles["working"]))
+    block.append(Spacer(1, 0.35 * cm))
+    return KeepTogether(block)

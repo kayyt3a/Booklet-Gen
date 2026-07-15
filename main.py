@@ -24,13 +24,18 @@ def main() -> int:
     parser.add_argument("description", help="e.g. 'Year 8 maths, fractions and ratios'")
     parser.add_argument("--name", default="Student", help="Student name")
     parser.add_argument("--questions", type=int, default=5, help="Questions per subtopic")
+    parser.add_argument("--challenge", type=int, default=5,
+                        help="Cumulative challenge questions at the end (0 to disable)")
     parser.add_argument("--out", default=None, help="Output PDF path")
     args = parser.parse_args()
 
     log_file = configure_logging()
     print(f"Logging to {log_file}")
 
-    pipeline = BookletPipeline(questions_per_subtopic=args.questions)
+    pipeline = BookletPipeline(
+        questions_per_subtopic=args.questions,
+        challenge_questions=args.challenge,
+    )
     data = pipeline.run(args.description, args.name)
 
     if args.out:
