@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Generating your booklet…</title>
+  <style>
+    :root {
+      --bg: #f6f7fb; --card: #fff; --ink: #1c2434; --muted: #6b7280;
+      --accent: #1f3a5f; --border: #e2e6ee;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           background: var(--bg); color: var(--ink); margin: 0; padding: 40px 16px; }
+    .wrap { max-width: 560px; margin: 0 auto; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+            padding: 32px; box-shadow: 0 1px 3px rgba(20,30,50,0.04); text-align: center; }
+    h1 { margin: 0 0 6px; font-size: 22px; }
+    .sub { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+    .spinner {
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 3px solid var(--border); border-top-color: var(--accent);
+      margin: 12px auto 20px; animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    a.button { display: inline-block; margin-top: 12px; background: var(--accent); color: #fff;
+               text-decoration: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; }
+    .error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca;
+             padding: 10px 12px; border-radius: 8px; font-size: 13px; text-align: left; }
+    .kv { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="card">
+      <div class="spinner" id="spinner"></div>
+      <h1 id="title">Building your booklet…</h1>
+      <p class="sub" id="msg">Parsing the outline, generating questions, and grading each answer.</p>
+      <div class="kv"><strong>{{ student_name }}</strong> — {{ description }}</div>
+    </div>
+  </div>
+  <script>
+    const jobId = "{{ job_id }}";
+    async function poll() {
+      try {
+        const res = await fetch(`/status/${jobId}`);
+        const data = await res.json();
+        if (data.status === "done") {
+          const card = document.getElementById("card");
+          card.innerHTML = `
+            <h1>Ready</h1>
+            <p class="sub">Your booklet is generated.</p>
+            <a class="button" href="${data.download_url}">Download PDF</a>
+            <div style="margin-top:20px"><a href="/">Generate another</a></div>
+          `;
+          return;
+        }
+        if (data.status === "error") {
+          document.getElementById("spinner").remove();
+          document.getElementById("title").textContent = "Something went wrong";
+          const err = document.createElement("div");
+          err.className = "error";
+          err.textContent = data.error || "Unknown error";
+          document.getElementById("msg").replaceWith(err);
+          return;
+        }
+      } catch (e) { /* keep polling */ }
+      setTimeout(poll, 2000);
+    }
+    poll();
+  </script>
+</body>
+</html>
