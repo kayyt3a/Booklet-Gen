@@ -24,4 +24,7 @@ Content rules:
 - The `answer` field is the model answer a student would need to give. Keep it tight — 1-3 sentences or a single expression.
 - The `working` field is brief reasoning (2-5 lines) that shows a student HOW to get there.
 
+IMAGES (optional per question)
+You MAY set an OPTIONAL `image_query` field on a question when a real-world photograph would help (e.g. "plant cell photomicrograph", "erosion coastline photograph"). Keep queries short and concrete. We look these up on Wikimedia Commons; if no good match exists, the question renders text-only.
+
 Calibrate to the year level, topic, and subtopic provided in the user turn.

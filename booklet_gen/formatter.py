@@ -10,8 +10,9 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     BaseDocTemplate, Frame, PageTemplate, Paragraph, Spacer,
-    PageBreak, KeepTogether, Table, TableStyle,
+    PageBreak, KeepTogether, Table, TableStyle, Image,
 )
+from reportlab.lib.utils import ImageReader
 
 from .schemas import BookletData
 
@@ -74,6 +75,27 @@ def _escape(text: str) -> str:
     return (text.replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;"))
+
+
+MAX_IMG_WIDTH = 10 * cm
+MAX_IMG_HEIGHT = 7 * cm
+
+
+def _make_image(path: str | None):
+    """Return a scaled reportlab Image for the given path, or None."""
+    if not path:
+        return None
+    from pathlib import Path as _P
+    p = _P(path)
+    if not p.exists():
+        return None
+    try:
+        reader = ImageReader(str(p))
+        iw, ih = reader.getSize()
+        scale = min(MAX_IMG_WIDTH / iw, MAX_IMG_HEIGHT / ih, 1.0)
+        return Image(str(p), width=iw * scale, height=ih * scale)
+    except Exception:
+        return None
 
 
 def _draw_page_chrome(canvas, doc):
@@ -150,8 +172,17 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
                     f"<b>{q_num}.</b> {_escape(vq.question.question)}{symbol_html}",
                     styles["question"],
                 ),
-                Spacer(1, 0.9 * cm),
             ]
+            img = _make_image(vq.image_path)
+            if img is not None:
+                block.append(Spacer(1, 0.3 * cm))
+                block.append(img)
+                if vq.image_attribution:
+                    block.append(Paragraph(
+                        f"<i>Image: {_escape(vq.image_attribution)}</i>",
+                        styles["footer_note"],
+                    ))
+            block.append(Spacer(1, 0.9 * cm))
             story.append(KeepTogether(block))
 
     # Answers section

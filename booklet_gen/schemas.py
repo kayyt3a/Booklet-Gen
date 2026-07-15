@@ -24,6 +24,11 @@ class Question(BaseModel):
     answer: str
     working: str
     difficulty: Literal["easy", "medium", "hard"] = "medium"
+    # Optional visual — only one of these is populated per question.
+    # Maths: diagram_spec triggers a matplotlib-rendered figure.
+    # English/Science: image_query triggers a Wikimedia Commons lookup.
+    diagram_spec: Optional[dict] = None
+    image_query: Optional[str] = None
 
 
 class QuestionSet(BaseModel):
@@ -35,6 +40,8 @@ class ValidatedQuestion(BaseModel):
     verified: bool
     validator_notes: Optional[str] = None
     retry_count: int = 0
+    image_path: Optional[str] = None
+    image_attribution: Optional[str] = None
 
 
 class SubtopicOutput(BaseModel):

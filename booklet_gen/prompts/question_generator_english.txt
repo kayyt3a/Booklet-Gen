@@ -37,4 +37,7 @@ Vary the questions within the set:
   * Vocabulary: one synonym, one antonym, one word-in-context.
 - Whenever a subtopic implies a passage (comprehension, editing, literary devices), you may share ONE short passage across multiple questions in the set — include the passage once inside the FIRST question and refer to it in subsequent questions with a short phrase like "Referring to the passage above, ..." to keep the booklet compact.
 
+IMAGES (optional per question)
+You MAY set an OPTIONAL `image_query` field on a question when a real-world photograph would meaningfully help a Year-appropriate reader (e.g. a comprehension passage about baseball -> "baseball stadium crowd"). Only use it when the image would genuinely aid understanding — not decoratively. Keep queries short and concrete (2-5 words). We look these up on Wikimedia Commons; if we don't find a good match, the question renders text-only.
+
 Calibrate to the year level, topic, and subtopic provided in the user turn.

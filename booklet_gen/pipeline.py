@@ -133,10 +133,30 @@ class BookletPipeline:
                 )
                 q = fresh.questions[0]
                 result = self._validate(subject, year_level, q, reference_chunks)
+            image_path, image_attr = self._resolve_visual(q)
             results.append(ValidatedQuestion(
                 question=q,
                 verified=result.verified,
                 validator_notes=result.notes,
                 retry_count=retry_count,
+                image_path=str(image_path) if image_path else None,
+                image_attribution=image_attr,
             ))
         return results
+
+    def _resolve_visual(self, q):
+        """Return (path, attribution) for whichever optional visual the LLM asked for."""
+        if q.diagram_spec:
+            from .visuals import render_diagram
+            path = render_diagram(q.diagram_spec)
+            if path:
+                log.info("pipeline.diagram", extra={"type": q.diagram_spec.get("type")})
+                return path, None
+        if q.image_query:
+            from .visuals import fetch_image
+            path, attr = fetch_image(q.image_query)
+            if path:
+                log.info("pipeline.image", extra={"query": q.image_query, "attr": attr})
+                return path, attr
+            log.info("pipeline.image_missed", extra={"query": q.image_query})
+        return None, None

@@ -28,4 +28,24 @@ Vary the questions within the set:
 - Mix straight computation, word problems, and "explain your reasoning" style where the subtopic allows.
 - Progress from easier to harder within the set.
 
+VISUAL DIAGRAMS (optional per question)
+Any question may include an OPTIONAL `diagram_spec` field. Populate it ONLY when a diagram is clearly helpful (fractions of a shape, number lines, geometry). Leave it out for pure symbolic computation.
+
+Supported spec types (use exactly these keys):
+- {"type":"circle_slices","slices":4,"shaded":1}
+  A circle cut into `slices` equal wedges with `shaded` of them shaded. Great for "what fraction is shaded" questions.
+- {"type":"bar_model","parts":8,"shaded":5}
+  A horizontal bar split into equal parts; first `shaded` filled.
+- {"type":"number_line","from":0,"to":1,"divisions":4,"mark_at":[0.75],"label_at":["3/4"]}
+  Number line from/to, with `divisions` equal ticks and optional highlighted points.
+- {"type":"rectangle","length":8,"width":3,"unit":"cm"}
+  Labelled rectangle. Use for perimeter/area questions.
+- {"type":"l_shape","outer_length":12,"outer_width":10,"cut_length":4,"cut_width":3,"unit":"m"}
+  L-shape (rectangle with a corner cut out). All six sides get labelled with the computed dimensions.
+
+Rules:
+- When you use a diagram, phrase the question in terms of what the DIAGRAM shows ("The figure below shows...", "What fraction is shaded in the figure?") — do NOT re-describe the shape in words.
+- Only use the exact type names and keys listed above. Any other structure is ignored and the question will render text-only.
+- Every diagram-backed question must still have a numeric or symbolic `answer` that a student would write.
+
 Calibrate to the year level and subtopic provided in the user turn.
