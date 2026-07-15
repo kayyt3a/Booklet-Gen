@@ -116,21 +116,24 @@ def _make_styles():
 import re
 
 _FRACTION_RE = re.compile(r"(?<![0-9./\-])(\d{1,4})/(\d{1,4})(?![0-9./])")
-_SUP = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
-_SUB = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
 
 
 def _prettify_fractions(text: str) -> str:
-    """Turn "3/4" into "³⁄₄" so it reads as a real fraction.
+    """Turn "3/4" into "<sup>3</sup>/<sub>4</sub>" so it reads as a real fraction.
+
+    Reportlab's <sup>/<sub> markup uses the current font's baseline shift and
+    auto-shrinks the digit — safe with Helvetica which has no dedicated
+    superscript/subscript glyphs (Unicode chars ⁰¹²³ etc render as black
+    boxes in Helvetica).
 
     The negative lookbehind/lookahead avoid dates (15/07/2025), decimal-ish
-    tokens, and negatives (-3/4 stays as is on the minus for clarity).
+    tokens, and negatives.
     """
     def repl(m: re.Match) -> str:
         num, den = m.group(1), m.group(2)
         if int(den) == 0:
             return m.group(0)
-        return f"{num.translate(_SUP)}⁄{den.translate(_SUB)}"
+        return f"<sup>{num}</sup>/<sub>{den}</sub>"
     return _FRACTION_RE.sub(repl, text)
 
 
