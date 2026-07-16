@@ -142,9 +142,34 @@ def _prettify_fractions(text: str) -> str:
     return _FRACTION_RE.sub(repl, text)
 
 
+_EM_DASH = re.compile(r"\s*—\s*")
+_EN_RANGE = re.compile(r"(?<=\d)\s*–\s*(?=\d)")
+_EN_DASH = re.compile(r"\s*–\s*")
+
+
+def _dedash(text: str) -> str:
+    """Remove em/en dashes from generated text.
+
+    Em dashes read as an AI tell and look less professional in a printed
+    booklet, so we replace them deterministically no matter what the model
+    produces: em dash -> comma (its usual parenthetical/break role), en dash
+    between digits -> "to" (a range), other en dashes -> comma. Doubled or
+    stranded punctuation left by the swap is then tidied up.
+    """
+    text = _EM_DASH.sub(", ", text)
+    text = _EN_RANGE.sub(" to ", text)
+    text = _EN_DASH.sub(", ", text)
+    text = re.sub(r",\s*,", ", ", text)             # collapse doubled commas
+    text = re.sub(r"\s+,", ",", text)               # no space before comma
+    text = re.sub(r",\s*([.!?;:])", r"\1", text)    # drop comma before other punctuation
+    text = re.sub(r"([.!?;:])\s*,\s*", r"\1 ", text)  # drop comma after sentence punctuation
+    return text.strip()
+
+
 def _escape(text: str) -> str:
     return _prettify_fractions(
-        text.replace("&", "&amp;")
+        _dedash(text)
+            .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
     )
@@ -245,7 +270,7 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         title=f"{data.subject} Practice Booklet",
         author="Folio",
     )
-    doc._header_text = f"{data.subject} — {data.year_level} — {data.student_name}"
+    doc._header_text = f"{data.subject}  |  {data.year_level}  |  {data.student_name}"
 
     frame = Frame(
         doc.leftMargin, doc.bottomMargin,
@@ -261,7 +286,7 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     story.append(Paragraph("FOLIO", styles["wordmark"]))
     story.append(Spacer(1, 0.6 * cm))
     story.append(Paragraph(f"{data.subject}", styles["title"]))
-    story.append(Paragraph(f"Practice Booklet &amp; Early Preparation — {data.year_level}", styles["subtitle"]))
+    story.append(Paragraph(f"Practice Booklet and Early Preparation for {data.year_level}", styles["subtitle"]))
     story.append(Spacer(1, 1.5 * cm))
     story.append(Paragraph(f"Prepared for <b>{_escape(data.student_name)}</b>", styles["subtitle"]))
     story.append(Spacer(1, 0.4 * cm))
@@ -309,7 +334,7 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         story.append(Spacer(1, 1 * cm))
         story.append(Paragraph("Final Challenge", styles["challenge_heading"]))
         story.append(Paragraph(
-            "Let's see how well you know the content — questions from across everything you just practised.",
+            "Let's see how well you know the content. Questions from across everything you just practised.",
             styles["challenge_blurb"],
         ))
         for vq in data.challenge_questions:
