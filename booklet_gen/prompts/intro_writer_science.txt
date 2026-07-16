@@ -24,8 +24,8 @@ Return a single JSON object matching this schema exactly:
 }
 
 CONTENT RULES
-- 1 to 3 intro paragraphs, each 2 to 4 sentences. Cover the concept, a real-world example, and one common misconception if relevant.
-- 2 to 4 key points. Short, punchy.
+- Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Cover the concept, a real-world example, and one common misconception if relevant.
+- Key points: the number and length are set by the LENGTH LIMITS. Short, punchy.
 - Exactly ONE worked example. Steps must show real reasoning — for calculations, show the numbers; for explanations, show the causal chain.
 - Calibrate language to the year level.
 

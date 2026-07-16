@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pydantic import ValidationError
 
 from ..llm import LLMClient
@@ -27,6 +28,46 @@ def _prompt_file_for(subject: str) -> str:
     if key not in _SUBJECT_PROMPT_FILES:
         raise ValueError(f"No intro writer prompt configured for subject {subject!r}")
     return _SUBJECT_PROMPT_FILES[key]
+
+
+def _year_number(year_level: str) -> int:
+    """Best-effort year as an int. Kindergarten / Pre-primary -> 0; default 5."""
+    low = year_level.lower()
+    if any(w in low for w in ("kinder", "pre-primary", "prep", "foundation", "pre primary")):
+        return 0
+    m = re.search(r"\d+", year_level)
+    return int(m.group()) if m else 5
+
+
+# Reading budgets by year band. The whole point is to keep the *teaching* text
+# light — kids are here to practise, not to read an essay. Younger kids get the
+# bare minimum; the oldest get a little more but it stays lean.
+_BUDGETS = [
+    # (max_year, intro_paras, sentences_per_para, key_points, steps, vocab_note)
+    (2,  1, 2, 2, 3, "Use very simple words a 6 to 7 year old knows. Very short sentences."),
+    (4,  1, 3, 2, 3, "Use simple, everyday words. Keep sentences short."),
+    (6,  1, 3, 3, 4, "Keep language clear and plain."),
+    (8,  2, 3, 3, 4, "Clear language; a little more detail is fine."),
+    (99, 2, 4, 4, 5, "Clear language; you may include a little more nuance."),
+]
+
+
+def _reading_budget(year_level: str) -> str:
+    yr = _year_number(year_level)
+    for max_year, paras, sents, kps, steps, vocab in _BUDGETS:
+        if yr <= max_year:
+            break
+    return (
+        "LENGTH LIMITS (keep the teaching text light - this is a practice "
+        "booklet, not a textbook; do NOT exceed these):\n"
+        f"- intro_paragraphs: at most {paras} paragraph(s), each at most {sents} "
+        "short sentence(s).\n"
+        f"- key_points: exactly {kps}, each one short line (a few words to one "
+        "sentence).\n"
+        f"- worked_example.steps: at most {steps} short steps.\n"
+        f"- Vocabulary: {vocab}\n"
+        "Favour brevity over completeness. If in doubt, write less."
+    )
 
 
 class IntroWriterAgent:
@@ -57,7 +98,8 @@ class IntroWriterAgent:
             f"Year level: {year_level}\n"
             f"Topic: {topic}\n"
             f"Subtopic: {subtopic.name}\n"
-            f"Difficulty focus: {subtopic.difficulty_hint}\n"
+            f"Difficulty focus: {subtopic.difficulty_hint}\n\n"
+            f"{_reading_budget(year_level)}\n\n"
             "Write the mini-lesson JSON now."
         )
         if reference_chunks:

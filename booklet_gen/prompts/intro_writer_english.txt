@@ -24,8 +24,8 @@ Return a single JSON object matching this schema exactly:
 }
 
 CONTENT RULES
-- 1 to 3 intro paragraphs, each 2 to 4 sentences. Teach the concept — definition, how to spot it, one common mistake.
-- 2 to 4 key points. Short, punchy.
+- Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Teach the concept: definition, how to spot it, one common mistake.
+- Key points: the number and length are set by the LENGTH LIMITS. Short, punchy.
 - Exactly ONE worked example. If the subtopic involves a passage (comprehension, textual analysis), include a SHORT excerpt (2-4 sentences) inside `worked_example.question` — do NOT rely on the student having outside text.
 - Steps must model the actual thinking process, not just describe it in the abstract.
 - Calibrate language to the year level.
