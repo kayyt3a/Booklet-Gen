@@ -261,7 +261,7 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     story.append(Paragraph("FOLIO", styles["wordmark"]))
     story.append(Spacer(1, 0.6 * cm))
     story.append(Paragraph(f"{data.subject}", styles["title"]))
-    story.append(Paragraph(f"Practice Booklet — {data.year_level}", styles["subtitle"]))
+    story.append(Paragraph(f"Practice Booklet &amp; Early Preparation — {data.year_level}", styles["subtitle"]))
     story.append(Spacer(1, 1.5 * cm))
     story.append(Paragraph(f"Prepared for <b>{_escape(data.student_name)}</b>", styles["subtitle"]))
     story.append(Spacer(1, 0.4 * cm))

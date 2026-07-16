@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Booklet Generator</title>
+  <title>Folio — Practice Booklet Generator</title>
   <style>
     :root {
       --bg: #f6f7fb;
@@ -48,8 +48,8 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Practice Booklet Generator</h1>
-      <p class="sub">Type the topic and year level for Maths, Science, or English. We'll build a validated booklet.</p>
+      <h1>Folio</h1>
+      <p class="sub">Practice booklets for Years 1–10 — school revision, NAPLAN prep, and early preparation for selective schools &amp; scholarships. Type the topic and year level for Maths, Science, or English.</p>
       {% if error %}<div class="error">{{ error }}</div>{% endif %}
       <form method="post" action="/generate">
         <div class="field">

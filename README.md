@@ -1,6 +1,6 @@
 # Folio
 
-A multi-agent tutoring booklet generator. Ships **Maths, Science, and English** — each with its own generator prompt and its own validation strategy. Output is a clean PDF booklet with a verified-answer key.
+A multi-agent tutoring booklet generator for **Years 1–10**. Built for parents and tutors who want to give kids an early edge — school revision, NAPLAN prep, and selective-school/scholarship-style practice — without hours of prep work. Ships **Maths, Science, and English** — each with its own generator prompt and its own validation strategy. Output is a clean PDF booklet with a verified-answer key.
 
 ## Pipeline
 
