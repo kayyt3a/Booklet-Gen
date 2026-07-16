@@ -304,6 +304,13 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     story.append(Paragraph(f"Prepared for <b>{_escape(data.student_name)}</b>", styles["subtitle"]))
     story.append(Spacer(1, 0.4 * cm))
     story.append(Paragraph(date.today().strftime("%d %B %Y"), styles["meta"]))
+    if data.total_minutes:
+        story.append(Spacer(1, 0.3 * cm))
+        story.append(Paragraph(
+            f"Estimated time: about {data.total_minutes} minutes. "
+            "Take breaks whenever you need to.",
+            styles["meta"],
+        ))
     story.append(Spacer(1, 4 * cm))
     section_subjects = {(s.subject or data.subject).strip().lower() for s in data.sections}
     only_maths = section_subjects == {"mathematics"}
@@ -330,7 +337,11 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         if section.topic != current_topic:
             story.append(Paragraph(_escape(section.topic), styles["topic"]))
             current_topic = section.topic
-        story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+        time_badge = (
+            f'  <font size=9 color="#1B8A3A">(about {section.estimated_minutes} min)</font>'
+            if section.estimated_minutes else ""
+        )
+        story.append(Paragraph(_escape(section.subtopic) + time_badge, styles["subtopic"]))
 
         if section.teaching is not None:
             for para in section.teaching.intro_paragraphs:
@@ -355,8 +366,12 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         story.append(PageBreak())
         story.append(Spacer(1, 1 * cm))
         story.append(Paragraph("Final Challenge", styles["challenge_heading"]))
+        challenge_time = (
+            f" (about {data.challenge_minutes} min)" if data.challenge_minutes else ""
+        )
         story.append(Paragraph(
-            "Let's see how well you know the content. Questions from across everything you just practised.",
+            "Let's see how well you know the content. Questions from across everything "
+            f"you just practised.{challenge_time}",
             styles["challenge_blurb"],
         ))
         for vq in data.challenge_questions:

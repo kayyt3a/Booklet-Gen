@@ -68,6 +68,7 @@ class SubtopicOutput(BaseModel):
     teaching: Optional[SubtopicTeaching] = None
     questions: List[ValidatedQuestion]
     failure_rate: float = 0.0
+    estimated_minutes: Optional[int] = None  # rough "about N min" for this section
 
 
 class BookletData(BaseModel):
@@ -76,6 +77,8 @@ class BookletData(BaseModel):
     student_name: str
     sections: List[SubtopicOutput]
     challenge_questions: List[ValidatedQuestion] = Field(default_factory=list)
+    challenge_minutes: Optional[int] = None
+    total_minutes: Optional[int] = None
     # Product line ("Scholarships", "NAPLAN Practice", "Academic Accelerate").
     # When set, the cover leads with this and `subject` becomes the secondary line.
     program_label: Optional[str] = None

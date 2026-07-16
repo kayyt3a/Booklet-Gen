@@ -11,6 +11,7 @@ from .agents.outline_parser import OutlineParserAgent
 from .agents.question_generator import QuestionGeneratorAgent
 from .agents.reasoning_validator import ReasoningValidator
 from .agents.validator import SympyValidator, ValidationResult
+from .timing import section_minutes, round_display, round_total
 from .config import Config, load_config
 from .llm import get_client
 from .rag import Retriever
@@ -61,12 +62,15 @@ class BookletPipeline:
         challenge = self._build_challenge(
             outline.subject, outline.year_level, covered, rag_pool,
         )
+        ch_min, total_min = self._timing(sections, challenge)
         return BookletData(
             subject=outline.subject,
             year_level=outline.year_level,
             student_name=student_name,
             sections=sections,
             challenge_questions=challenge,
+            challenge_minutes=ch_min,
+            total_minutes=total_min,
         )
 
     def run_program(
@@ -116,14 +120,33 @@ class BookletPipeline:
                 self._build_challenge(subj, year_level, covered, rag_pool)
             )
 
+        ch_min, total_min = self._timing(all_sections, all_challenge)
         return BookletData(
             subject=subject_display,
             year_level=year_level,
             student_name=student_name,
             sections=all_sections,
             challenge_questions=all_challenge,
+            challenge_minutes=ch_min,
+            total_minutes=total_min,
             program_label=program.label,
         )
+
+    @staticmethod
+    def _timing(sections, challenge) -> tuple[Optional[int], Optional[int]]:
+        """Return (challenge_minutes, total_minutes) rounded for display."""
+        section_raw = sum(
+            section_minutes(len(s.questions), s.teaching is not None, None)
+            if s.estimated_minutes is None else s.estimated_minutes
+            for s in sections
+        )
+        ch_min = None
+        challenge_raw = 0.0
+        if challenge:
+            challenge_raw = section_minutes(len(challenge), False, "hard")
+            ch_min = round_display(challenge_raw)
+        total = round_total(section_raw + challenge_raw)
+        return ch_min, total
 
     def _generate_from_outline(self, outline):
         """Run generation for every subtopic in a single-subject outline.
@@ -153,12 +176,16 @@ class BookletPipeline:
                            "failure_rate": failure_rate,
                            "rag_chunks": len(chunks)},
                 )
+                raw_min = section_minutes(
+                    len(validated), teaching is not None, subtopic.difficulty_hint,
+                )
                 sections.append(SubtopicOutput(
                     topic=topic.name,
                     subtopic=subtopic.name,
                     teaching=teaching,
                     questions=validated,
                     failure_rate=failure_rate,
+                    estimated_minutes=round_display(raw_min),
                 ))
                 covered.append((topic.name, subtopic.name))
         return sections, covered, rag_pool
