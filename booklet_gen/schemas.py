@@ -82,3 +82,18 @@ class BookletData(BaseModel):
     # Product line ("Scholarships", "NAPLAN Practice", "Academic Accelerate").
     # When set, the cover leads with this and `subject` becomes the secondary line.
     program_label: Optional[str] = None
+    # Set when this booklet is one week of a term plan. Shown on the cover.
+    week_number: Optional[int] = None
+    total_weeks: Optional[int] = None
+    week_focus: Optional[str] = None
+
+
+class TermWeek(BaseModel):
+    week: int
+    focus: str                     # the topic focus for this week
+    difficulty: str = "medium"     # easy | medium | hard
+    revision: bool = False         # a mixed/revision week near the end
+
+
+class TermPlan(BaseModel):
+    weeks: List[TermWeek]

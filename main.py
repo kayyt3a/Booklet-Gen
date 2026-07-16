@@ -39,6 +39,9 @@ def main() -> int:
     parser.add_argument("--year", help="Year level, e.g. 'Year 5' (required with --program)")
     parser.add_argument("--subject", help="Subject for Academic Accelerate (Maths/English/Science)")
     parser.add_argument("--topic", help="Optional topic focus for the program")
+    parser.add_argument("--weeks", type=int, default=0,
+                        help="Generate a whole term plan: this many weekly booklets "
+                             "(e.g. 10). Requires --program and --year.")
     parser.add_argument("--name", default="Student", help="Student name")
     parser.add_argument("--questions", type=int, default=5, help="Questions per subtopic")
     parser.add_argument("--challenge", type=int, default=5,
@@ -62,6 +65,24 @@ def main() -> int:
         challenge_questions=args.challenge,
         max_workers=args.workers,
     )
+
+    # Term plan: many booklets, one per week.
+    if args.weeks and args.weeks > 0:
+        if not args.program:
+            parser.error("--weeks requires --program")
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out_dir = Path(args.out) if args.out else (
+            Path("output") / f"{_slug(args.name)}-{_slug(args.program)}-term-{ts}")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        booklets = pipeline.run_term_plan(
+            args.program, args.year, args.name,
+            subject=args.subject, weeks=args.weeks, topic_hint=args.topic,
+        )
+        for data in booklets:
+            fn = f"week-{data.week_number:02d}-{_slug(data.week_focus or 'booklet')}.pdf"
+            render_pdf(data, out_dir / fn)
+        print(f"Term plan written: {len(booklets)} booklets in {out_dir}")
+        return 0
 
     if args.program:
         data = pipeline.run_program(

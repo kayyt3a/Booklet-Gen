@@ -332,6 +332,12 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     story.append(Spacer(1, 1.5 * cm))
     story.append(Paragraph(f"Prepared for <b>{_escape(data.student_name)}</b>", styles["subtitle"]))
     story.append(Spacer(1, 0.4 * cm))
+    if data.week_number and data.total_weeks:
+        wk_line = f"Week {data.week_number} of {data.total_weeks}"
+        if data.week_focus:
+            wk_line += f"  |  {_escape(data.week_focus)}"
+        story.append(Paragraph(wk_line, styles["meta"]))
+        story.append(Spacer(1, 0.15 * cm))
     story.append(Paragraph(date.today().strftime("%d %B %Y"), styles["meta"]))
     if data.total_minutes:
         story.append(Spacer(1, 0.3 * cm))

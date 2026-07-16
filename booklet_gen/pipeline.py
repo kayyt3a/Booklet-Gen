@@ -10,6 +10,7 @@ from .agents.llm_judge import LLMJudgeValidator
 from .agents.outline_parser import OutlineParserAgent
 from .agents.question_generator import QuestionGeneratorAgent
 from .agents.reasoning_validator import ReasoningValidator
+from .agents.term_planner import TermPlannerAgent
 from .agents.validator import SympyValidator, ValidationResult
 from .timing import section_minutes, round_display, round_total
 from .config import Config, load_config
@@ -44,6 +45,7 @@ class BookletPipeline:
             questions_per_subtopic=questions_per_subtopic,
         )
         self._challenger = ChallengeGeneratorAgent(self._client, self._config.max_retries)
+        self._term_planner = TermPlannerAgent(self._client, self._config.max_retries)
         self._sympy = SympyValidator()
         self._reasoning = ReasoningValidator()
         self._judge = LLMJudgeValidator(self._client)
@@ -82,6 +84,8 @@ class BookletPipeline:
         student_name: str,
         subject: Optional[str] = None,
         topic: Optional[str] = None,
+        week_number: Optional[int] = None,
+        total_weeks: Optional[int] = None,
     ) -> BookletData:
         """Generate a booklet for a product line (Scholarships / NAPLAN
         Practice / Academic Accelerate). Multi-subject programs (NAPLAN) run
@@ -132,7 +136,47 @@ class BookletPipeline:
             challenge_minutes=ch_min,
             total_minutes=total_min,
             program_label=program.label,
+            week_number=week_number,
+            total_weeks=total_weeks,
+            week_focus=topic,
         )
+
+    def run_term_plan(
+        self,
+        program_key: str,
+        year_level: str,
+        student_name: str,
+        subject: Optional[str] = None,
+        weeks: int = 10,
+        topic_hint: Optional[str] = None,
+    ) -> list[BookletData]:
+        """Generate a whole term: one booklet per week, progressing in
+        difficulty, with the last weeks as revision. Returns one BookletData
+        per week (write each to its own PDF)."""
+        from .programs import get_program, normalise_subject
+
+        program = get_program(program_key)
+        plan_subject = (
+            normalise_subject(subject or "") or "Mathematics"
+            if program.pick_subject else (program.subjects[0] if program.subjects else "Mathematics")
+        )
+        plan = self._term_planner.plan(
+            program.label, plan_subject, year_level, weeks, topic_hint,
+        )
+        log.info("pipeline.term_plan.start",
+                 extra={"program": program.key, "weeks": len(plan.weeks)})
+
+        booklets: list[BookletData] = []
+        for wk in plan.weeks:
+            log.info("pipeline.term_plan.week",
+                     extra={"week": wk.week, "focus": wk.focus, "difficulty": wk.difficulty})
+            data = self.run_program(
+                program_key, year_level, student_name,
+                subject=subject, topic=wk.focus,
+                week_number=wk.week, total_weeks=len(plan.weeks),
+            )
+            booklets.append(data)
+        return booklets
 
     @staticmethod
     def _timing(sections, challenge) -> tuple[Optional[int], Optional[int]]:
