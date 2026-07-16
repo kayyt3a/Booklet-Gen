@@ -30,6 +30,7 @@ class BookletPipeline:
         questions_per_subtopic: int = 5,
         challenge_questions: int = 5,
         max_generation_attempts: int = 3,
+        max_workers: int = 4,
         client=None,
         retriever: Optional[Retriever] = None,
     ):
@@ -47,6 +48,7 @@ class BookletPipeline:
         self._reasoning = ReasoningValidator()
         self._judge = LLMJudgeValidator(self._client)
         self._max_generation_attempts = max_generation_attempts
+        self._max_workers = max(1, max_workers)
         self._n_challenge = challenge_questions
         self._retriever = retriever if retriever is not None else Retriever()
 
@@ -148,46 +150,66 @@ class BookletPipeline:
         total = round_total(section_raw + challenge_raw)
         return ch_min, total
 
+    def _process_subtopic(self, subject, year_level, topic_name, subtopic):
+        """Generate one subtopic: lesson + validated questions. Returns
+        (SubtopicOutput, rag_chunks). Self-contained so it can run in a thread."""
+        chunks = self._retrieve(subject, year_level, topic_name, subtopic.name)
+        teaching = self._make_teaching(subject, year_level, topic_name, subtopic, chunks)
+        validated = self._generate_and_validate(
+            subject, year_level, topic_name, subtopic, chunks,
+        )
+        total = len(validated)
+        failed = sum(1 for v in validated if not v.verified)
+        failure_rate = failed / total if total else 0.0
+        log.info(
+            "pipeline.subtopic.done",
+            extra={"subject": subject, "topic": topic_name,
+                   "subtopic": subtopic.name, "total": total, "failed": failed,
+                   "failure_rate": failure_rate, "rag_chunks": len(chunks)},
+        )
+        raw_min = section_minutes(
+            len(validated), teaching is not None, subtopic.difficulty_hint,
+        )
+        section = SubtopicOutput(
+            topic=topic_name,
+            subtopic=subtopic.name,
+            teaching=teaching,
+            questions=validated,
+            failure_rate=failure_rate,
+            estimated_minutes=round_display(raw_min),
+        )
+        return section, chunks
+
     def _generate_from_outline(self, outline):
         """Run generation for every subtopic in a single-subject outline.
-        Returns (sections, covered, rag_pool)."""
+        Subtopics are independent, so they run concurrently (each is a batch of
+        network-bound LLM calls). Output order matches the outline. Returns
+        (sections, covered, rag_pool)."""
+        tasks = [(t.name, st) for t in outline.topics for st in t.subtopics]
+        results: list = [None] * len(tasks)
+
+        if self._max_workers > 1 and len(tasks) > 1:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=self._max_workers) as ex:
+                futures = {
+                    ex.submit(self._process_subtopic, outline.subject,
+                              outline.year_level, tn, st): i
+                    for i, (tn, st) in enumerate(tasks)
+                }
+                for fut in as_completed(futures):
+                    results[futures[fut]] = fut.result()
+        else:
+            for i, (tn, st) in enumerate(tasks):
+                results[i] = self._process_subtopic(
+                    outline.subject, outline.year_level, tn, st)
+
         sections: list[SubtopicOutput] = []
         covered: list[tuple[str, str]] = []
         rag_pool: list[str] = []
-
-        for topic in outline.topics:
-            for subtopic in topic.subtopics:
-                chunks = self._retrieve(outline.subject, outline.year_level,
-                                        topic.name, subtopic.name)
-                rag_pool.extend(chunks)
-                teaching = self._make_teaching(
-                    outline.subject, outline.year_level, topic.name, subtopic, chunks,
-                )
-                validated = self._generate_and_validate(
-                    outline.subject, outline.year_level, topic.name, subtopic, chunks,
-                )
-                total = len(validated)
-                failed = sum(1 for v in validated if not v.verified)
-                failure_rate = failed / total if total else 0.0
-                log.info(
-                    "pipeline.subtopic.done",
-                    extra={"subject": outline.subject, "topic": topic.name,
-                           "subtopic": subtopic.name, "total": total, "failed": failed,
-                           "failure_rate": failure_rate,
-                           "rag_chunks": len(chunks)},
-                )
-                raw_min = section_minutes(
-                    len(validated), teaching is not None, subtopic.difficulty_hint,
-                )
-                sections.append(SubtopicOutput(
-                    topic=topic.name,
-                    subtopic=subtopic.name,
-                    teaching=teaching,
-                    questions=validated,
-                    failure_rate=failure_rate,
-                    estimated_minutes=round_display(raw_min),
-                ))
-                covered.append((topic.name, subtopic.name))
+        for (tn, st), (section, chunks) in zip(tasks, results):
+            sections.append(section)
+            covered.append((tn, st.name))
+            rag_pool.extend(chunks)
         return sections, covered, rag_pool
 
     # ---------- RAG ----------

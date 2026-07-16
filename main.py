@@ -43,6 +43,9 @@ def main() -> int:
     parser.add_argument("--questions", type=int, default=5, help="Questions per subtopic")
     parser.add_argument("--challenge", type=int, default=5,
                         help="Cumulative challenge questions at the end (0 to disable)")
+    parser.add_argument("--workers", type=int, default=4,
+                        help="Subtopics generated in parallel (default 4). Lower it "
+                             "if you hit API rate limits; 1 disables parallelism.")
     parser.add_argument("--out", default=None, help="Output PDF path")
     args = parser.parse_args()
 
@@ -57,6 +60,7 @@ def main() -> int:
     pipeline = BookletPipeline(
         questions_per_subtopic=args.questions,
         challenge_questions=args.challenge,
+        max_workers=args.workers,
     )
 
     if args.program:

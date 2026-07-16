@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date
 from pathlib import Path
 
@@ -250,8 +251,34 @@ def _question_block(styles, q_num: int, vq: ValidatedQuestion):
     return KeepTogether(block)
 
 
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
+
+
+def cover_background_path() -> str | None:
+    """Resolve the cover background image. Override with the env var
+    FOLIO_COVER_BACKGROUND, otherwise use booklet_gen/assets/cover_background.png
+    if present. Returns None when no background is configured (plain cover)."""
+    env = os.environ.get("FOLIO_COVER_BACKGROUND")
+    if env and Path(env).exists():
+        return env
+    default = ASSET_DIR / "cover_background.png"
+    return str(default) if default.exists() else None
+
+
 def _draw_page_chrome(canvas, doc):
     canvas.saveState()
+    # Page 1 is the cover. When a background image is configured, draw it full
+    # bleed and skip the running header/footer so the design stays clean.
+    if doc.page == 1 and getattr(doc, "_cover_bg", None):
+        try:
+            canvas.drawImage(
+                doc._cover_bg, 0, 0, width=A4[0], height=A4[1],
+                preserveAspectRatio=False, mask="auto",
+            )
+        except Exception:
+            pass
+        canvas.restoreState()
+        return
     canvas.setFont("Helvetica", 9)
     canvas.setFillColor(colors.HexColor("#888888"))
     canvas.drawRightString(
@@ -278,6 +305,7 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     )
     _head = data.program_label or data.subject
     doc._header_text = f"{_head}  |  {data.year_level}  |  {data.student_name}"
+    doc._cover_bg = cover_background_path()
 
     frame = Frame(
         doc.leftMargin, doc.bottomMargin,
@@ -288,9 +316,10 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     styles = _make_styles()
     story = []
 
-    # Cover — lead with the product line (program) when present, otherwise the
-    # subject. The secondary line carries the subject(s) and year level.
-    story.append(Spacer(1, 3 * cm))
+    # Cover - lead with the product line (program) when present, otherwise the
+    # subject. The secondary line carries the subject(s) and year level. With a
+    # background image the text is pushed down to sit in the clear centre zone.
+    story.append(Spacer(1, 6.5 * cm if doc._cover_bg else 3 * cm))
     story.append(Paragraph("FOLIO", styles["wordmark"]))
     story.append(Spacer(1, 0.6 * cm))
     headline = data.program_label or data.subject
