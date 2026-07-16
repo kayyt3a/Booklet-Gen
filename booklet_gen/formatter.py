@@ -41,6 +41,12 @@ def _make_styles():
             fontSize=12, alignment=TA_CENTER, textColor=colors.HexColor("#1F3A5F"),
             spaceAfter=4,
         ),
+        "subject_band": ParagraphStyle(
+            "subject_band", parent=base["Heading1"], fontName="Helvetica-Bold",
+            fontSize=15, leading=19, spaceBefore=10, spaceAfter=10,
+            textColor=colors.white, backColor=colors.HexColor("#1F3A5F"),
+            borderPadding=(6, 8, 6, 8), alignment=TA_CENTER,
+        ),
         "topic": ParagraphStyle(
             "topic", parent=base["Heading1"], fontName="Helvetica-Bold",
             fontSize=18, leading=22, spaceBefore=6, spaceAfter=8,
@@ -267,10 +273,11 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         pagesize=A4,
         leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
         topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
-        title=f"{data.subject} Practice Booklet",
+        title=f"{data.program_label or data.subject} Practice Booklet",
         author="Folio",
     )
-    doc._header_text = f"{data.subject}  |  {data.year_level}  |  {data.student_name}"
+    _head = data.program_label or data.subject
+    doc._header_text = f"{_head}  |  {data.year_level}  |  {data.student_name}"
 
     frame = Frame(
         doc.leftMargin, doc.bottomMargin,
@@ -281,30 +288,45 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     styles = _make_styles()
     story = []
 
-    # Cover
+    # Cover — lead with the product line (program) when present, otherwise the
+    # subject. The secondary line carries the subject(s) and year level.
     story.append(Spacer(1, 3 * cm))
     story.append(Paragraph("FOLIO", styles["wordmark"]))
     story.append(Spacer(1, 0.6 * cm))
-    story.append(Paragraph(f"{data.subject}", styles["title"]))
-    story.append(Paragraph(f"Practice Booklet and Early Preparation for {data.year_level}", styles["subtitle"]))
+    headline = data.program_label or data.subject
+    story.append(Paragraph(_escape(headline), styles["title"]))
+    secondary = data.subject if data.program_label else "Practice Booklet and Early Preparation"
+    if secondary:
+        story.append(Paragraph(f"{_escape(secondary)}  |  {data.year_level}", styles["subtitle"]))
+    else:
+        story.append(Paragraph(data.year_level, styles["subtitle"]))
     story.append(Spacer(1, 1.5 * cm))
     story.append(Paragraph(f"Prepared for <b>{_escape(data.student_name)}</b>", styles["subtitle"]))
     story.append(Spacer(1, 0.4 * cm))
     story.append(Paragraph(date.today().strftime("%d %B %Y"), styles["meta"]))
     story.append(Spacer(1, 4 * cm))
-    is_maths = data.subject.strip().lower() in {"mathematics", "maths", "math"}
+    section_subjects = {(s.subject or data.subject).strip().lower() for s in data.sections}
+    only_maths = section_subjects == {"mathematics"}
     verify_note = (
         "Questions marked with a check mark have been symbolically verified."
-        if is_maths else
-        "Questions marked with a check mark have been reviewed by an independent grader."
+        if only_maths else
+        "Questions marked with a check mark have been checked for accuracy."
     )
     story.append(Paragraph(verify_note, styles["footer_note"]))
     story.append(PageBreak())
 
-    # Body: per subtopic — heading, lesson, worked example, practice questions
+    # Body: per subtopic - heading, lesson, worked example, practice questions.
+    # Multi-subject (program) booklets get a subject band whenever the subject
+    # changes, so Numeracy and Literacy sections read as distinct parts.
+    multi_subject = len({(s.subject or "") for s in data.sections if s.subject}) > 1
     q_num = 0
     current_topic = None
+    current_subject = None
     for section in data.sections:
+        if multi_subject and section.subject and section.subject != current_subject:
+            story.append(Paragraph(_escape(section.subject), styles["subject_band"]))
+            current_subject = section.subject
+            current_topic = None  # restart topic grouping under the new subject
         if section.topic != current_topic:
             story.append(Paragraph(_escape(section.topic), styles["topic"]))
             current_topic = section.topic
@@ -347,7 +369,12 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
 
     q_num = 0
     current_topic = None
+    current_subject = None
     for section in data.sections:
+        if multi_subject and section.subject and section.subject != current_subject:
+            story.append(Paragraph(_escape(section.subject), styles["subject_band"]))
+            current_subject = section.subject
+            current_topic = None
         if section.topic != current_topic:
             story.append(Paragraph(_escape(section.topic), styles["topic"]))
             current_topic = section.topic

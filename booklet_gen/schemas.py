@@ -64,6 +64,7 @@ class SubtopicTeaching(BaseModel):
 class SubtopicOutput(BaseModel):
     topic: str
     subtopic: str
+    subject: Optional[str] = None  # set on multi-subject (program) booklets
     teaching: Optional[SubtopicTeaching] = None
     questions: List[ValidatedQuestion]
     failure_rate: float = 0.0
@@ -75,3 +76,6 @@ class BookletData(BaseModel):
     student_name: str
     sections: List[SubtopicOutput]
     challenge_questions: List[ValidatedQuestion] = Field(default_factory=list)
+    # Product line ("Scholarships", "NAPLAN Practice", "Academic Accelerate").
+    # When set, the cover leads with this and `subject` becomes the secondary line.
+    program_label: Optional[str] = None

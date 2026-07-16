@@ -57,7 +57,77 @@ class BookletPipeline:
             extra={"subject": outline.subject, "year_level": outline.year_level,
                    "topics": len(outline.topics)},
         )
+        sections, covered, rag_pool = self._generate_from_outline(outline)
+        challenge = self._build_challenge(
+            outline.subject, outline.year_level, covered, rag_pool,
+        )
+        return BookletData(
+            subject=outline.subject,
+            year_level=outline.year_level,
+            student_name=student_name,
+            sections=sections,
+            challenge_questions=challenge,
+        )
 
+    def run_program(
+        self,
+        program_key: str,
+        year_level: str,
+        student_name: str,
+        subject: Optional[str] = None,
+        topic: Optional[str] = None,
+    ) -> BookletData:
+        """Generate a booklet for a product line (Scholarships / NAPLAN
+        Practice / Academic Accelerate). Multi-subject programs (NAPLAN) run
+        each subject engine and merge the results into one booklet."""
+        from .programs import get_program, normalise_subject, ACCELERATE_SUBJECTS
+
+        program = get_program(program_key)
+        if program.pick_subject:
+            norm = normalise_subject(subject or "")
+            if norm is None:
+                raise ValueError(
+                    f"{program.label} needs a subject "
+                    f"({', '.join(ACCELERATE_SUBJECTS)}); got {subject!r}"
+                )
+            subjects = (norm,)
+            subject_display = norm
+        else:
+            subjects = program.subjects
+            subject_display = program.subject_display
+
+        log.info("pipeline.program.start",
+                 extra={"program": program.key, "subjects": list(subjects),
+                        "year_level": year_level})
+
+        all_sections: list[SubtopicOutput] = []
+        all_challenge: list[ValidatedQuestion] = []
+        for subj in subjects:
+            description = program.describe(subj, year_level, topic)
+            outline = self._parser.parse(description)
+            # Force the engine subject: the parser normalises to a known
+            # subject, but the program is authoritative about which engine runs.
+            outline.subject = subj
+            sections, covered, rag_pool = self._generate_from_outline(outline)
+            for s in sections:
+                s.subject = subj
+            all_sections.extend(sections)
+            all_challenge.extend(
+                self._build_challenge(subj, year_level, covered, rag_pool)
+            )
+
+        return BookletData(
+            subject=subject_display,
+            year_level=year_level,
+            student_name=student_name,
+            sections=all_sections,
+            challenge_questions=all_challenge,
+            program_label=program.label,
+        )
+
+    def _generate_from_outline(self, outline):
+        """Run generation for every subtopic in a single-subject outline.
+        Returns (sections, covered, rag_pool)."""
         sections: list[SubtopicOutput] = []
         covered: list[tuple[str, str]] = []
         rag_pool: list[str] = []
@@ -91,18 +161,7 @@ class BookletPipeline:
                     failure_rate=failure_rate,
                 ))
                 covered.append((topic.name, subtopic.name))
-
-        challenge = self._build_challenge(
-            outline.subject, outline.year_level, covered, rag_pool,
-        )
-
-        return BookletData(
-            subject=outline.subject,
-            year_level=outline.year_level,
-            student_name=student_name,
-            sections=sections,
-            challenge_questions=challenge,
-        )
+        return sections, covered, rag_pool
 
     # ---------- RAG ----------
 
