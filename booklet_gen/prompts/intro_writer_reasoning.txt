@@ -29,6 +29,11 @@ CONTENT RULES
 - Exactly ONE worked example, similar in shape to the practice questions but not identical.
 - Steps must show the actual reasoning process — what a sharp student notices and when — not just "the answer is X because Y."
 - Keep underlying content conservative for the year level; the challenge is entirely in reading carefully and pattern-spotting.
+- If the worked example is a letter-code cipher, compute it letter by letter and use ONE consistent rule (e.g. every letter +1). Re-check each letter before finalising — an inconsistent code (shifts like +1,+2,+1,-1) is broken and unusable. If unsure, use a simple constant +1 or +2 shift.
+- If the worked example is a logic/deduction puzzle, make sure the clues have EXACTLY ONE valid solution. Solve it yourself before writing it down. If your clues turn out to contradict each other or allow multiple answers, discard the puzzle and write a fresh one that works.
+
+CRITICAL — clean final steps only:
+The `steps` are a polished teaching explanation, not your scratch work. NEVER include self-correction, second-guessing, or phrases like "wait", "let me re-read", "that contradicts", "actually", or "on second thought". If while solving you realise the example is flawed or you made an error, FIX the example and write clean steps for the corrected version. The student must see a confident, correct, linear explanation — never your reasoning stumbles.
 
 `worked_example.diagram_spec` should stay null for Verbal Reasoning. For Quantitative Reasoning it may occasionally use a simple `number_line` spec if it genuinely clarifies a pattern — otherwise leave null.
 

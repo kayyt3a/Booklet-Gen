@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 from .agents.challenge_generator import ChallengeGeneratorAgent
@@ -8,6 +9,7 @@ from .agents.intro_writer import IntroWriterAgent
 from .agents.llm_judge import LLMJudgeValidator
 from .agents.outline_parser import OutlineParserAgent
 from .agents.question_generator import QuestionGeneratorAgent
+from .agents.reasoning_validator import ReasoningValidator
 from .agents.validator import SympyValidator, ValidationResult
 from .config import Config, load_config
 from .llm import get_client
@@ -26,7 +28,7 @@ class BookletPipeline:
         config: Optional[Config] = None,
         questions_per_subtopic: int = 5,
         challenge_questions: int = 5,
-        max_generation_attempts: int = 2,
+        max_generation_attempts: int = 3,
         client=None,
         retriever: Optional[Retriever] = None,
     ):
@@ -41,6 +43,7 @@ class BookletPipeline:
         )
         self._challenger = ChallengeGeneratorAgent(self._client, self._config.max_retries)
         self._sympy = SympyValidator()
+        self._reasoning = ReasoningValidator()
         self._judge = LLMJudgeValidator(self._client)
         self._max_generation_attempts = max_generation_attempts
         self._n_challenge = challenge_questions
@@ -165,28 +168,81 @@ class BookletPipeline:
             fallback = self._judge.validate(subject, year_level, q, reference_chunks)
             fallback.notes = f"sympy inconclusive; {fallback.notes}"
             return fallback
+        if key in {"reasoning", "verbal reasoning", "quantitative reasoning"}:
+            # Deterministic check for ciphers and number sequences first — it
+            # catches broken examples the LLM judge waves through. Only when it
+            # can't assess (returns None) do we fall back to the judge.
+            det = self._reasoning.validate(q)
+            if det is not None:
+                return det
+            return self._judge.validate(subject, year_level, q, reference_chunks)
         return self._judge.validate(subject, year_level, q, reference_chunks)
+
+    @staticmethod
+    def _norm_q(text: str) -> str:
+        return re.sub(r"\s+", " ", text.strip().lower())
+
+    def _reasoning_reject(self, subject: str, q: Question) -> bool:
+        """True if the deterministic reasoning checker can PROVE the question is
+        broken (unsolvable cipher, wrong sequence). Deterministic and free — no
+        API call. Returns False for non-reasoning subjects or questions the
+        checker can't assess."""
+        if subject.strip().lower() not in {
+            "reasoning", "verbal reasoning", "quantitative reasoning",
+        }:
+            return False
+        det = self._reasoning.validate(q)
+        return det is not None and not det.verified
 
     def _generate_and_validate(
         self, subject, year_level, topic_name, subtopic, reference_chunks,
     ) -> list[ValidatedQuestion]:
         results: list[ValidatedQuestion] = []
+        seen: set[str] = set()  # normalised question text, to reject duplicates
         qs = self._generator.generate(subject, year_level, topic_name, subtopic, reference_chunks)
         for q in qs.questions:
             result = self._validate(subject, year_level, q, reference_chunks)
             retry_count = 0
-            while not result.verified and retry_count < self._max_generation_attempts - 1:
+            # Regenerate while the question fails validation OR duplicates one we
+            # already accepted. On each retry we pull a fresh BATCH and scan all
+            # of its questions for the best non-duplicate — taking only the first
+            # question (the old behaviour) produced repeated questions whenever
+            # the model favoured the same opener.
+            while (not result.verified or self._norm_q(q.question) in seen) \
+                    and retry_count < self._max_generation_attempts - 1:
                 retry_count += 1
                 log.info(
                     "pipeline.regenerate_single",
                     extra={"subject": subject, "subtopic": subtopic.name,
-                           "retry": retry_count, "reason": result.notes},
+                           "retry": retry_count,
+                           "reason": result.notes if not result.verified else "duplicate"},
                 )
                 fresh = self._generator.generate(
                     subject, year_level, topic_name, subtopic, reference_chunks,
                 )
-                q = fresh.questions[0]
-                result = self._validate(subject, year_level, q, reference_chunks)
+                best_q, best_result = None, None
+                for cand in fresh.questions:
+                    if self._norm_q(cand.question) in seen:
+                        continue
+                    cand_result = self._validate(subject, year_level, cand, reference_chunks)
+                    # Prefer a verified non-duplicate; otherwise keep the first
+                    # non-duplicate as a fallback.
+                    if cand_result.verified:
+                        best_q, best_result = cand, cand_result
+                        break
+                    if best_q is None:
+                        best_q, best_result = cand, cand_result
+                if best_q is not None:
+                    q, result = best_q, best_result
+            # A reasoning question the deterministic checker can prove is
+            # broken (unsolvable cipher/sequence) must never appear — drop it
+            # rather than show an unsolvable question, even without a check mark.
+            if self._reasoning_reject(subject, q):
+                log.info("pipeline.drop_broken",
+                         extra={"subject": subject, "subtopic": subtopic.name,
+                                "reason": result.notes})
+                continue
+            seen.add(self._norm_q(q.question))
             image_path, image_attr = self._resolve_visual(q)
             results.append(ValidatedQuestion(
                 question=q,
@@ -213,9 +269,18 @@ class BookletPipeline:
             log.warning("pipeline.challenge_failed", extra={"error": str(e)[:200]})
             return []
         results: list[ValidatedQuestion] = []
+        seen: set[str] = set()
         for q in qs.questions:
+            # Skip exact-duplicate challenge questions outright — the challenge
+            # set is a single batch, so we dedupe rather than regenerate.
+            if self._norm_q(q.question) in seen:
+                continue
+            if self._reasoning_reject(subject, q):
+                log.info("pipeline.drop_broken_challenge",
+                         extra={"subject": subject})
+                continue
+            seen.add(self._norm_q(q.question))
             result = self._validate(subject, year_level, q, reference_chunks)
-            retry_count = 0
             # For the challenge set we tolerate the LLM's first attempt more —
             # regeneration would cost another full-set call. Just record the
             # verification status.
@@ -224,7 +289,7 @@ class BookletPipeline:
                 question=q,
                 verified=result.verified,
                 validator_notes=result.notes,
-                retry_count=retry_count,
+                retry_count=0,
                 image_path=str(image_path) if image_path else None,
                 image_attribution=image_attr,
             ))

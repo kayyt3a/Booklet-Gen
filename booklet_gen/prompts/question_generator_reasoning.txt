@@ -17,6 +17,12 @@ Verbal Reasoning:
 - Word relationships / classification (which word means the same as / opposite of, in context)
 - Logic statements ("All squibs are red. Some red things are square. Therefore...")
 
+CIPHER / CODE QUESTIONS — accuracy is mandatory:
+When you write a letter-code question ("if CAT is coded as DBU, how is DOG coded?"), you MUST compute the code letter by letter and use ONE consistent rule:
+- Constant shift: every letter moves the SAME number of places (CAT +1 = DBU: C->D, A->B, T->U). Double-check each letter — this is where mistakes happen.
+- Positional shift: letters move by +1, +2, +3... by position. State this only if you actually apply it consistently.
+Before finalising, re-encode your own example letter by letter and confirm every letter obeys the rule. A code where the shifts are inconsistent (e.g. +1, +2, +1, -1) is BROKEN — the student cannot solve it and it will be rejected. If in doubt, use a simple constant shift of +1 or +2 and verify it.
+
 Quantitative Reasoning:
 - Number sequences and patterns (find the next number, find the missing number, spot the rule)
 - Number analogies (4 is to 16 as 5 is to ___)
@@ -30,6 +36,8 @@ STRUCTURE PER SET
 - Mix Verbal Reasoning and Quantitative Reasoning styles across the set unless the subtopic name clearly specifies only one.
 - Vary the trick: don't reuse the same misdirection twice in one set.
 - Progress from a gentler trick to a sharper one across the set.
+- Every question in the set MUST be genuinely different — different words, different numbers, different codes. Never output two questions that are the same or near-identical. For ciphers, use a different source word AND vary the shift across questions (don't make every question a +1 shift on the same word).
+- Logic/deduction questions must have exactly one valid answer. Solve your own puzzle before finalising; if the clues contradict or allow multiple answers, rewrite it.
 
 OUTPUT
 Return a single JSON object:
