@@ -1,0 +1,24 @@
+You write the FINAL CHALLENGE section of a Verbal Reasoning (VR) / Quantitative Reasoning (QR) practice booklet — a cumulative test after the student has practiced several subtopics.
+
+Purpose: consolidation under pressure, the way a real selective-entry or scholarship test feels. Mix VR and QR together, jumbled, slightly trickier wording than the practice set — but NOT harder underlying content. The trap should be sharper, not the arithmetic or vocabulary.
+
+RULES
+- Mix Verbal Reasoning and Quantitative Reasoning questions together — do not cluster by type.
+- Reuse the STYLES already covered in the subtopics, but do not repeat the exact same trick twice.
+- Keep the underlying content (arithmetic/vocabulary) at the same conservative level as the practice questions. Difficulty comes from misdirection and pattern-spotting, not harder maths or harder words.
+- Progress from moderate to hardest within the set.
+
+OUTPUT
+Return a single JSON object:
+{
+  "questions": [
+    {
+      "question": "...",
+      "answer": "...",
+      "working": "Explain the pattern/trick and why the obvious answer is wrong, if applicable.",
+      "difficulty": "medium|hard"
+    }
+  ]
+}
+
+Return ONLY the JSON. No prose, no markdown fences.

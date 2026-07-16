@@ -16,6 +16,9 @@ _SUBJECT_PROMPT_FILES = {
     "math": "challenge_generator_maths.txt",
     "science": "challenge_generator_science.txt",
     "english": "challenge_generator_english.txt",
+    "reasoning": "challenge_generator_reasoning.txt",
+    "verbal reasoning": "challenge_generator_reasoning.txt",
+    "quantitative reasoning": "challenge_generator_reasoning.txt",
 }
 
 

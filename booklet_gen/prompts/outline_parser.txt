@@ -4,7 +4,7 @@ Output rules:
 - Output ONLY a single JSON object, no prose, no code fences, no commentary.
 - Schema:
   {
-    "subject": string,             // Normalize to one of: "Mathematics", "Science", "English"
+    "subject": string,             // Normalize to one of: "Mathematics", "Science", "English", "Reasoning"
     "year_level": string,          // e.g. "Year 8"; always populated as its own field
     "topics": [
       {
@@ -24,9 +24,10 @@ Output rules:
   * For English: always include topics covering (a) Reading & Comprehension, (b) Writing & Composition, (c) Language Conventions (grammar/punctuation/spelling correction), and (d) Vocabulary & Word Study. Weight toward what the user asked for, but don't drop the others.
   * For Mathematics: 2-3 topics, each with 2-3 subtopics of different question types (e.g. straight computation, word problem, "explain your reasoning").
   * For Science: cover both content (explain X, define Y) and reasoning (compare, predict, apply).
+  * For Reasoning: this is verbal/quantitative reasoning for selective-school and scholarship-test prep, NOT curriculum maths or English. Use two top-level topics — "Verbal Reasoning" and "Quantitative Reasoning" — unless the user's description clearly asks for only one. Subtopics should name a specific puzzle TYPE (e.g. "Word analogies", "Odd one out", "Letter codes", "Number sequences", "Number analogies"), not a curriculum concept. Keep difficulty_hint conservative — these test wording/pattern-spotting skill, not advanced content.
 - 2-4 subtopics per topic, each with a DIFFERENT question type where possible. Never make all subtopics under one topic use the same question type.
-- Question types should be short strings like "simplification", "word problem", "solve for x", "balance equation", "comprehension", "grammar correction", "punctuation", "spelling", "identify literary device", "vocabulary in context", "editing a passage".
-- If the subject isn't obvious, infer from the topic words ("fractions" -> Mathematics, "cells" -> Science, "grammar" -> English).
+- Question types should be short strings like "simplification", "word problem", "solve for x", "balance equation", "comprehension", "grammar correction", "punctuation", "spelling", "identify literary device", "vocabulary in context", "editing a passage", "word analogy", "odd one out", "letter/number code", "number sequence", "number analogy", "logic puzzle".
+- If the subject isn't obvious, infer from the topic words ("fractions" -> Mathematics, "cells" -> Science, "grammar" -> English, "selective school prep" / "scholarship prep" / "verbal reasoning" / "quantitative reasoning" -> Reasoning).
 
 Examples:
 
@@ -57,3 +58,7 @@ Output:
 Input: "Year 10 English — persuasive writing and language techniques"
 Output:
 {"subject":"English","year_level":"Year 10","topics":[{"name":"Language Techniques","subtopics":[{"name":"Identifying rhetorical devices in a passage","difficulty_hint":"medium","question_types":["identify literary device"]},{"name":"Analysing tone and mood","difficulty_hint":"medium","question_types":["short answer"]}]},{"name":"Persuasive Writing","subtopics":[{"name":"Structuring an argument","difficulty_hint":"medium","question_types":["planning"]},{"name":"Using evidence and appeals","difficulty_hint":"hard","question_types":["short answer"]}]},{"name":"Language Conventions","subtopics":[{"name":"Editing a persuasive paragraph","difficulty_hint":"medium","question_types":["editing a passage"]},{"name":"Precise word choice","difficulty_hint":"medium","question_types":["vocabulary in context"]}]},{"name":"Reading Comprehension","subtopics":[{"name":"Identifying author's purpose","difficulty_hint":"medium","question_types":["comprehension"]}]}]}
+
+Input: "Year 5 selective school prep, verbal and quantitative reasoning"
+Output:
+{"subject":"Reasoning","year_level":"Year 5","topics":[{"name":"Verbal Reasoning","subtopics":[{"name":"Word analogies","difficulty_hint":"medium","question_types":["word analogy"]},{"name":"Odd one out","difficulty_hint":"medium","question_types":["odd one out"]},{"name":"Letter codes","difficulty_hint":"medium","question_types":["letter/number code"]}]},{"name":"Quantitative Reasoning","subtopics":[{"name":"Number sequences","difficulty_hint":"medium","question_types":["number sequence"]},{"name":"Number analogies","difficulty_hint":"medium","question_types":["number analogy"]},{"name":"Worded number puzzles","difficulty_hint":"medium","question_types":["word problem"]}]}]}

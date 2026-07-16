@@ -16,6 +16,9 @@ _SUBJECT_PROMPT_FILES = {
     "math": "intro_writer_maths.txt",
     "science": "intro_writer_science.txt",
     "english": "intro_writer_english.txt",
+    "reasoning": "intro_writer_reasoning.txt",
+    "verbal reasoning": "intro_writer_reasoning.txt",
+    "quantitative reasoning": "intro_writer_reasoning.txt",
 }
 
 
