@@ -330,6 +330,51 @@ class BookletPipeline:
             return self._judge.validate(subject, year_level, q, reference_chunks)
         return self._judge.validate(subject, year_level, q, reference_chunks)
 
+    def _validate_many(
+        self, subject: str, year_level: str, questions: list[Question],
+        reference_chunks: list[str] | None = None,
+    ) -> list[ValidationResult]:
+        """Validate a whole set at once. Local checks (sympy, reasoning) run
+        per question for free; every question that still needs the LLM judge is
+        graded in a SINGLE batched call instead of one call each. Falls back to
+        per-question judging if the batch call fails."""
+        key = subject.strip().lower()
+        is_maths = key in {"mathematics", "maths", "math"}
+        is_reasoning = key in {"reasoning", "verbal reasoning", "quantitative reasoning"}
+
+        results: list[ValidationResult | None] = [None] * len(questions)
+        needs_judge: list[int] = []
+        for i, q in enumerate(questions):
+            if is_maths:
+                r = self._sympy.validate(q)
+                if r.verified or (r.notes and "substitution" in r.notes):
+                    results[i] = r
+                else:
+                    needs_judge.append(i)
+            elif is_reasoning:
+                det = self._reasoning.validate(q)
+                if det is not None:
+                    results[i] = det
+                else:
+                    needs_judge.append(i)
+            else:
+                needs_judge.append(i)
+
+        if needs_judge:
+            batch_qs = [questions[i] for i in needs_judge]
+            judged = self._judge.validate_batch(subject, year_level, batch_qs, reference_chunks)
+            if judged is None:  # batch failed: fall back to individual grading
+                judged = [self._judge.validate(subject, year_level, q, reference_chunks)
+                          for q in batch_qs]
+            for slot, i in enumerate(needs_judge):
+                r = judged[slot]
+                if is_maths and not r.verified:
+                    r.notes = f"sympy inconclusive; {r.notes}"
+                results[i] = r
+
+        return [r if r is not None else ValidationResult(False, "unvalidated")
+                for r in results]
+
     @staticmethod
     def _norm_q(text: str) -> str:
         return re.sub(r"\s+", " ", text.strip().lower())
@@ -352,8 +397,10 @@ class BookletPipeline:
         results: list[ValidatedQuestion] = []
         seen: set[str] = set()  # normalised question text, to reject duplicates
         qs = self._generator.generate(subject, year_level, topic_name, subtopic, reference_chunks)
-        for q in qs.questions:
-            result = self._validate(subject, year_level, q, reference_chunks)
+        # Validate the whole set in one batched judge call up front; per-question
+        # regeneration below still uses the single-question path.
+        initial = self._validate_many(subject, year_level, qs.questions, reference_chunks)
+        for q, result in zip(qs.questions, initial):
             retry_count = 0
             # Regenerate while the question fails validation OR duplicates one we
             # already accepted. On each retry we pull a fresh BATCH and scan all
