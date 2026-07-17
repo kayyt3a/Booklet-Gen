@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.git
+rag_sources/*
+!rag_sources/README.md
+rag_store
+output
+logs
+*.db
+*.db-wal
+*.db-shm
+.env

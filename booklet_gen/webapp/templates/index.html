@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="card">
+  <h1>Create a practice booklet</h1>
+  <p class="sub">Choose a type, year, and topic. We build a validated PDF booklet
+    with a mini-lesson, practice questions, and a worked answer key.</p>
+
+  {% if not g.user %}
+    <p class="muted">Please <a class="link" href="{{ url_for('auth.login') }}">log in</a>
+      or <a class="link" href="{{ url_for('auth.signup') }}">sign up</a> to generate booklets.
+      New accounts get free credits to start.</p>
+  {% else %}
+  <form method="post" action="{{ url_for('views.generate') }}">
+    <label for="program">Booklet type</label>
+    <select id="program" name="program" required onchange="toggleSubject()">
+      <option value="" disabled selected>Choose a type</option>
+      {% for key, p in programs.items() %}
+        <option value="{{ key }}" data-pick="{{ 'yes' if p.pick_subject else 'no' }}">
+          {{ p.label }}: {{ p.blurb }}
+        </option>
+      {% endfor %}
+    </select>
+
+    <div class="row">
+      <div>
+        <label for="year">Year level</label>
+        <select id="year" name="year" required>
+          <option value="" disabled selected>Year</option>
+          {% for y in years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+        </select>
+      </div>
+      <div id="subjectField" style="display:none">
+        <label for="subject">Subject</label>
+        <select id="subject" name="subject">
+          <option value="" disabled selected>Subject</option>
+          {% for s in subjects %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label for="topic">Topic focus <span class="muted">(optional)</span></label>
+    <input id="topic" name="topic" type="text" placeholder="e.g. fractions and area">
+
+    <label for="student_name">Student name</label>
+    <input id="student_name" name="student_name" type="text" placeholder="Alex" required>
+
+    <div class="checkbox">
+      <input id="term_plan" name="term_plan" type="checkbox">
+      <label for="term_plan" style="margin:0">Generate a full {{ term_weeks }}-week term plan
+        ({{ term_cost }} credits) instead of a single booklet ({{ single_cost }} credit)</label>
+    </div>
+
+    <button type="submit">Generate booklet</button>
+    <p class="muted" style="margin-top:10px">You have {{ g.user['credits'] }} credits.
+      A single booklet costs {{ single_cost }} credit.</p>
+  </form>
+  {% endif %}
+</div>
+
+<script>
+  function toggleSubject() {
+    var sel = document.getElementById('program');
+    var opt = sel.options[sel.selectedIndex];
+    var needs = opt && opt.getAttribute('data-pick') === 'yes';
+    document.getElementById('subjectField').style.display = needs ? 'block' : 'none';
+    document.getElementById('subject').required = needs;
+  }
+</script>
+{% endblock %}

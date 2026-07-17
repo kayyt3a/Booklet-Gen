@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}Folio{% endblock %}</title>
+  <style>
+    :root {
+      --navy:#1F3A5F; --navy-d:#16273f; --orange:#f0a028;
+      --bg:#f6f7fb; --card:#fff; --ink:#1c2434; --muted:#6b7280; --border:#e2e6ee;
+    }
+    *{box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      background:var(--bg);color:var(--ink);margin:0}
+    header{background:var(--navy);color:#fff;padding:12px 20px;display:flex;
+      align-items:center;justify-content:space-between}
+    header a{color:#fff;text-decoration:none}
+    .brand{font-weight:800;letter-spacing:1px;font-size:18px}
+    .nav a{margin-left:16px;font-size:14px}
+    .pill{background:var(--orange);color:#3a2600;border-radius:999px;
+      padding:3px 10px;font-size:13px;font-weight:700}
+    .wrap{max-width:640px;margin:28px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;
+      padding:28px;box-shadow:0 1px 3px rgba(20,30,50,.04);margin-bottom:18px}
+    h1{margin:0 0 6px;font-size:24px}
+    h2{margin:0 0 12px;font-size:18px}
+    .sub{color:var(--muted);margin:0 0 20px;font-size:14px}
+    label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px;color:#384355}
+    input,select{width:100%;padding:10px 12px;border:1px solid var(--border);
+      border-radius:8px;font:inherit;font-size:14px;background:#fff}
+    input:focus,select:focus{outline:2px solid var(--navy);outline-offset:-1px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    button,.btn{background:var(--navy);color:#fff;border:0;padding:12px 16px;border-radius:8px;
+      font:inherit;font-weight:700;font-size:14px;cursor:pointer;width:100%;
+      text-align:center;display:inline-block;text-decoration:none;margin-top:16px}
+    button:hover,.btn:hover{background:var(--navy-d)}
+    .flash{background:#fef3c7;color:#7c5b00;border:1px solid #fde68a;
+      padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:13px}
+    .muted{color:var(--muted);font-size:13px}
+    .checkbox{display:flex;align-items:center;gap:8px;margin-top:14px}
+    .checkbox input{width:auto}
+    .pack{border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px}
+    .pack .price{font-size:22px;font-weight:800;color:var(--navy)}
+    a.link{color:var(--navy);font-weight:600}
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="{{ url_for('views.index') }}">FOLIO</a>
+    <div class="nav">
+      {% if g.user %}
+        <span class="pill">{{ g.user['credits'] }} credits</span>
+        <a href="{{ url_for('billing.billing') }}">Buy credits</a>
+        <a href="{{ url_for('auth.logout') }}">Log out</a>
+      {% else %}
+        <a href="{{ url_for('auth.login') }}">Log in</a>
+        <a href="{{ url_for('auth.signup') }}">Sign up</a>
+      {% endif %}
+    </div>
+  </header>
+  <div class="wrap">
+    {% with messages = get_flashed_messages() %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endwith %}
+    {% block body %}{% endblock %}
+  </div>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Payment complete - Folio{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>Thanks for your purchase</h1>
+  <p class="sub">Your credits have been added. You now have <b>{{ credits }}</b> credits.</p>
+  <a class="btn" href="{{ url_for('views.index') }}">Create a booklet</a>
+</div>
+{% endblock %}

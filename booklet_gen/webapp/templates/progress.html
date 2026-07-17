@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Generating - Folio{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>Building your booklet</h1>
+  <p class="sub" id="msg">Generating "{{ job['label'] }}". This can take a few minutes.
+    You can keep this tab open.</p>
+  <div id="spinner" class="muted">Working...</div>
+  <div id="done" style="display:none">
+    <a class="btn" id="dl" href="#">Download</a>
+    <p class="muted" style="margin-top:10px"><a class="link" href="{{ url_for('views.index') }}">Make another</a></p>
+  </div>
+  <div id="err" style="display:none">
+    <div class="flash" id="errmsg"></div>
+    <p class="muted">Your credits were refunded.
+      <a class="link" href="{{ url_for('views.index') }}">Try again</a>.</p>
+  </div>
+</div>
+<script>
+  var jobId = "{{ job['id'] }}";
+  function poll() {
+    fetch("{{ url_for('views.status', job_id=job['id']) }}")
+      .then(r => r.json())
+      .then(d => {
+        if (d.status === "done") {
+          document.getElementById('spinner').style.display='none';
+          document.getElementById('msg').textContent='Your booklet is ready.';
+          var dl=document.getElementById('dl'); dl.href=d.download_url;
+          document.getElementById('done').style.display='block';
+        } else if (d.status === "error") {
+          document.getElementById('spinner').style.display='none';
+          document.getElementById('msg').textContent='Something went wrong.';
+          document.getElementById('errmsg').textContent=d.error || 'Generation failed.';
+          document.getElementById('err').style.display='block';
+        } else {
+          setTimeout(poll, 2500);
+        }
+      })
+      .catch(() => setTimeout(poll, 4000));
+  }
+  poll();
+</script>
+{% endblock %}
