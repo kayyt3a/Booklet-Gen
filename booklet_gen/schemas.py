@@ -58,7 +58,13 @@ class SubtopicTeaching(BaseModel):
     """What the intro_writer agent produces for a subtopic."""
     intro_paragraphs: List[str] = Field(default_factory=list)
     key_points: List[str] = Field(default_factory=list)
-    worked_example: WorkedExample
+    # A short memorable name or mnemonic for the method (e.g. "Keep-Change-Flip"),
+    # when one fits naturally. Sticky hooks help kids remember.
+    mnemonic: Optional[str] = None
+    worked_example: WorkedExample              # "I do" - fully worked
+    # "We do" - a couple of follow-along examples with the solution shown, the
+    # guided middle step between the worked example and independent practice.
+    guided_examples: List[WorkedExample] = Field(default_factory=list)
 
 
 class SubtopicOutput(BaseModel):
@@ -66,9 +72,10 @@ class SubtopicOutput(BaseModel):
     subtopic: str
     subject: Optional[str] = None  # set on multi-subject (program) booklets
     teaching: Optional[SubtopicTeaching] = None
-    questions: List[ValidatedQuestion]
+    questions: List[ValidatedQuestion]                 # classwork "Now you try"
+    homework_questions: List[ValidatedQuestion] = Field(default_factory=list)
     failure_rate: float = 0.0
-    estimated_minutes: Optional[int] = None  # rough "about N min" for this section
+    estimated_minutes: Optional[int] = None  # classwork time for this section
 
 
 class BookletData(BaseModel):
@@ -76,9 +83,15 @@ class BookletData(BaseModel):
     year_level: str
     student_name: str
     sections: List[SubtopicOutput]
+    # Short warm-up quiz at the very start, revising earlier material (spaced
+    # retrieval). For a term plan this revises the previous week.
+    recap_questions: List[ValidatedQuestion] = Field(default_factory=list)
+    recap_minutes: Optional[int] = None
     challenge_questions: List[ValidatedQuestion] = Field(default_factory=list)
     challenge_minutes: Optional[int] = None
     total_minutes: Optional[int] = None
+    classwork_minutes: Optional[int] = None
+    homework_minutes: Optional[int] = None
     # Product line ("Scholarships", "NAPLAN Practice", "Academic Accelerate").
     # When set, the cover leads with this and `subject` becomes the secondary line.
     program_label: Optional[str] = None

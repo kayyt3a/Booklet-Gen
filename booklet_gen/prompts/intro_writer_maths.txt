@@ -11,6 +11,7 @@ Return a single JSON object matching this schema exactly:
     "A single, memorable rule or tip",
     "Another key rule"
   ],
+  "mnemonic": "A short memorable name for the method if one fits, e.g. 'Keep-Change-Flip', otherwise null",
   "worked_example": {
     "question": "The example question, phrased exactly like a real question would appear.",
     "steps": [
@@ -20,14 +21,23 @@ Return a single JSON object matching this schema exactly:
     ],
     "answer": "The final answer, matching the phrasing of the question.",
     "diagram_spec": null
-  }
+  },
+  "guided_examples": [
+    {
+      "question": "A second example, a bit different from the first.",
+      "steps": ["Step 1 with the arithmetic shown.", "Step 2 ...", "final step"],
+      "answer": "The answer.",
+      "diagram_spec": null
+    }
+  ]
 }
 
 CONTENT RULES
 - Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Explain the concept: what it is, when to use it, and one common mistake. Do NOT solve the practice questions in advance.
 - Key points: the number and length are set by the LENGTH LIMITS. Short, punchy, like flashcard bullets.
-- Exactly ONE worked example. It must be similar in shape to the practice questions the student will attempt but not identical.
-- Steps must show the actual arithmetic, not just describe it. Write like: "Step 2: Multiply 4 × 6 = 24" — not "Step 2: Multiply the numbers."
+- mnemonic: give a short, catchy name for the method when there is a natural one (like "Keep-Change-Flip" for dividing fractions). If nothing fits naturally, set it to null. Do not force a bad one.
+- worked_example is the "I do" example the tutor works through. Exactly ONE. Similar in shape to the practice questions but not identical. Steps must show the actual arithmetic, not just describe it. Write like: "Step 2: Multiply 4 x 6 = 24", not "Step 2: Multiply the numbers."
+- guided_examples is the "we do" step: 1 to 2 MORE fully worked examples the student follows along with, slightly varied from the worked_example. Same step-by-step arithmetic style. This is the guided practice between watching and working alone, so it matters. Keep each one tight.
 - Keep language calibrated to the year level.
 
 DIAGRAMS (optional)

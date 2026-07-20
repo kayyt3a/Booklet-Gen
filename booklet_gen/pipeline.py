@@ -28,7 +28,9 @@ class BookletPipeline:
     def __init__(
         self,
         config: Optional[Config] = None,
-        questions_per_subtopic: int = 5,
+        questions_per_subtopic: int = 3,       # classwork "Now you try" per subtopic
+        homework_per_subtopic: int = 4,        # homework practice per subtopic
+        recap_questions: int = 4,              # warm-up recap at the start (0 to disable)
         challenge_questions: int = 5,
         max_generation_attempts: int = 3,
         max_workers: int = 4,
@@ -39,10 +41,14 @@ class BookletPipeline:
         self._client = client or get_client(self._config)
         self._parser = OutlineParserAgent(self._client, self._config.max_retries)
         self._intro = IntroWriterAgent(self._client, self._config.max_retries)
+        self._n_classwork = max(1, questions_per_subtopic)
+        self._n_homework = max(0, homework_per_subtopic)
+        # One generation call per subtopic yields both classwork and homework,
+        # then we split it, so homework costs no extra API calls.
         self._generator = QuestionGeneratorAgent(
             self._client,
             max_retries=self._config.max_retries,
-            questions_per_subtopic=questions_per_subtopic,
+            questions_per_subtopic=self._n_classwork + self._n_homework,
         )
         self._challenger = ChallengeGeneratorAgent(self._client, self._config.max_retries)
         self._term_planner = TermPlannerAgent(self._client, self._config.max_retries)
@@ -52,6 +58,7 @@ class BookletPipeline:
         self._max_generation_attempts = max_generation_attempts
         self._max_workers = max(1, max_workers)
         self._n_challenge = challenge_questions
+        self._n_recap = max(0, recap_questions)
         self._retriever = retriever if retriever is not None else Retriever()
 
     def run(self, description: str, student_name: str) -> BookletData:
@@ -63,18 +70,23 @@ class BookletPipeline:
                    "topics": len(outline.topics)},
         )
         sections, covered, rag_pool = self._generate_from_outline(outline)
+        recap = self._build_recap(outline.subject, outline.year_level, None, rag_pool)
         challenge = self._build_challenge(
             outline.subject, outline.year_level, covered, rag_pool,
         )
-        ch_min, total_min = self._timing(sections, challenge)
+        t = self._timing(sections, challenge, recap)
         return BookletData(
             subject=outline.subject,
             year_level=outline.year_level,
             student_name=student_name,
             sections=sections,
+            recap_questions=recap,
             challenge_questions=challenge,
-            challenge_minutes=ch_min,
-            total_minutes=total_min,
+            recap_minutes=t["recap_minutes"],
+            classwork_minutes=t["classwork_minutes"],
+            homework_minutes=t["homework_minutes"],
+            challenge_minutes=t["challenge_minutes"],
+            total_minutes=t["total_minutes"],
         )
 
     def run_program(
@@ -86,10 +98,12 @@ class BookletPipeline:
         topic: Optional[str] = None,
         week_number: Optional[int] = None,
         total_weeks: Optional[int] = None,
+        prev_focus: Optional[str] = None,
     ) -> BookletData:
         """Generate a booklet for a product line (Scholarships / NAPLAN
         Practice / Academic Accelerate). Multi-subject programs (NAPLAN) run
-        each subject engine and merge the results into one booklet."""
+        each subject engine and merge the results into one booklet.
+        `prev_focus` (a term plan's previous week) drives the warm-up recap."""
         from .programs import get_program, normalise_subject, ACCELERATE_SUBJECTS
 
         program = get_program(program_key)
@@ -112,6 +126,7 @@ class BookletPipeline:
 
         all_sections: list[SubtopicOutput] = []
         all_challenge: list[ValidatedQuestion] = []
+        all_recap: list[ValidatedQuestion] = []
         for subj in subjects:
             description = program.describe(subj, year_level, topic)
             outline = self._parser.parse(description)
@@ -122,19 +137,25 @@ class BookletPipeline:
             for s in sections:
                 s.subject = subj
             all_sections.extend(sections)
+            # Recap revises the previous week (term plan) or earlier skills.
+            all_recap.extend(self._build_recap(subj, year_level, prev_focus, rag_pool))
             all_challenge.extend(
                 self._build_challenge(subj, year_level, covered, rag_pool)
             )
 
-        ch_min, total_min = self._timing(all_sections, all_challenge)
+        t = self._timing(all_sections, all_challenge, all_recap)
         return BookletData(
             subject=subject_display,
             year_level=year_level,
             student_name=student_name,
             sections=all_sections,
+            recap_questions=all_recap,
             challenge_questions=all_challenge,
-            challenge_minutes=ch_min,
-            total_minutes=total_min,
+            recap_minutes=t["recap_minutes"],
+            classwork_minutes=t["classwork_minutes"],
+            homework_minutes=t["homework_minutes"],
+            challenge_minutes=t["challenge_minutes"],
+            total_minutes=t["total_minutes"],
             program_label=program.label,
             week_number=week_number,
             total_weeks=total_weeks,
@@ -167,6 +188,7 @@ class BookletPipeline:
                  extra={"program": program.key, "weeks": len(plan.weeks)})
 
         booklets: list[BookletData] = []
+        prev_focus = None
         for wk in plan.weeks:
             log.info("pipeline.term_plan.week",
                      extra={"week": wk.week, "focus": wk.focus, "difficulty": wk.difficulty})
@@ -174,25 +196,58 @@ class BookletPipeline:
                 program_key, year_level, student_name,
                 subject=subject, topic=wk.focus,
                 week_number=wk.week, total_weeks=len(plan.weeks),
+                prev_focus=prev_focus,   # recap revises last week
             )
             booklets.append(data)
+            prev_focus = wk.focus
         return booklets
 
     @staticmethod
-    def _timing(sections, challenge) -> tuple[Optional[int], Optional[int]]:
-        """Return (challenge_minutes, total_minutes) rounded for display."""
-        section_raw = sum(
+    def _timing(sections, challenge, recap) -> dict:
+        """Return per-part minutes: recap, classwork, homework (incl. the final
+        challenge as its capstone), challenge, and the grand total."""
+        classwork_raw = sum(
             section_minutes(len(s.questions), s.teaching is not None, None)
-            if s.estimated_minutes is None else s.estimated_minutes
             for s in sections
         )
-        ch_min = None
-        challenge_raw = 0.0
-        if challenge:
-            challenge_raw = section_minutes(len(challenge), False, "hard")
-            ch_min = round_display(challenge_raw)
-        total = round_total(section_raw + challenge_raw)
-        return ch_min, total
+        homework_raw = sum(
+            section_minutes(len(s.homework_questions), False, None) for s in sections
+        )
+        recap_raw = section_minutes(len(recap), False, "easy") if recap else 0.0
+        challenge_raw = section_minutes(len(challenge), False, "hard") if challenge else 0.0
+        homework_raw += challenge_raw  # the Final Challenge lives in the homework half
+        return {
+            "recap_minutes": round_display(recap_raw) if recap else None,
+            "classwork_minutes": round_display(classwork_raw) if sections else None,
+            "homework_minutes": round_display(homework_raw) if homework_raw else None,
+            "challenge_minutes": round_display(challenge_raw) if challenge else None,
+            "total_minutes": round_total(recap_raw + classwork_raw + homework_raw),
+        }
+
+    def _build_recap(self, subject, year_level, recap_focus, reference_chunks):
+        """A short easy warm-up quiz revising earlier material (spaced retrieval).
+        For a term plan `recap_focus` is the previous week's topic."""
+        if self._n_recap <= 0:
+            return []
+        from .schemas import Subtopic
+        name = recap_focus or f"quick revision of key {subject} skills learned earlier"
+        st = Subtopic(name=name, difficulty_hint="easy")
+        try:
+            qs = self._generator.generate(subject, year_level, "Warm-up Recap", st, reference_chunks)
+        except Exception as e:
+            log.warning("pipeline.recap_failed", extra={"error": str(e)[:200]})
+            return []
+        picked = qs.questions[:self._n_recap]
+        verdicts = self._validate_many(subject, year_level, picked, reference_chunks)
+        out: list[ValidatedQuestion] = []
+        for q, r in zip(picked, verdicts):
+            if self._reasoning_reject(subject, q):
+                continue
+            img, attr = self._resolve_visual(q)
+            out.append(ValidatedQuestion(
+                question=q, verified=r.verified, validator_notes=r.notes,
+                image_path=str(img) if img else None, image_attribution=attr))
+        return out
 
     def _process_subtopic(self, subject, year_level, topic_name, subtopic):
         """Generate one subtopic: lesson + validated questions. Returns
@@ -211,14 +266,20 @@ class BookletPipeline:
                    "subtopic": subtopic.name, "total": total, "failed": failed,
                    "failure_rate": failure_rate, "rag_chunks": len(chunks)},
         )
+        # Split the generated set: the first chunk is classwork ("Now you try"),
+        # the rest is homework practice on the same topic (repetition for
+        # retention). Homework costs no extra API calls, it's the same batch.
+        classwork = validated[:self._n_classwork]
+        homework = validated[self._n_classwork:]
         raw_min = section_minutes(
-            len(validated), teaching is not None, subtopic.difficulty_hint,
+            len(classwork), teaching is not None, subtopic.difficulty_hint,
         )
         section = SubtopicOutput(
             topic=topic_name,
             subtopic=subtopic.name,
             teaching=teaching,
-            questions=validated,
+            questions=classwork,
+            homework_questions=homework,
             failure_rate=failure_rate,
             estimated_minutes=round_display(raw_min),
         )
@@ -288,20 +349,19 @@ class BookletPipeline:
                 extra={"subject": subject, "subtopic": subtopic.name, "error": str(e)[:200]},
             )
             return None
-        # Render diagram for the worked example if requested.
-        spec = teaching.worked_example.diagram_spec
-        if spec:
+        # Render diagrams for the worked example and each guided ("we do") example.
+        for ex in [teaching.worked_example, *teaching.guided_examples]:
+            spec = ex.diagram_spec
+            if not spec:
+                continue
             from .visuals import render_diagram
             try:
                 path = render_diagram(spec)
             except Exception as e:
-                log.warning("pipeline.worked_example_diagram_failed",
-                            extra={"error": str(e)[:200]})
+                log.warning("pipeline.example_diagram_failed", extra={"error": str(e)[:200]})
                 path = None
             if path:
-                log.info("pipeline.worked_example_diagram",
-                         extra={"type": spec.get("type")})
-                teaching.worked_example.image_path = str(path)
+                ex.image_path = str(path)
         return teaching
 
     # ---------- Validation ----------

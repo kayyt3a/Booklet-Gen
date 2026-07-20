@@ -48,6 +48,20 @@ def _make_styles():
             textColor=colors.white, backColor=colors.HexColor("#1F3A5F"),
             borderPadding=(6, 8, 6, 8), alignment=TA_CENTER,
         ),
+        "part_band": ParagraphStyle(
+            "part_band", parent=base["Heading1"], fontName="Helvetica-Bold",
+            fontSize=17, leading=20, textColor=colors.white, alignment=TA_CENTER,
+        ),
+        "part_band_sub": ParagraphStyle(
+            "part_band_sub", parent=base["Normal"], fontName="Helvetica",
+            fontSize=10, leading=13, textColor=colors.HexColor("#F4F7FB"),
+            alignment=TA_CENTER, spaceBefore=2,
+        ),
+        "mnemonic": ParagraphStyle(
+            "mnemonic", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=12, leading=15, textColor=colors.HexColor("#8B1E3F"),
+            spaceBefore=4, spaceAfter=4,
+        ),
         "topic": ParagraphStyle(
             "topic", parent=base["Heading1"], fontName="Helvetica-Bold",
             fontSize=18, leading=22, spaceBefore=6, spaceAfter=8,
@@ -203,10 +217,11 @@ def _make_image(path: str | None, max_w=MAX_IMG_WIDTH, max_h=MAX_IMG_HEIGHT):
         return None
 
 
-def _worked_example_flowable(styles, we: WorkedExample):
-    """Return a bordered box containing the worked example."""
+def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked example"):
+    """Return a bordered box containing a worked example. `label` distinguishes
+    the "I do" worked example from the "we do" guided ones."""
     inner = [
-        Paragraph("Worked example", styles["we_label"]),
+        Paragraph(label, styles["we_label"]),
         Paragraph(_escape(we.question), styles["we_question"]),
     ]
     img = _make_image(we.image_path, max_w=WE_IMG_WIDTH, max_h=WE_IMG_HEIGHT)
@@ -226,6 +241,23 @@ def _worked_example_flowable(styles, we: WorkedExample):
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
         ("TOPPADDING", (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return tbl
+
+
+def _part_band(styles, text: str, bg_hex: str, subtitle: str = ""):
+    """A full-width coloured divider for a major part (Recap / Class Work /
+    Homework), so the two halves of the booklet read as distinct sections."""
+    cells = [Paragraph(text, styles["part_band"])]
+    if subtitle:
+        cells.append(Paragraph(subtitle, styles["part_band_sub"]))
+    tbl = Table([[cells]], colWidths=[A4[0] - 2 * PAGE_MARGIN])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(bg_hex)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
     return tbl
 
@@ -357,87 +389,129 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     story.append(Paragraph(verify_note, styles["footer_note"]))
     story.append(PageBreak())
 
-    # Body: per subtopic - heading, lesson, worked example, practice questions.
-    # Multi-subject (program) booklets get a subject band whenever the subject
-    # changes, so Numeracy and Literacy sections read as distinct parts.
     multi_subject = len({(s.subject or "") for s in data.sections if s.subject}) > 1
-    q_num = 0
-    current_topic = None
-    current_subject = None
-    for section in data.sections:
-        if multi_subject and section.subject and section.subject != current_subject:
+
+    # A single running question number across the whole booklet, so the answer
+    # key lines up no matter which part a question is in.
+    counter = {"n": 0}
+
+    def render_questions(qs):
+        for vq in qs:
+            counter["n"] += 1
+            story.append(_question_block(styles, counter["n"], vq))
+
+    def subject_topic_headers(section, state):
+        if multi_subject and section.subject and section.subject != state["subject"]:
             story.append(Paragraph(_escape(section.subject), styles["subject_band"]))
-            current_subject = section.subject
-            current_topic = None  # restart topic grouping under the new subject
-        if section.topic != current_topic:
+            state["subject"] = section.subject
+            state["topic"] = None
+        if section.topic != state["topic"]:
             story.append(Paragraph(_escape(section.topic), styles["topic"]))
-            current_topic = section.topic
+            state["topic"] = section.topic
+
+    # ---- Warm-up Recap ----
+    if data.recap_questions:
+        sub = f"Quick revision to warm up. About {data.recap_minutes} min." if data.recap_minutes \
+            else "Quick revision to warm up."
+        story.append(_part_band(styles, "Warm-up Recap", "#6b7280", sub))
+        story.append(Spacer(1, 0.3 * cm))
+        render_questions(data.recap_questions)
+
+    # ---- Class Work (lesson + guided + now-you-try) ----
+    cw_sub = f"Do this in your lesson. About {data.classwork_minutes} min." if data.classwork_minutes \
+        else "Do this in your lesson."
+    story.append(_part_band(styles, "Class Work", "#1F3A5F", cw_sub))
+    story.append(Spacer(1, 0.3 * cm))
+    state = {"subject": None, "topic": None}
+    for section in data.sections:
+        subject_topic_headers(section, state)
         time_badge = (
             f'  <font size=9 color="#1B8A3A">(about {section.estimated_minutes} min)</font>'
             if section.estimated_minutes else ""
         )
         story.append(Paragraph(_escape(section.subtopic) + time_badge, styles["subtopic"]))
 
-        if section.teaching is not None:
-            for para in section.teaching.intro_paragraphs:
+        t = section.teaching
+        if t is not None:
+            for para in t.intro_paragraphs:
                 story.append(Paragraph(_escape(para), styles["intro_para"]))
-            if section.teaching.key_points:
+            if t.mnemonic:
+                story.append(Paragraph(f"Remember: {_escape(t.mnemonic)}", styles["mnemonic"]))
+            if t.key_points:
                 story.append(Spacer(1, 0.15 * cm))
-                for kp in section.teaching.key_points:
-                    story.append(Paragraph(
-                        f"• {_escape(kp)}", styles["key_point"],
-                    ))
+                for kp in t.key_points:
+                    story.append(Paragraph(f"• {_escape(kp)}", styles["key_point"]))
             story.append(Spacer(1, 0.3 * cm))
-            story.append(_worked_example_flowable(styles, section.teaching.worked_example))
+            story.append(_worked_example_flowable(styles, t.worked_example, "Watch first (worked example)"))
+            for i, ge in enumerate(t.guided_examples, 1):
+                story.append(Spacer(1, 0.2 * cm))
+                story.append(_worked_example_flowable(styles, ge, "Let's do this one together"))
             story.append(Spacer(1, 0.35 * cm))
             story.append(Paragraph("Now you try:", styles["practice_label"]))
 
-        for vq in section.questions:
-            q_num += 1
-            story.append(_question_block(styles, q_num, vq))
+        render_questions(section.questions)
 
-    # Final Challenge section
-    if data.challenge_questions:
+    # ---- Homework (repetition through the week) + Final Challenge ----
+    has_homework = any(s.homework_questions for s in data.sections)
+    if has_homework or data.challenge_questions:
         story.append(PageBreak())
-        story.append(Spacer(1, 1 * cm))
-        story.append(Paragraph("Final Challenge", styles["challenge_heading"]))
-        challenge_time = (
-            f" (about {data.challenge_minutes} min)" if data.challenge_minutes else ""
-        )
-        story.append(Paragraph(
-            "Let's see how well you know the content. Questions from across everything "
-            f"you just practised.{challenge_time}",
-            styles["challenge_blurb"],
-        ))
-        for vq in data.challenge_questions:
-            q_num += 1
-            story.append(_question_block(styles, q_num, vq))
+        hw_sub = f"Do these through the week to lock it in. About {data.homework_minutes} min." \
+            if data.homework_minutes else "Do these through the week to lock it in."
+        story.append(_part_band(styles, "Homework", "#8B1E3F", hw_sub))
+        story.append(Spacer(1, 0.3 * cm))
+        state = {"subject": None, "topic": None}
+        for section in data.sections:
+            if not section.homework_questions:
+                continue
+            subject_topic_headers(section, state)
+            story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+            render_questions(section.homework_questions)
 
-    # Answers section (practice + challenge)
+        if data.challenge_questions:
+            story.append(Spacer(1, 0.4 * cm))
+            story.append(Paragraph("Final Challenge", styles["challenge_heading"]))
+            ct = f" (about {data.challenge_minutes} min)" if data.challenge_minutes else ""
+            story.append(Paragraph(
+                "Now let's see how well you know it all. Questions from across "
+                f"everything you practised.{ct}",
+                styles["challenge_blurb"],
+            ))
+            render_questions(data.challenge_questions)
+
+    # ---- Answer key (same order: recap, class work, homework, challenge) ----
     story.append(PageBreak())
     story.append(Paragraph("Answers &amp; Worked Solutions", styles["answers_heading"]))
+    acount = {"n": 0}
 
-    q_num = 0
-    current_topic = None
-    current_subject = None
+    def render_answers(qs):
+        for vq in qs:
+            acount["n"] += 1
+            story.append(_answer_block(styles, acount["n"], vq))
+
+    if data.recap_questions:
+        story.append(Paragraph("Warm-up Recap", styles["topic"]))
+        render_answers(data.recap_questions)
+
+    story.append(Paragraph("Class Work", styles["topic"]))
+    state = {"subject": None, "topic": None}
     for section in data.sections:
-        if multi_subject and section.subject and section.subject != current_subject:
-            story.append(Paragraph(_escape(section.subject), styles["subject_band"]))
-            current_subject = section.subject
-            current_topic = None
-        if section.topic != current_topic:
-            story.append(Paragraph(_escape(section.topic), styles["topic"]))
-            current_topic = section.topic
+        subject_topic_headers(section, state)
         story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
-        for vq in section.questions:
-            q_num += 1
-            story.append(_answer_block(styles, q_num, vq))
+        render_answers(section.questions)
+
+    if has_homework:
+        story.append(Paragraph("Homework", styles["topic"]))
+        state = {"subject": None, "topic": None}
+        for section in data.sections:
+            if not section.homework_questions:
+                continue
+            subject_topic_headers(section, state)
+            story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+            render_answers(section.homework_questions)
 
     if data.challenge_questions:
         story.append(Paragraph("Final Challenge", styles["topic"]))
-        for vq in data.challenge_questions:
-            q_num += 1
-            story.append(_answer_block(styles, q_num, vq))
+        render_answers(data.challenge_questions)
 
     doc.build(story)
     return out_path

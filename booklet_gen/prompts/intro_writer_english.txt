@@ -11,6 +11,7 @@ Return a single JSON object matching this schema exactly:
     "A single memorable rule or tip",
     "Another key point"
   ],
+  "mnemonic": "A short memorable name/tip for the skill if one fits naturally, else null",
   "worked_example": {
     "question": "The example question, phrased exactly as it would appear.",
     "steps": [
@@ -20,8 +21,19 @@ Return a single JSON object matching this schema exactly:
     ],
     "answer": "The final answer or model response.",
     "diagram_spec": null
-  }
+  },
+  "guided_examples": [
+    {
+      "question": "A second short example the student follows along with.",
+      "steps": ["Step 1 ...", "Step 2 ...", "how we answer"],
+      "answer": "The answer.",
+      "diagram_spec": null
+    }
+  ]
 }
+
+- mnemonic: a short memorable hook when one fits naturally, else null. Do not force it.
+- guided_examples is the "we do" step: 1 to 2 more short worked examples (with their own passage excerpt if needed) that the student follows along with before working alone.
 
 CONTENT RULES
 - Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Teach the concept: definition, how to spot it, one common mistake.
