@@ -100,3 +100,16 @@ def fail_job(job_id: str, error: str) -> None:
 def get_job(job_id: str) -> Optional[sqlite3.Row]:
     with _connect() as c:
         return c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+
+
+def jobs_started_last_24h(user_id: int) -> int:
+    """Count jobs a user has started in the last 24h, for a simple abuse guard.
+    Every job counts once regardless of type, so a term plan (heavier) counts
+    the same as a single booklet - kept simple on purpose."""
+    since = int(time.time()) - 86400
+    with _connect() as c:
+        row = c.execute(
+            "SELECT COUNT(*) FROM jobs WHERE user_id=? AND created_at>=?",
+            (user_id, since),
+        ).fetchone()
+        return row[0] if row else 0

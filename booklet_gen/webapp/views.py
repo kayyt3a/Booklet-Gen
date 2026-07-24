@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import threading
 import uuid
@@ -22,6 +23,11 @@ bp = Blueprint("views", __name__)
 
 YEARS = [f"Year {n}" for n in range(1, 11)]
 TERM_WEEKS = 10
+
+# Abuse guard: generation is free and unlimited in price, but each one costs
+# real Gemini API spend, so cap requests per account. Not a paywall, just a
+# ceiling against a bot or a stuck retry loop running up the bill.
+DAILY_GENERATION_LIMIT = int(os.environ.get("FOLIO_DAILY_LIMIT", "5"))
 
 
 def _slug(s: str) -> str:
@@ -55,6 +61,11 @@ def generate():
         return redirect(url_for("views.index"))
     if PROGRAMS[program].pick_subject and subject not in ACCELERATE_SUBJECTS:
         flash("Please choose a subject for Academic Accelerate.")
+        return redirect(url_for("views.index"))
+
+    if db.jobs_started_last_24h(g.user["id"]) >= DAILY_GENERATION_LIMIT:
+        flash(f"You've reached today's limit of {DAILY_GENERATION_LIMIT} booklets. "
+              "Please try again tomorrow.")
         return redirect(url_for("views.index"))
 
     job_id = uuid.uuid4().hex
