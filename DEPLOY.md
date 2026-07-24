@@ -4,9 +4,15 @@ The app is a standard Flask app served by gunicorn, packaged in a Dockerfile.
 Any host that runs a container works (Render, Railway, Fly.io, a VPS).
 
 ## What you need first
-- A Google Gemini API key **with billing enabled** (the free tier caps at 500
-  requests/day, which one or two booklets can exhaust). Folio is free to users,
-  so this is the one cost you carry — watch your usage.
+- A Google Gemini API key **with billing enabled**. The free tier caps at a
+  low per-minute request rate on every model (not just a daily count), and
+  the pipeline fires several calls in parallel per booklet, so it gets
+  rate-limited fast even on a cheap model. Billing removes that cap and puts
+  you on standard pay-as-you-go rates. Folio is free to users, so this is the
+  one cost you carry, but at demo-scale traffic it is pennies to a few
+  dollars a month (usage-based, no fixed/monthly fee). See
+  `.env.webapp.example` for the fast/strong model split and which one is
+  worth spending on.
 - A host account and, ideally, a domain.
 
 ## Local run (no Docker)
