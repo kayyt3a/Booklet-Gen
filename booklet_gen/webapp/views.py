@@ -16,7 +16,6 @@ from flask import (
 
 from . import db
 from .auth import login_required
-from .pricing import CREDITS_PER_BOOKLET, term_plan_cost
 from ..programs import PROGRAMS, ACCELERATE_SUBJECTS
 
 bp = Blueprint("views", __name__)
@@ -34,8 +33,7 @@ def index():
     return render_template(
         "index.html",
         programs=PROGRAMS, years=YEARS, subjects=ACCELERATE_SUBJECTS,
-        term_weeks=TERM_WEEKS, term_cost=term_plan_cost(TERM_WEEKS),
-        single_cost=CREDITS_PER_BOOKLET,
+        term_weeks=TERM_WEEKS,
     )
 
 
@@ -59,13 +57,6 @@ def generate():
         flash("Please choose a subject for Academic Accelerate.")
         return redirect(url_for("views.index"))
 
-    cost = term_plan_cost(TERM_WEEKS) if is_term else CREDITS_PER_BOOKLET
-
-    # Charge up front, atomically. Refund if generation fails.
-    if not db.spend_credits(g.user["id"], cost):
-        flash(f"You need {cost} credits for this. You have {g.user['credits']}.")
-        return redirect(url_for("billing.billing"))
-
     job_id = uuid.uuid4().hex
     label = f"{PROGRAMS[program].label} - {year}" + (f" - {subject}" if subject else "")
     if is_term:
@@ -74,7 +65,7 @@ def generate():
 
     args = dict(program=program, year=year, subject=subject or None,
                 topic=topic or None, name=name, is_term=is_term,
-                cost=cost, user_id=g.user["id"],
+                user_id=g.user["id"],
                 out_dir=str(current_app.config["OUTPUT_DIR"]))
     threading.Thread(target=_run_job, args=(job_id, args), daemon=True).start()
     return redirect(url_for("views.progress", job_id=job_id))
@@ -108,8 +99,6 @@ def _run_job(job_id: str, a: dict):
             render_pdf(data, path)
             db.finish_job(job_id, path=str(path))
     except Exception as e:
-        # Refund the credits: the parent should not pay for a failed booklet.
-        db.refund_credits(a["user_id"], a["cost"])
         db.fail_job(job_id, str(e))
 
 

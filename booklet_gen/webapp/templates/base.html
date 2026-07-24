@@ -17,8 +17,6 @@
     header a{color:#fff;text-decoration:none}
     .brand{font-weight:800;letter-spacing:1px;font-size:18px}
     .nav a{margin-left:16px;font-size:14px}
-    .pill{background:var(--orange);color:#3a2600;border-radius:999px;
-      padding:3px 10px;font-size:13px;font-weight:700}
     .wrap{max-width:640px;margin:28px auto;padding:0 16px}
     .card{background:var(--card);border:1px solid var(--border);border-radius:14px;
       padding:28px;box-shadow:0 1px 3px rgba(20,30,50,.04);margin-bottom:18px}
@@ -39,8 +37,6 @@
     .muted{color:var(--muted);font-size:13px}
     .checkbox{display:flex;align-items:center;gap:8px;margin-top:14px}
     .checkbox input{width:auto}
-    .pack{border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px}
-    .pack .price{font-size:22px;font-weight:800;color:var(--navy)}
     a.link{color:var(--navy);font-weight:600}
   </style>
 </head>
@@ -49,8 +45,6 @@
     <a class="brand" href="{{ url_for('views.index') }}">FOLIO</a>
     <div class="nav">
       {% if g.user %}
-        <span class="pill">{{ g.user['credits'] }} credits</span>
-        <a href="{{ url_for('billing.billing') }}">Buy credits</a>
         <a href="{{ url_for('auth.logout') }}">Log out</a>
       {% else %}
         <a href="{{ url_for('auth.login') }}">Log in</a>

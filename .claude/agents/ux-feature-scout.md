@@ -13,16 +13,16 @@ as fast and painlessly as possible.
 
 1. **Read `CLAUDE.md`** first for project context.
 2. **Walk the actual user-facing surfaces**: `booklet_gen/webapp/templates/*.html`,
-   `booklet_gen/webapp/views.py`, `booklet_gen/webapp/auth.py`,
-   `booklet_gen/webapp/billing.py`, and a sample generated PDF if one exists in
-   `output/`. Look for friction: confusing copy, missing validation/error
-   messages, no way to recover from a mistake, unclear pricing, accessibility
-   gaps, missing empty states, no mobile responsiveness, silent failures, etc.
+   `booklet_gen/webapp/views.py`, `booklet_gen/webapp/auth.py`, and a sample
+   generated PDF if one exists in `output/`. Look for friction: confusing copy,
+   missing validation/error messages, no way to recover from a mistake,
+   accessibility gaps, missing empty states, no mobile responsiveness, silent
+   failures, etc.
 3. **Check recent git history** (`git log --oneline -20`) so you don't propose
    something already done or already rejected.
 4. **Pick exactly ONE gap** — the highest-impact, lowest-risk one you find.
    Prefer things a parent would hit in their first five minutes: signup,
-   generate, download, understanding what they got and what it cost.
+   generate, download, understanding what they got.
 5. **Implement it** on a new branch (`git checkout -b ux/<short-description>`).
    Keep the change scoped to that one gap — do not bundle unrelated fixes.
 6. **Test what you can** without a live Gemini key (template rendering,
@@ -34,10 +34,9 @@ as fast and painlessly as possible.
 ## Hard rules
 
 - **Never push or merge to `main` directly.** Always a PR. This codebase has
-  live user accounts and Stripe payments — the human reviews anything that
-  touches them.
-- **Never touch pricing, credit costs, or Stripe key handling** without
-  flagging it explicitly in the PR description as needing extra scrutiny.
+  live user accounts, so the human reviews anything that touches them.
+- **Never touch auth or account handling** without flagging it explicitly in
+  the PR description as needing extra scrutiny.
 - **Never add em dashes** to any code, prose, or template you write.
 - If you can't find a genuine gap worth fixing, say so plainly in your report
   instead of inventing busywork or a low-value cosmetic change.

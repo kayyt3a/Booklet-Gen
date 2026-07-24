@@ -20,9 +20,10 @@ cumulative "Final Challenge", with a verified answer key.
 - **RAG**: local ChromaDB store, ingested from `rag_sources/<Subject>/<Year>/<Tag>/`
   via `scripts/ingest_folder.py`. `rag_sources/` is gitignored (large + some
   content is copyrighted for personal use only, e.g. ACER scholarship papers).
-- **Web app** (`booklet_gen/webapp/`): Flask, SQLite (`db.py`), Stripe checkout
-  (`billing.py`), dropdown generate form. Accounts + credits are live in this
-  codebase — treat auth/payment code with more care than the rest.
+- **Web app** (`booklet_gen/webapp/`): Flask, SQLite (`db.py`), dropdown
+  generate form. Accounts (signup/login) gate access; generation is free and
+  unlimited (no pricing/credits/payments). Treat auth code with more care than
+  the rest.
 - **Term plans**: `pipeline.run_term_plan()` generates N weekly booklets with a
   difficulty ramp and revision weeks at the end.
 - **Deployment**: `Dockerfile` + `DEPLOY.md`, gunicorn entrypoint
@@ -56,4 +57,4 @@ python -m booklet_gen.webapp     # local web app at 127.0.0.1:5000
 
 Any agent/routine working on this repo without direct real-time user
 supervision must open a PR, never push or merge to `main` directly. This repo
-handles user accounts and Stripe payments; changes there need human review.
+handles user accounts and authentication; changes there need human review.

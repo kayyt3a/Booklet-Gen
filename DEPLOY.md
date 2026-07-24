@@ -5,8 +5,8 @@ Any host that runs a container works (Render, Railway, Fly.io, a VPS).
 
 ## What you need first
 - A Google Gemini API key **with billing enabled** (the free tier caps at 500
-  requests/day, which one or two booklets can exhaust).
-- A Stripe account (test mode is fine to start) for taking payments.
+  requests/day, which one or two booklets can exhaust). Folio is free to users,
+  so this is the one cost you carry — watch your usage.
 - A host account and, ideally, a domain.
 
 ## Local run (no Docker)
@@ -31,20 +31,13 @@ Open http://localhost:8080
 2. Create a new "Web Service" from the repo. The host will detect the
    Dockerfile and build it.
 3. Add environment variables in the host dashboard (see `.env.webapp.example`):
-   `FLASK_SECRET_KEY`, `GEMINI_API_KEY`, and the Stripe keys.
+   `FLASK_SECRET_KEY` and `GEMINI_API_KEY`.
 4. Add a persistent disk/volume mounted at `/data` so accounts and generated
    booklets survive restarts.
-5. Deploy. The host gives you a public URL. Put that in `PUBLIC_BASE_URL`.
-
-## Stripe setup
-1. In the Stripe dashboard, get your **Secret key** into `STRIPE_SECRET_KEY`.
-2. Add a webhook endpoint pointing at `https://your-domain.com/webhook`, listening
-   for `checkout.session.completed`. Put its signing secret into
-   `STRIPE_WEBHOOK_SECRET`.
-3. Credit packs and prices live in `booklet_gen/webapp/pricing.py`; edit freely.
+5. Deploy. The host gives you a public URL.
 
 ## Notes
-- SQLite is used for accounts and credits, which is fine for launch. Move to
+- SQLite is used for accounts, which is fine for launch. Move to
   Postgres when you have real traffic (the data layer is isolated in
   `booklet_gen/webapp/db.py`).
 - Generation runs in a background thread per request. For higher volume, move

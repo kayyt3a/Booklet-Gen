@@ -1,7 +1,7 @@
 """Folio web application (Flask).
 
-A parent-facing app: sign up, buy credits, pick Type / Year / Subject from
-dropdowns, and download a generated booklet or a whole term plan.
+A parent-facing app: sign up, pick Type / Year / Subject from dropdowns, and
+download a generated booklet or a whole term plan. Free to use.
 
 Run locally:
     export FLASK_SECRET_KEY=dev  GEMINI_API_KEY=...
@@ -34,11 +34,9 @@ def create_app() -> Flask:
 
     from .auth import bp as auth_bp
     from .views import bp as views_bp
-    from .billing import bp as billing_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(views_bp)
-    app.register_blueprint(billing_bp)
 
     return app
 
