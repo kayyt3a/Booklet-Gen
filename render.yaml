@@ -1,0 +1,36 @@
+# Render Blueprint for the Folio web app.
+#
+# To deploy:
+#   1. Push this repo to GitHub (done).
+#   2. In Render: New > Blueprint, connect this repo. Render reads this file
+#      and creates the service below.
+#   3. When prompted, paste values for FLASK_SECRET_KEY and GEMINI_API_KEY
+#      (they are marked sync:false so they are NOT stored in the repo).
+#   4. Deploy. Render builds the Dockerfile and gives you a public URL.
+#
+# Free plan notes:
+#   - The service spins down after ~15 min idle; the next request cold-starts
+#     in ~30-60s, then runs normally.
+#   - The free plan has NO persistent disk, so the SQLite database and
+#     generated PDFs reset on every restart/redeploy. Fine for a demo.
+#   - To make data persist: change `plan: free` to `plan: starter` and
+#     uncomment the `disk:` block below. That is a paid plan (~$7/mo).
+
+services:
+  - type: web
+    name: folio
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      # Set these in the Render dashboard when prompted (never committed).
+      - key: FLASK_SECRET_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+    # Persistent storage: only available on paid plans. Uncomment together
+    # with `plan: starter` above to keep accounts and PDFs across restarts.
+    # disk:
+    #   name: folio-data
+    #   mountPath: /data
+    #   sizeGB: 1
