@@ -27,6 +27,18 @@ Supported spec types
     An L-shape formed by a rectangle with one corner cut out. All sides
     labelled with dimensions, so the shape is unambiguous.
 
+{ "type": "cuboid", "length": 5, "width": 3, "height": 4, "unit": "cm" }
+    A rectangular prism (cuboid) drawn as a textbook-style 3D solid: an
+    oblique projection with solid visible edges and dashed hidden edges,
+    with length, width, and height each labelled. Use this for volume and
+    surface-area questions about boxes, cubes (length=width=height), and
+    rectangular prisms. This is the go-to for "find the volume" questions.
+
+{ "type": "cylinder", "radius": 3, "height": 8, "unit": "cm" }
+    An upright cylinder with an elliptical top, a solid front base and a
+    dashed hidden back base, labelled with radius and height. Use for
+    volume/surface-area of cylinders (typically upper primary and beyond).
+
 { "type": "compare", "items": [
     {"label": "A", "spec": {...}},
     {"label": "B", "spec": {...}}
@@ -266,6 +278,128 @@ def _l_shape(spec: dict, out: Path) -> None:
     plt.close(fig)
 
 
+def _cuboid(spec: dict, out: Path) -> None:
+    """A rectangular prism in oblique (cabinet) projection.
+
+    length -> width across the front (x), height -> up the front (y),
+    width  -> depth receding to the back. Visible edges solid, the three
+    edges meeting the hidden back-bottom corner dashed. Each dimension is
+    labelled once.
+    """
+    import matplotlib.pyplot as plt
+
+    L = float(spec.get("length", 5))   # front width (x)
+    H = float(spec.get("height", 4))   # front height (y)
+    W = float(spec.get("width", 3))    # depth (receding)
+    unit = str(spec.get("unit", ""))
+    for name, v in (("length", L), ("height", H), ("width", W)):
+        if v <= 0 or v > 100:
+            raise ValueError(f"cuboid {name} out of range: {v}")
+
+    # Cabinet projection: depth is halved and receding at ~40 degrees.
+    theta = math.radians(40)
+    k = 0.5
+    ox, oy = W * k * math.cos(theta), W * k * math.sin(theta)
+
+    # Front face corners.
+    A = (0.0, 0.0)          # front bottom-left
+    B = (L, 0.0)            # front bottom-right
+    C = (L, H)             # front top-right
+    D = (0.0, H)           # front top-left
+    # Back face corners (front + offset).
+    A2 = (A[0] + ox, A[1] + oy)
+    B2 = (B[0] + ox, B[1] + oy)
+    C2 = (C[0] + ox, C[1] + oy)
+    D2 = (D[0] + ox, D[1] + oy)
+
+    span = max(L + ox, H + oy)
+    scale = 3.2 / span
+    fig, ax = plt.subplots(figsize=(span * scale + 1.4, span * scale + 1.2), dpi=180)
+
+    def line(p, q, dashed=False):
+        ax.plot([p[0], q[0]], [p[1], q[1]], color=LINE_COLOR,
+                linewidth=LINE_WIDTH,
+                linestyle=(0, (4, 3)) if dashed else "solid")
+
+    # Solid visible edges: front face, top face, right face.
+    for p, q in [(A, B), (B, C), (C, D), (D, A),      # front
+                 (D, D2), (C, C2), (B, B2),           # receding (visible)
+                 (D2, C2), (C2, B2)]:                  # back top + back right
+        line(p, q)
+    # Hidden edges (dashed): the back-bottom-left corner A2 and its edges.
+    for p, q in [(A, A2), (A2, B2), (A2, D2)]:
+        line(p, q, dashed=True)
+
+    us = f" {unit}" if unit else ""
+    # length: front bottom edge A-B, below.
+    ax.text((A[0] + B[0]) / 2, -H * 0.07, f"{_pretty_num(L)}{us}",
+            ha="center", va="top", fontsize=11)
+    # height: front left edge A-D, to the left.
+    ax.text(-L * 0.05, H / 2, f"{_pretty_num(H)}{us}",
+            ha="right", va="center", fontsize=11, rotation=90)
+    # width (depth): receding edge B-B2, offset to the lower right.
+    ax.text((B[0] + B2[0]) / 2 + L * 0.03, (B[1] + B2[1]) / 2 - H * 0.02,
+            f"{_pretty_num(W)}{us}", ha="left", va="center", fontsize=11)
+
+    ax.set_xlim(-L * 0.2, L + ox + L * 0.12)
+    ax.set_ylim(-H * 0.18, H + oy + H * 0.1)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
+    plt.close(fig)
+
+
+def _cylinder(spec: dict, out: Path) -> None:
+    """An upright cylinder: elliptical top, solid front base, dashed back base."""
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Ellipse, Arc
+
+    r = float(spec.get("radius", 3))
+    H = float(spec.get("height", 8))
+    unit = str(spec.get("unit", ""))
+    if r <= 0 or r > 100 or H <= 0 or H > 100:
+        raise ValueError("cylinder radius/height out of range")
+
+    ell_h = r * 0.5            # visual half-height of the perspective ellipse
+    scale = 3.0 / max(2 * r, H + 2 * ell_h)
+    fig, ax = plt.subplots(figsize=(2 * r * scale + 1.4, (H + 2 * ell_h) * scale + 1.0),
+                           dpi=180)
+
+    cx = 0.0
+    top_y = H
+    bot_y = 0.0
+
+    # Vertical sides.
+    ax.plot([cx - r, cx - r], [bot_y, top_y], color=LINE_COLOR, linewidth=LINE_WIDTH)
+    ax.plot([cx + r, cx + r], [bot_y, top_y], color=LINE_COLOR, linewidth=LINE_WIDTH)
+    # Top: full ellipse.
+    ax.add_patch(Ellipse((cx, top_y), 2 * r, 2 * ell_h, fill=False,
+                         edgecolor=LINE_COLOR, linewidth=LINE_WIDTH))
+    # Bottom: front half solid, back half dashed.
+    ax.add_patch(Arc((cx, bot_y), 2 * r, 2 * ell_h, theta1=180, theta2=360,
+                     edgecolor=LINE_COLOR, linewidth=LINE_WIDTH))          # front
+    ax.add_patch(Arc((cx, bot_y), 2 * r, 2 * ell_h, theta1=0, theta2=180,
+                     edgecolor=LINE_COLOR, linewidth=LINE_WIDTH,
+                     linestyle=(0, (4, 3))))                                # hidden back
+
+    us = f" {unit}" if unit else ""
+    # radius: from centre of top ellipse out to the rim.
+    ax.plot([cx, cx + r], [top_y, top_y], color=SHADE_COLOR,
+            linewidth=LINE_WIDTH, linestyle=(0, (2, 2)))
+    ax.text(cx + r / 2, top_y + ell_h * 0.35, f"r = {_pretty_num(r)}{us}",
+            ha="center", va="bottom", fontsize=10, color=LINE_COLOR)
+    # height: down the right side.
+    ax.text(cx + r + r * 0.12, H / 2, f"{_pretty_num(H)}{us}",
+            ha="left", va="center", fontsize=11, rotation=90)
+
+    ax.set_xlim(cx - r * 1.5, cx + r * 1.7)
+    ax.set_ylim(-ell_h * 2.2, top_y + ell_h * 2.2)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
+    plt.close(fig)
+
+
 def _pretty_num(x: float) -> str:
     """Render numbers without gratuitous decimals — 4.0 -> "4", 3.5 -> "3.5"."""
     if abs(x - round(x)) < 1e-9:
@@ -340,5 +474,7 @@ _RENDERERS = {
     "number_line": _number_line,
     "rectangle": _rectangle,
     "l_shape": _l_shape,
+    "cuboid": _cuboid,
+    "cylinder": _cylinder,
     "compare": _compare,
 }

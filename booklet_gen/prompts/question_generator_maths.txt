@@ -42,6 +42,10 @@ Supported spec types (use exactly these keys):
   Labelled rectangle. Use for perimeter/area questions.
 - {"type":"l_shape","outer_length":12,"outer_width":10,"cut_length":4,"cut_width":3,"unit":"m"}
   L-shape (rectangle with a corner cut out). All six sides get labelled with the computed dimensions.
+- {"type":"cuboid","length":5,"width":3,"height":4,"unit":"cm"}
+  A rectangular prism (3D box) drawn as a labelled solid with dashed hidden edges. USE THIS for volume and surface-area questions about boxes, cubes (set length=width=height), and rectangular prisms. A volume question should almost always show a cuboid, never a flat rectangle.
+- {"type":"cylinder","radius":3,"height":8,"unit":"cm"}
+  An upright 3D cylinder labelled with radius and height. Use for volume/surface-area of cylinders (upper primary and beyond).
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
   A composite figure showing 2-4 sub-diagrams side by side, each labelled underneath. USE THIS whenever the question asks the student to compare things ("which has more shaded", "which is bigger", "which fraction is larger", "put these in order"). Any of the other types can be a sub-spec.
 

@@ -49,6 +49,10 @@ Supported spec types:
 - {"type":"number_line","from":0,"to":1,"divisions":4,"mark_at":[0.75],"label_at":["3/4"]}
 - {"type":"rectangle","length":8,"width":3,"unit":"cm"}
 - {"type":"l_shape","outer_length":12,"outer_width":10,"cut_length":4,"cut_width":3,"unit":"m"}
+- {"type":"cuboid","length":5,"width":3,"height":4,"unit":"cm"}
+  A 3D rectangular prism (or cube, when length=width=height). Use when teaching volume or surface area of boxes and prisms — show a cuboid, not a flat rectangle.
+- {"type":"cylinder","radius":3,"height":8,"unit":"cm"}
+  A 3D cylinder labelled with radius and height. Use when teaching volume or surface area of cylinders.
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
   For comparison examples. Sub-figures must be meaningfully different; refer to labels in the question text.
 
