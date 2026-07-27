@@ -5,6 +5,7 @@ import re
 from typing import Optional
 
 from .agents.challenge_generator import ChallengeGeneratorAgent
+from .agents.exam_generator import ExamGeneratorAgent
 from .agents.intro_writer import IntroWriterAgent
 from .agents.llm_judge import LLMJudgeValidator
 from .agents.outline_parser import OutlineParserAgent
@@ -17,9 +18,20 @@ from .config import Config, load_config
 from .llm import get_client
 from .rag import Retriever
 from .schemas import (
-    BookletData, Question, SubtopicOutput, SubtopicTeaching,
-    ValidatedQuestion,
+    BookletData, ExamPaper, ExamSection, Question, SubtopicOutput,
+    SubtopicTeaching, ValidatedQuestion,
 )
+
+# WACE ATAR examination shape: two sections, 35% calculator-free and 65%
+# calculator-assumed, 10 minutes reading plus 150 minutes working time.
+EXAM_SPEC = {
+    "reading_minutes": 10,
+    "sections": (
+        # (name, calculator_allowed, marks, working_minutes)
+        ("Section One: Calculator-free", False, 52, 50),
+        ("Section Two: Calculator-assumed", True, 98, 100),
+    ),
+}
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +63,7 @@ class BookletPipeline:
             questions_per_subtopic=self._n_classwork + self._n_homework,
         )
         self._challenger = ChallengeGeneratorAgent(self._client, self._config.max_retries)
+        self._exam = ExamGeneratorAgent(self._client, self._config.max_retries)
         self._term_planner = TermPlannerAgent(self._client, self._config.max_retries)
         self._sympy = SympyValidator()
         self._reasoning = ReasoningValidator()
@@ -201,6 +214,85 @@ class BookletPipeline:
             booklets.append(data)
             prev_focus = wk.focus
         return booklets
+
+    def run_exam(
+        self,
+        year_level: str,
+        student_name: str,
+        subject: str = "Mathematics Methods",
+        topic_focus: Optional[str] = None,
+        unit: Optional[str] = "Units 3 and 4",
+    ) -> ExamPaper:
+        """Generate a full practice ATAR examination paper.
+
+        Sections run concurrently (each is one network-bound call plus batched
+        validation). Questions that fail validation are dropped rather than
+        regenerated: on an exam paper a wrong marking key is worse than a
+        slightly short section, and the calculus validator now catches the
+        derivative/integral errors that matter most here.
+        """
+        log.info("pipeline.exam.start",
+                 extra={"subject": subject, "year_level": year_level,
+                        "topic_focus": topic_focus})
+
+        specs = EXAM_SPEC["sections"]
+
+        def build(spec) -> ExamSection:
+            name, calc, marks, minutes = spec
+            chunks = self._retrieve(subject, year_level, "exam", topic_focus or name)
+            draft = self._exam.generate_section(
+                subject, year_level, name, calc, marks,
+                topic_focus=topic_focus, reference_chunks=chunks,
+            )
+            verdicts = self._validate_many(
+                "Mathematics", year_level, draft.questions, chunks,
+            )
+            kept: list[ValidatedQuestion] = []
+            for q, r in zip(draft.questions, verdicts):
+                image_path, image_attr = self._resolve_visual(q)
+                kept.append(ValidatedQuestion(
+                    question=q, verified=r.verified, validator_notes=r.notes,
+                    image_path=str(image_path) if image_path else None,
+                    image_attribution=image_attr,
+                ))
+            log.info("pipeline.exam.section",
+                     extra={"section": name, "questions": len(kept),
+                            "marks": sum(q.question.marks or 0 for q in kept),
+                            "verified": sum(1 for q in kept if q.verified)})
+            return ExamSection(
+                name=name, calculator_allowed=calc,
+                description=(
+                    "Calculators are not permitted. Give answers in exact form."
+                    if not calc else
+                    "Calculators satisfying SCSA conditions are permitted."
+                ),
+                questions=kept, working_minutes=minutes,
+            )
+
+        if self._max_workers > 1 and len(specs) > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(self._max_workers, len(specs))) as ex:
+                sections = list(ex.map(build, specs))
+        else:
+            sections = [build(s) for s in specs]
+
+        return ExamPaper(
+            subject=subject,
+            year_level=year_level,
+            student_name=student_name,
+            unit=unit,
+            sections=sections,
+            reading_minutes=EXAM_SPEC["reading_minutes"],
+            materials=[
+                "To be provided by the supervisor: this Question/Answer booklet, "
+                "and the Formula sheet.",
+                "To be provided by the candidate: pens, pencils, eraser, ruler, "
+                "and a highlighter.",
+                "Special items for Section Two: drawing instruments, templates, "
+                "notes on two unfolded sheets of A4 paper, and up to three "
+                "calculators satisfying SCSA conditions.",
+            ],
+        )
 
     @staticmethod
     def _timing(sections, challenge, recap) -> dict:

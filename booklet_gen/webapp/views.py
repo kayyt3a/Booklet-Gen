@@ -17,11 +17,11 @@ from flask import (
 
 from . import db
 from .auth import login_required
-from ..programs import PROGRAMS, ACCELERATE_SUBJECTS
+from ..programs import PROGRAMS, ACCELERATE_SUBJECTS, EXAM_PROGRAMS, EXAM_YEARS
 
 bp = Blueprint("views", __name__)
 
-YEARS = [f"Year {n}" for n in range(1, 11)]
+YEARS = [f"Year {n}" for n in range(1, 13)]
 TERM_WEEKS = 10
 
 # Abuse guard: generation is free and unlimited in price, but each one costs
@@ -39,7 +39,7 @@ def index():
     return render_template(
         "index.html",
         programs=PROGRAMS, years=YEARS, subjects=ACCELERATE_SUBJECTS,
-        term_weeks=TERM_WEEKS,
+        term_weeks=TERM_WEEKS, exam_programs=EXAM_PROGRAMS, exam_years=EXAM_YEARS,
     )
 
 
@@ -62,6 +62,11 @@ def generate():
     if PROGRAMS[program].pick_subject and subject not in ACCELERATE_SUBJECTS:
         flash("Please choose a subject for Academic Accelerate.")
         return redirect(url_for("views.index"))
+    is_exam = program in EXAM_PROGRAMS
+    if is_exam and year not in EXAM_YEARS:
+        flash(f"{PROGRAMS[program].label} is only available for "
+              f"{' and '.join(EXAM_YEARS)}.")
+        return redirect(url_for("views.index"))
 
     if db.jobs_started_last_24h(g.user["id"]) >= DAILY_GENERATION_LIMIT:
         flash(f"You've reached today's limit of {DAILY_GENERATION_LIMIT} booklets. "
@@ -76,7 +81,7 @@ def generate():
 
     args = dict(program=program, year=year, subject=subject or None,
                 topic=topic or None, name=name, is_term=is_term,
-                user_id=g.user["id"],
+                is_exam=is_exam, user_id=g.user["id"],
                 out_dir=str(current_app.config["OUTPUT_DIR"]))
     threading.Thread(target=_run_job, args=(job_id, args), daemon=True).start()
     return redirect(url_for("views.progress", job_id=job_id))
@@ -85,12 +90,19 @@ def generate():
 def _run_job(job_id: str, a: dict):
     """Background worker. Imported lazily so the web process starts fast."""
     from ..pipeline import BookletPipeline
-    from ..formatter import render_pdf
+    from ..formatter import render_pdf, render_exam_pdf
     try:
         pipeline = BookletPipeline()
         out_dir = Path(a["out_dir"])
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        if a["is_term"]:
+        if a.get("is_exam"):
+            paper = pipeline.run_exam(
+                a["year"], a["name"], topic_focus=a["topic"],
+            )
+            path = out_dir / f"{job_id}.pdf"
+            render_exam_pdf(paper, path)
+            db.finish_job(job_id, path=str(path))
+        elif a["is_term"]:
             booklets = pipeline.run_term_plan(
                 a["program"], a["year"], a["name"],
                 subject=a["subject"], weeks=TERM_WEEKS, topic_hint=a["topic"],

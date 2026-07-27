@@ -24,6 +24,9 @@ class Question(BaseModel):
     answer: str
     working: str
     difficulty: Literal["easy", "medium", "hard"] = "medium"
+    # Exam papers only: marks allocated to this question. Booklet questions
+    # leave this as None.
+    marks: Optional[int] = None
     # Optional visual — only one of these is populated per question.
     # Maths: diagram_spec triggers a matplotlib-rendered figure.
     # English/Science: image_query triggers a Wikimedia Commons lookup.
@@ -99,6 +102,46 @@ class BookletData(BaseModel):
     week_number: Optional[int] = None
     total_weeks: Optional[int] = None
     week_focus: Optional[str] = None
+
+
+class ExamSection(BaseModel):
+    """One section of an exam paper, e.g. WACE Section One (calculator-free)."""
+    name: str                                   # "Section One: Calculator-free"
+    calculator_allowed: bool = False
+    description: Optional[str] = None           # instructions shown under the heading
+    questions: List[ValidatedQuestion] = Field(default_factory=list)
+    working_minutes: Optional[int] = None
+
+    @property
+    def total_marks(self) -> int:
+        return sum(vq.question.marks or 0 for vq in self.questions)
+
+
+class ExamPaper(BaseModel):
+    """A full exam paper. Structurally different from BookletData: no teaching
+    content, questions carry marks, and questions are grouped into timed
+    calculator-free / calculator-assumed sections."""
+    subject: str                                # "Mathematics Methods"
+    year_level: str                             # "Year 12"
+    student_name: str
+    unit: Optional[str] = None                  # "Units 3 and 4"
+    sections: List[ExamSection] = Field(default_factory=list)
+    reading_minutes: int = 10
+    # Free-text lines printed in the "materials" block on the cover.
+    materials: List[str] = Field(default_factory=list)
+
+    @property
+    def total_marks(self) -> int:
+        return sum(s.total_marks for s in self.sections)
+
+    @property
+    def working_minutes(self) -> int:
+        return sum(s.working_minutes or 0 for s in self.sections)
+
+
+class ExamQuestionDraft(BaseModel):
+    """What the exam generator returns for one section, before validation."""
+    questions: List[Question] = Field(default_factory=list)
 
 
 class TermWeek(BaseModel):

@@ -12,10 +12,11 @@
   {% else %}
   <form method="post" action="{{ url_for('views.generate') }}">
     <label for="program">Booklet type</label>
-    <select id="program" name="program" required onchange="toggleSubject()">
+    <select id="program" name="program" required onchange="onProgramChange()">
       <option value="" disabled selected>Choose a type</option>
       {% for key, p in programs.items() %}
-        <option value="{{ key }}" data-pick="{{ 'yes' if p.pick_subject else 'no' }}">
+        <option value="{{ key }}" data-pick="{{ 'yes' if p.pick_subject else 'no' }}"
+                data-exam="{{ 'yes' if key in exam_programs else 'no' }}">
           {{ p.label }}: {{ p.blurb }}
         </option>
       {% endfor %}
@@ -26,7 +27,9 @@
         <label for="year">Year level</label>
         <select id="year" name="year" required>
           <option value="" disabled selected>Year</option>
-          {% for y in years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+          {% for y in years %}
+            <option value="{{ y }}" data-exam-year="{{ 'yes' if y in exam_years else 'no' }}">{{ y }}</option>
+          {% endfor %}
         </select>
       </div>
       <div id="subjectField" style="display:none">
@@ -44,25 +47,51 @@
     <label for="student_name">Student name</label>
     <input id="student_name" name="student_name" type="text" placeholder="Alex" required>
 
-    <div class="checkbox">
+    <div class="checkbox" id="termField">
       <input id="term_plan" name="term_plan" type="checkbox">
       <label for="term_plan" style="margin:0">Generate a full {{ term_weeks }}-week term plan
         instead of a single booklet</label>
     </div>
 
-    <button type="submit">Generate booklet</button>
-    <p class="muted" style="margin-top:10px">Free to generate.</p>
+    <button type="submit" id="submitBtn">Generate booklet</button>
+    <p class="muted" style="margin-top:10px" id="formNote">Free to generate.</p>
   </form>
   {% endif %}
 </div>
 
 <script>
-  function toggleSubject() {
+  // Exam programs (e.g. Methods Exam) produce a full examination paper, so they
+  // have no subject picker, no term plan, and only senior year levels apply.
+  function onProgramChange() {
     var sel = document.getElementById('program');
     var opt = sel.options[sel.selectedIndex];
-    var needs = opt && opt.getAttribute('data-pick') === 'yes';
-    document.getElementById('subjectField').style.display = needs ? 'block' : 'none';
-    document.getElementById('subject').required = needs;
+    var needsSubject = opt && opt.getAttribute('data-pick') === 'yes';
+    var isExam = opt && opt.getAttribute('data-exam') === 'yes';
+
+    document.getElementById('subjectField').style.display = needsSubject ? 'block' : 'none';
+    document.getElementById('subject').required = needsSubject;
+
+    document.getElementById('termField').style.display = isExam ? 'none' : 'flex';
+    if (isExam) document.getElementById('term_plan').checked = false;
+
+    // Restrict the year dropdown to the years the chosen program supports.
+    var year = document.getElementById('year');
+    var cleared = false;
+    for (var i = 0; i < year.options.length; i++) {
+      var o = year.options[i];
+      if (!o.value) continue;
+      var allowed = !isExam || o.getAttribute('data-exam-year') === 'yes';
+      o.hidden = !allowed;
+      o.disabled = !allowed;
+      if (!allowed && o.selected) { o.selected = false; cleared = true; }
+    }
+    if (cleared) year.selectedIndex = 0;
+
+    document.getElementById('submitBtn').textContent =
+      isExam ? 'Generate exam paper' : 'Generate booklet';
+    document.getElementById('formNote').textContent = isExam
+      ? 'Free to generate. Produces a full practice paper with a marking key.'
+      : 'Free to generate.';
   }
 </script>
 {% endblock %}

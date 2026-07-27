@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
@@ -15,7 +15,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib.utils import ImageReader
 
-from .schemas import BookletData, ValidatedQuestion, WorkedExample
+from .schemas import BookletData, ExamPaper, ValidatedQuestion, WorkedExample
 
 
 PAGE_MARGIN = 2.0 * cm
@@ -111,6 +111,12 @@ def _make_styles():
         "answer": ParagraphStyle(
             "answer", parent=base["Normal"], fontName="Helvetica-Bold",
             fontSize=11, leading=14,
+        ),
+        # Marks printed in the right margin of an exam question.
+        "exam_marks": ParagraphStyle(
+            "exam_marks", parent=base["Normal"], fontName="Helvetica-Bold",
+            fontSize=10, leading=14, alignment=TA_RIGHT,
+            textColor=colors.HexColor("#1F3A5F"),
         ),
         "working": ParagraphStyle(
             "working", parent=base["Normal"], fontName="Helvetica",
@@ -309,6 +315,11 @@ def _draw_page_chrome(canvas, doc):
             )
         except Exception:
             pass
+        canvas.restoreState()
+        return
+    # Exam papers use a plain cover with no background; still keep the running
+    # header off it, the way a real examination front page looks.
+    if doc.page == 1 and getattr(doc, "_plain_cover", False):
         canvas.restoreState()
         return
     canvas.setFont("Helvetica", 9)
@@ -512,6 +523,146 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     if data.challenge_questions:
         story.append(Paragraph("Final Challenge", styles["topic"]))
         render_answers(data.challenge_questions)
+
+    doc.build(story)
+    return out_path
+
+
+def _exam_question_block(styles, q_num: int, vq: ValidatedQuestion, body_width: float):
+    """An exam question: number and text on the left, marks in the right margin,
+    then ruled working space sized to the marks awarded."""
+    marks = vq.question.marks or 0
+    mark_label = f"({marks} mark{'s' if marks != 1 else ''})" if marks else ""
+    # Exam questions carry (a)/(b) parts on their own lines, so honour the
+    # newlines the generator emits instead of running them together.
+    text = _escape(vq.question.question).replace("\n", "<br/>")
+    row = Table(
+        [[Paragraph(f"<b>{q_num}.</b>&nbsp;&nbsp;{text}", styles["question"]),
+          Paragraph(mark_label, styles["exam_marks"])]],
+        colWidths=[body_width - 2.6 * cm, 2.6 * cm],
+    )
+    row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    block = [row]
+
+    img = _make_image(vq.image_path)
+    if img is not None:
+        block.append(Spacer(1, 0.3 * cm))
+        block.append(img)
+
+    # Working space: roughly proportional to the marks, within sane bounds.
+    space = min(max(marks, 1) * 0.9, 7.0)
+    block.append(Spacer(1, space * cm))
+    return KeepTogether(block)
+
+
+def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
+    """Render a practice ATAR examination paper.
+
+    Deliberately separate from render_pdf: an exam has no teaching content, its
+    questions carry marks, and it needs a formal instructions cover and a
+    marking key rather than a friendly answer key.
+    """
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    doc = BaseDocTemplate(
+        str(out_path), pagesize=A4,
+        leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
+        topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
+        title=f"{paper.subject} Practice Examination",
+        author="Folio",
+    )
+    doc._header_text = f"{paper.subject}  |  {paper.year_level}  |  {paper.student_name}"
+    # Exams use a plain cover: a decorative background undercuts the look.
+    doc._cover_bg = None
+    doc._plain_cover = True
+
+    frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="body")
+    doc.addPageTemplates([PageTemplate(id="main", frames=frame, onPage=_draw_page_chrome)])
+
+    styles = _make_styles()
+    body_width = A4[0] - 2 * PAGE_MARGIN
+    story = []
+
+    # ---- Cover: formal exam front page ----
+    story.append(Spacer(1, 1.2 * cm))
+    story.append(Paragraph("FOLIO", styles["wordmark"]))
+    story.append(Spacer(1, 0.8 * cm))
+    story.append(Paragraph("Practice Examination", styles["subtitle"]))
+    story.append(Paragraph(_escape(paper.subject), styles["title"]))
+    if paper.unit:
+        story.append(Paragraph(_escape(paper.unit), styles["subtitle"]))
+    story.append(Spacer(1, 1.0 * cm))
+    story.append(Paragraph(f"Prepared for <b>{_escape(paper.student_name)}</b>",
+                           styles["subtitle"]))
+    story.append(Spacer(1, 1.0 * cm))
+
+    total_time = paper.reading_minutes + paper.working_minutes
+    info = [
+        ["Reading time", f"{paper.reading_minutes} minutes"],
+        ["Working time", f"{paper.working_minutes} minutes"],
+        ["Total time", f"{total_time} minutes"],
+        ["Total marks", str(paper.total_marks)],
+    ]
+    for s in paper.sections:
+        pct = round(100 * s.total_marks / paper.total_marks) if paper.total_marks else 0
+        info.append([s.name, f"{s.total_marks} marks ({pct}%)"])
+    tbl = Table(info, colWidths=[body_width * 0.45, body_width * 0.55])
+    tbl.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#1c2434")),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.4, colors.HexColor("#DDDDDD")),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(tbl)
+
+    if paper.materials:
+        story.append(Spacer(1, 0.8 * cm))
+        story.append(Paragraph("Material required for this examination", styles["subtopic"]))
+        for line in paper.materials:
+            story.append(Paragraph(f"• {_escape(line)}", styles["key_point"]))
+
+    story.append(Spacer(1, 0.8 * cm))
+    story.append(Paragraph(
+        "This is a practice paper generated by Folio. Questions marked with a "
+        "check mark in the marking key have been symbolically verified.",
+        styles["footer_note"],
+    ))
+    story.append(PageBreak())
+
+    # ---- Sections ----
+    counter = {"n": 0}
+    for section in paper.sections:
+        sub = f"{section.total_marks} marks"
+        if section.working_minutes:
+            sub += f"  |  suggested working time {section.working_minutes} minutes"
+        story.append(_part_band(styles, section.name, "#1F3A5F", sub))
+        if section.description:
+            story.append(Spacer(1, 0.25 * cm))
+            story.append(Paragraph(_escape(section.description), styles["intro_para"]))
+        story.append(Spacer(1, 0.4 * cm))
+        for vq in section.questions:
+            counter["n"] += 1
+            story.append(_exam_question_block(styles, counter["n"], vq, body_width))
+        story.append(PageBreak())
+
+    # ---- Marking key ----
+    story.append(_part_band(styles, "Marking Key", "#1B8A3A",
+                            "Solutions and mark allocations"))
+    story.append(Spacer(1, 0.4 * cm))
+    counter["n"] = 0
+    for section in paper.sections:
+        story.append(Paragraph(_escape(section.name), styles["topic"]))
+        for vq in section.questions:
+            counter["n"] += 1
+            story.append(_answer_block(styles, counter["n"], vq))
 
     doc.build(story)
     return out_path

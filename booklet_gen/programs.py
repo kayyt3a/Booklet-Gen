@@ -33,6 +33,9 @@ class Program:
                 return f"{year_level} numeracy, NAPLAN practice{t}"
             return (f"{year_level} literacy, NAPLAN practice: reading comprehension "
                     f"and language conventions{t}")
+        if key == "methods_exam":
+            return (f"{year_level} WACE Mathematics Methods Units 3 and 4, "
+                    f"ATAR examination practice{t}")
         # accelerate (or any subject-driven program)
         return f"{year_level} {subject}{t}"
 
@@ -62,7 +65,22 @@ PROGRAMS: dict[str, Program] = {
         pick_subject=True,
         blurb="Curriculum revision to help a student get ahead at school. Pick the subject.",
     ),
+    "methods_exam": Program(
+        key="methods_exam",
+        label="Methods Exam",
+        subject_display="Mathematics Methods Units 3 and 4",
+        subjects=("Mathematics Methods",),
+        pick_subject=False,
+        blurb="A full practice ATAR examination paper for WACE Mathematics Methods, "
+              "with a calculator-free and a calculator-assumed section and a marking key.",
+    ),
 }
+
+# Programs that produce an exam paper rather than a teaching booklet. These
+# take a different pipeline entry point (run_exam) and formatter
+# (render_exam_pdf), and are only offered at senior-secondary year levels.
+EXAM_PROGRAMS = {"methods_exam"}
+EXAM_YEARS = ("Year 11", "Year 12")
 
 # Subjects a parent may pick for Academic Accelerate.
 ACCELERATE_SUBJECTS = ("Mathematics", "English", "Science")
