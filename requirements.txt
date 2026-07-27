@@ -1,6 +1,9 @@
 flask>=3.0.0
 gunicorn>=21.2.0
 pydantic>=2.5.0
+# Postgres backend for accounts and the pgvector RAG store. Only used when
+# DATABASE_URL is set; a local checkout falls back to SQLite + Chroma.
+psycopg[binary,pool]>=3.1.0
 sympy>=1.12
 reportlab>=4.0.0
 python-dotenv>=1.0.0

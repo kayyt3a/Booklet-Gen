@@ -37,14 +37,41 @@ Open http://localhost:8080
 2. Create a new "Web Service" from the repo. The host will detect the
    Dockerfile and build it.
 3. Add environment variables in the host dashboard (see `.env.webapp.example`):
-   `FLASK_SECRET_KEY` and `GEMINI_API_KEY`.
-4. Add a persistent disk/volume mounted at `/data` so accounts and generated
-   booklets survive restarts.
-5. Deploy. The host gives you a public URL.
+   `FLASK_SECRET_KEY`, `GEMINI_API_KEY`, and `DATABASE_URL`.
+4. Deploy. The host gives you a public URL.
+
+## Database (important)
+
+Set `DATABASE_URL` to a Postgres connection string. One database backs both
+the user accounts and the RAG library:
+
+- **Without it**, accounts fall back to a local SQLite file and RAG falls back
+  to the on-disk Chroma store. Neither is in the Docker image and neither
+  survives a restart, so on a free host accounts silently disappear and the
+  app generates with no curriculum grounding at all.
+- **With it**, accounts and job history persist, and the RAG library is
+  available to the deployed app.
+
+Free Postgres with pgvector: Neon or Supabase. Render's own Postgres works too.
+The `vector` extension and all tables are created automatically on first run.
+
+To move an existing local RAG library up without re-embedding (so it costs no
+Gemini quota):
+
+```
+DATABASE_URL=...  python scripts/migrate_rag_to_postgres.py --dry-run
+DATABASE_URL=...  python scripts/migrate_rag_to_postgres.py
+```
+
+Generated PDFs still land on the instance filesystem and are lost on restart,
+which only affects re-downloading an old booklet. Mount a disk at `/data` (a
+paid plan on Render) if you want those kept too.
 
 ## Notes
-- SQLite is used for accounts, which is fine for launch. Move to
-  Postgres when you have real traffic (the data layer is isolated in
-  `booklet_gen/webapp/db.py`).
+- `gemini-embedding-001` returns 3072-dimension vectors. pgvector's ANN
+  indexes cap at 2000 dimensions, so the store uses an exact scan, which is
+  correct and fast for a library of a few thousand chunks. If the library
+  grows large, reduce the embedding dimension to 1536 and an HNSW index is
+  created automatically (set `FOLIO_EMBED_DIM` to match, and re-ingest).
 - Generation runs in a background thread per request. For higher volume, move
   to a proper task queue (RQ or Celery); the job code is already isolated.

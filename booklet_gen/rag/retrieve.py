@@ -57,13 +57,13 @@ class Retriever:
         # Strict filter: subject AND (year matches OR year is the wildcard "Any",
         # used for cross-year curriculum docs like the SCSA scope-and-sequence).
         # Fallback: subject-only.
-        strict = {"$and": [
+        attempts = (
+            {"subject": subject, "year_levels": [year_level, "Any"]},
             {"subject": subject},
-            {"$or": [{"year_level": year_level}, {"year_level": "Any"}]},
-        ]}
-        for where in (strict, {"subject": subject}):
+        )
+        for filters in attempts:
             try:
-                hits = self._store.query(vecs[0], top_k=self._top_k, where=where)
+                hits = self._store.query(vecs[0], top_k=self._top_k, **filters)
             except Exception as e:
                 log.warning("rag.query_failed", extra={"error": str(e)[:200]})
                 return []

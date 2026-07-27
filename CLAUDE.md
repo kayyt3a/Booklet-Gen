@@ -17,13 +17,25 @@ cumulative "Final Challenge", with a verified answer key.
   everything else. Validation is **batched** (one call per subtopic, not one
   per question) via `pipeline._validate_many` — don't regress this to
   per-question calls, it's the main lever on API cost/quota.
-- **RAG**: local ChromaDB store, ingested from `rag_sources/<Subject>/<Year>/<Tag>/`
-  via `scripts/ingest_folder.py`. `rag_sources/` is gitignored (large + some
+- **RAG**: ingested from `rag_sources/<Subject>/<Year>/<Tag>/` via
+  `scripts/ingest_folder.py`. `rag_sources/` is gitignored (large + some
   content is copyrighted for personal use only, e.g. ACER scholarship papers).
-- **Web app** (`booklet_gen/webapp/`): Flask, SQLite (`db.py`), dropdown
-  generate form. Accounts (signup/login) gate access; generation is free and
-  unlimited (no pricing/credits/payments). Treat auth code with more care than
-  the rest.
+  Two store backends behind one interface (`rag/store.py`): Postgres+pgvector
+  when `DATABASE_URL` is set, on-disk ChromaDB otherwise.
+- **Database**: one Postgres serves both accounts and the vector store, via
+  `DATABASE_URL` (see `dbpool.py`). Without it everything falls back to local
+  SQLite + Chroma, which is fine locally but means a deployed instance loses
+  accounts on restart and has no RAG. `scripts/migrate_rag_to_postgres.py`
+  moves an existing Chroma library up without re-embedding.
+- **Web app** (`booklet_gen/webapp/`): Flask, `db.py` (Postgres or SQLite),
+  dropdown generate form. Accounts (signup/login) gate access; generation is
+  free and unlimited (no pricing/credits/payments), with a per-account daily
+  cap as an abuse guard. Treat auth code with more care than the rest.
+- **Exam papers**: `pipeline.run_exam()` + `formatter.render_exam_pdf()`
+  produce a WACE-shaped Methods practice paper (calculator-free and
+  calculator-assumed sections, marks, marking key). Separate path from
+  booklets. Calculus answers are verified symbolically in
+  `agents/validator.py`.
 - **Term plans**: `pipeline.run_term_plan()` generates N weekly booklets with a
   difficulty ramp and revision weeks at the end.
 - **Deployment**: `Dockerfile` + `DEPLOY.md`, gunicorn entrypoint

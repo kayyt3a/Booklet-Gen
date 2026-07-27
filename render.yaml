@@ -28,8 +28,16 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-    # Persistent storage: only available on paid plans. Uncomment together
-    # with `plan: starter` above to keep accounts and PDFs across restarts.
+      # Postgres connection string, from Neon / Supabase / Render Postgres.
+      # This is what makes accounts survive restarts AND gives the deployed
+      # app a real RAG library. Without it the app falls back to on-disk
+      # SQLite + Chroma, which are wiped whenever the instance restarts.
+      - key: DATABASE_URL
+        sync: false
+    # Generated PDFs still land on the instance filesystem and are lost on
+    # restart. That only affects re-downloading an old booklet: accounts, job
+    # history, and the RAG library all live in Postgres. To keep the PDFs too,
+    # switch to `plan: starter` and uncomment this disk.
     # disk:
     #   name: folio-data
     #   mountPath: /data
