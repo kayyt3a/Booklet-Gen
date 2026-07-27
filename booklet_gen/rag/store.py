@@ -18,12 +18,17 @@ import os
 from pathlib import Path
 from typing import Optional, Sequence
 
-from ..dbpool import get_pool, is_postgres
+from ..dbpool import advisory_lock, get_pool, is_postgres
 
 log = logging.getLogger(__name__)
 
 DEFAULT_DIR = Path("rag_store")
 COLLECTION = "booklet_gen"
+
+# Distinct from webapp/db.py's schema lock key. Booklet generation runs
+# subtopics on a thread pool, and each can be the first to build a Retriever,
+# so this schema setup is just as exposed to the same boot-race as db.py's.
+_SCHEMA_LOCK_KEY = 72_461_002
 
 # gemini-embedding-001 returns 3072 dimensions by default. Override only if you
 # also set output_dimensionality on the embedder.
@@ -100,7 +105,7 @@ class _PgVectorStore:
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
-        with get_pool().connection() as conn:
+        with advisory_lock(_SCHEMA_LOCK_KEY) as conn:
             conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
             conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS rag_chunks (

@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from contextlib import contextmanager
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -61,6 +62,27 @@ def get_pool():
         )
         log.info("db.pool_opened", extra={"max_size": _pool.max_size})
         return _pool
+
+
+@contextmanager
+def advisory_lock(key: int):
+    """Serialize a block of DDL across every process and thread using this
+    database, keyed by an arbitrary int agreed on by both callers.
+
+    `CREATE TABLE/INDEX/EXTENSION IF NOT EXISTS` still races when two sessions
+    run it at the same instant: both can see "does not exist" and both
+    attempt the create, and the loser gets a duplicate-key error against a
+    system catalog rather than a friendly "already exists". This is exactly
+    what happened the first time this app booted two gunicorn workers against
+    a fresh database. A session-level advisory lock makes the second caller
+    simply wait instead of racing.
+    """
+    with get_pool().connection() as conn:
+        conn.execute("SELECT pg_advisory_lock(%s)", (key,))
+        try:
+            yield conn
+        finally:
+            conn.execute("SELECT pg_advisory_unlock(%s)", (key,))
 
 
 def close_pool() -> None:

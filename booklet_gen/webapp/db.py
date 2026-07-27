@@ -19,9 +19,13 @@ from typing import Optional
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from ..dbpool import get_pool, is_postgres
+from ..dbpool import advisory_lock, get_pool, is_postgres
 
 DB_PATH = Path(os.environ.get("FOLIO_DB", "folio.db"))
+
+# Arbitrary, just needs to be distinct from other advisory-lock keys in this
+# codebase (see rag/store.py, which uses a different one for its own schema).
+_SCHEMA_LOCK_KEY = 72_461_001
 
 
 def _q(sql: str) -> str:
@@ -93,8 +97,10 @@ CREATE INDEX IF NOT EXISTS jobs_user_created_idx ON jobs (user_id, created_at DE
 
 def init_db() -> None:
     if is_postgres():
-        with _cursor() as cur:
-            cur.execute(_PG_SCHEMA)
+        # Concurrent gunicorn workers can boot at the same instant against a
+        # fresh database; serialize schema creation so only one actually races.
+        with advisory_lock(_SCHEMA_LOCK_KEY) as conn:
+            conn.execute(_PG_SCHEMA)
     else:
         conn = sqlite3.connect(DB_PATH, timeout=30)
         try:
