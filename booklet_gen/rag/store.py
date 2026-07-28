@@ -85,6 +85,19 @@ class _ChromaStore:
     def count(self) -> int:
         return self._collection.count()
 
+    def stats(self) -> list[dict]:
+        from collections import Counter
+        raw = self._collection.get(include=["metadatas"])
+        tally: Counter = Counter()
+        for m in raw.get("metadatas") or []:
+            m = m or {}
+            tally[(m.get("subject") or "?", m.get("year_level") or "?",
+                   m.get("topics") or "?", m.get("source") or "?")] += 1
+        return [
+            {"subject": s, "year_level": y, "topics": t, "source": src, "chunks": n}
+            for (s, y, t, src), n in sorted(tally.items())
+        ]
+
     def delete_by_source(self, source_id: str) -> None:
         self._collection.delete(where={"source_id": source_id})
 
@@ -201,6 +214,18 @@ class _PgVectorStore:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM rag_chunks")
                 return int(cur.fetchone()[0])
+
+    def stats(self) -> list[dict]:
+        from psycopg.rows import dict_row
+        with get_pool().connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("""
+                    SELECT subject, year_level, topics, source, COUNT(*) AS chunks
+                    FROM rag_chunks
+                    GROUP BY subject, year_level, topics, source
+                    ORDER BY subject, year_level, topics, source
+                """)
+                return [dict(r) for r in cur.fetchall()]
 
     def delete_by_source(self, source_id: str) -> None:
         with get_pool().connection() as conn:

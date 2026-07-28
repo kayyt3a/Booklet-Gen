@@ -83,7 +83,10 @@ EXAM_PROGRAMS = {"methods_exam"}
 EXAM_YEARS = ("Year 11", "Year 12")
 
 # Subjects a parent may pick for Academic Accelerate.
-ACCELERATE_SUBJECTS = ("Mathematics", "English", "Science")
+# Science is intentionally not offered: there is no Science material in the RAG
+# library, so it would generate ungrounded. The engine and its prompts are
+# still present, so re-enabling it is just adding "Science" back here.
+ACCELERATE_SUBJECTS = ("Mathematics", "English")
 
 _SUBJECT_ALIASES = {
     "maths": "Mathematics", "math": "Mathematics", "mathematics": "Mathematics",
