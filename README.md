@@ -1,126 +1,188 @@
 # Folio
 
-A multi-agent tutoring booklet generator for **Years 1–10**. Built for parents and tutors who want to give kids an early edge — school revision, NAPLAN prep, and selective-school/scholarship-style practice — without hours of prep work. Ships **Maths, Science, and English** — each with its own generator prompt and its own validation strategy. Output is a clean PDF booklet with a verified-answer key.
+An AI practice-booklet generator for Australian students. A parent or tutor
+picks a booklet type, year level, and topic, and Folio produces a printable PDF:
+a mini-lesson, worked examples, guided practice, independent questions, a
+cumulative final challenge, and an answer key whose maths has been verified
+symbolically rather than taken on trust.
+
+It also produces full WACE-shaped practice examination papers for Year 12
+Mathematics Methods, with calculator-free and calculator-assumed sections,
+mark allocations, and a marking key.
+
+Free to use. Web app with accounts, plus a CLI.
+
+## Product lines
+
+| Program              | Covers                                    | Years |
+| -------------------- | ----------------------------------------- | ----- |
+| Academic Accelerate  | School revision. Parent picks the subject | 1-10  |
+| NAPLAN Practice      | Numeracy and literacy in one booklet      | 1-10  |
+| Scholarships         | Verbal and quantitative reasoning         | 1-10  |
+| Methods Exam         | Full ATAR practice paper + marking key    | 11-12 |
+
+Term plans generate ten weekly booklets at once, with a difficulty ramp and
+revision weeks at the end.
 
 ## Pipeline
 
 ```
-description ("Year 8 maths, fractions and ratios")
-  -> Outline Parser Agent   (fast LLM tier, Pydantic-validated JSON)
-  -> Question Generator Agent (strong LLM tier, subject-specific system prompt, loops per subtopic)
-  -> Validator Agent        (tiered: sympy for maths, LLM-as-judge for science/english)
-  -> Formatter              (ReportLab PDF)
+request ("Year 8 maths, fractions and ratios")
+  -> Outline Parser        fast tier, Pydantic-validated JSON
+  -> per subtopic, concurrently:
+       RAG retrieval       curriculum material for this subject and year
+       Intro Writer        mini-lesson, worked example, guided examples
+       Question Generator  one batch covering classwork and homework
+       Validator           batched, one call per subtopic
+  -> Recap + Final Challenge
+  -> Formatter             ReportLab PDF
 ```
 
-Each agent lives in its own module (`booklet_gen/agents/`). Each subject's generator system prompt lives in its own file under `booklet_gen/prompts/` so you can iterate per-subject without touching code.
+Each agent is its own module under `booklet_gen/agents/`, and each subject's
+system prompt is a separate file under `booklet_gen/prompts/`, so prompts can
+be iterated without touching code. Subtopics run on a thread pool since each is
+a batch of network-bound calls.
 
-## Tiered validation
+Exam papers take a separate path: `pipeline.run_exam()` targets a mark total
+per section rather than a question count, and `formatter.render_exam_pdf()`
+renders an examination front page, marks in the margin, working space scaled to
+the marks, and a marking key.
 
-| Subject     | Primary validator            | Fallback                        |
-| ----------- | ---------------------------- | ------------------------------- |
-| Mathematics | `sympy` symbolic check       | LLM-judge if sympy has no handle |
-| Science     | LLM-as-judge (fresh context) | —                               |
-| English     | LLM-as-judge (fresh context) | —                               |
+## Validation
 
-- **Sympy path**: for algebra/arithmetic/equations. Substitutes the proposed answer back into the equation from the question (`x = 4` into `2x + 3 = 11`), or checks `simplify(expr - answer) == 0` for compute/simplify questions. Handles prompt prefixes like "Solve for x:" by walking off leading tokens until sympify succeeds.
-- **LLM-judge path**: a separate LLM call with an independent system prompt (`prompts/validator_llm_judge.txt`). Because the API call is stateless, the judge is grading someone else's work rather than self-checking — per the brief.
-- Unverified questions are still included in the booklet but skip the check mark, and every subtopic's failure rate is logged so weak spots are visible.
+The point of the project. Generated answers are checked before they reach a
+student, by whichever method can actually prove the answer.
+
+| Path                    | Handles                                            | Cost      |
+| ----------------------- | -------------------------------------------------- | --------- |
+| SymPy symbolic          | Algebra, arithmetic, derivatives, integrals         | No API call |
+| Reasoning checker       | Letter-shift ciphers, arithmetic/geometric sequences | No API call |
+| LLM judge, fresh context| English, comprehension, everything else             | One batched call |
+
+- **Algebra**: substitutes the proposed answer back into the equation found in
+  the question text, or checks `simplify(expr - answer) == 0`.
+- **Calculus**: derivatives compared against `sp.diff` (including derivatives
+  at a point), definite integrals against `sp.integrate`, and indefinite
+  integrals verified by differentiating the answer back to the integrand, which
+  makes the `+ c` term irrelevant. The parser accepts what a model actually
+  writes: `3x^2`, `sin(2x)`, `e^x`.
+- **Reasoning**: derives the shift rule from a cipher's worked example and
+  rejects the question outright if no consistent rule exists, catching
+  unsolvable puzzles that an LLM judge waves through.
+- **LLM judge**: a separate stateless call, so it grades someone else's work
+  rather than self-checking. Validation is **batched**, one call per subtopic
+  rather than one per question, which is the main lever on API cost.
+
+Anything a checker cannot parse defers to the judge rather than being wrongly
+rejected. Unverified questions still appear but without the check mark, and
+each subtopic's failure rate is logged.
+
+## Resource library (RAG)
+
+Curriculum documents and past papers are chunked, embedded with Gemini
+`gemini-embedding-001`, and retrieved per subtopic to calibrate style and
+difficulty against real material. Two interchangeable backends:
+
+- **Postgres + pgvector** when `DATABASE_URL` is set. Deployments use this, so
+  the live app has a real library.
+- **On-disk ChromaDB** otherwise, for a local checkout.
+
+```bash
+python scripts/ingest_folder.py        # ingest rag_sources/<Subject>/<Year>/<Tag>/
+python scripts/rag_status.py           # what is in the library, and what is missing
+python scripts/migrate_rag_to_postgres.py   # move a local library up, no re-embedding
+```
+
+Retrieval filters on subject and year, with an `All Years` wildcard for
+cross-year curriculum documents. It degrades gracefully: an empty or
+unreachable store returns no chunks and generation continues ungrounded.
+
+PDF text extraction is pypdf per page, falling back to Tesseract OCR for pages
+that extract almost nothing, which is common in workbook scans.
+
+Source files and the vector store are gitignored. Some material is copyrighted
+for personal use, so keep it that way.
 
 ## Setup
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
-# edit .env — set LLM_PROVIDER and the matching API key
+cp .env.example .env          # set GEMINI_API_KEY
 ```
 
-The LLM backend is provider-agnostic. Swap providers by changing `LLM_PROVIDER` in `.env`:
+The LLM backend is provider-agnostic via `LLM_PROVIDER`: `gemini` (default,
+needs `GEMINI_API_KEY`) or `claude` (needs `ANTHROPIC_API_KEY`). Fast and
+strong tiers are set per provider with `*_MODEL_FAST` / `*_MODEL_STRONG`.
+Outline parsing uses the fast tier; everything quality-sensitive uses strong.
 
-- `gemini` (default) — uses `google-generativeai`, needs `GEMINI_API_KEY`
-- `claude` — uses `anthropic`, needs `ANTHROPIC_API_KEY`
-
-Fast/strong tiers per provider are set via `*_MODEL_FAST` / `*_MODEL_STRONG`. Outline parsing runs on the fast tier; question generation and LLM-judge run on the strong tier.
+Embeddings always use Gemini, so a `GEMINI_API_KEY` is needed for RAG even when
+generating with Claude.
 
 ## Run
 
 CLI:
 ```bash
-python main.py "Year 8 maths, fractions and ratios" --name "Alex" --questions 5
-python main.py "Year 9 science, chemical reactions and stoichiometry" --name "Sam"
-python main.py "Year 10 English, persuasive writing" --name "Priya"
+python main.py --program accelerate --subject Maths --year "Year 5" --name "Sam"
 ```
 
-Web:
+Web app:
 ```bash
-python app.py
-# open http://127.0.0.1:5000
+python -m booklet_gen.webapp        # http://127.0.0.1:5000
 ```
 
-Outputs land in `output/`. Structured JSONL logs land in `logs/`.
+Outputs land in `output/`, structured JSONL logs in `logs/`.
 
-## Resource library (RAG)
+## Web app
 
-The pipeline reads from a local, private ChromaDB store before each subtopic runs. Retrieved chunks are passed to the Question Generator as reference material (for style/difficulty calibration) and to the LLM-judge as grounding (for cross-checking answers against real textbook material).
+Flask, in `booklet_gen/webapp/`. Accounts gate access; generation is free and
+unlimited, with a per-account daily cap as an abuse guard since each booklet
+costs real API spend. Finished PDFs are stored in the database and listed on a
+per-account library page, because the hosting filesystem is ephemeral and
+anything left only on disk disappears on the next deploy.
 
-**Ingest a source:**
-```bash
-python -m booklet_gen.rag.ingest path/to/file.pdf \
-    --subject Mathematics --year "Year 6" --topics "Fractions,Decimals"
-```
+Passwords are hashed with werkzeug. Sessions are signed with `FLASK_SECRET_KEY`.
 
-Supported inputs: `.pdf` (text-based, no OCR), `.txt`, `.md`.
+## Deployment
 
-**Where things live** (all gitignored):
-- Raw source files: `rag_sources/` (recommended — not enforced)
-- Vector store: `rag_store/`
-
-**Embeddings**: Gemini `text-embedding-004` (free tier). Requires `GEMINI_API_KEY` even if `LLM_PROVIDER=claude` — embeddings and generation are decoupled. Without a Gemini key, the retriever degrades gracefully (returns no chunks; the pipeline runs exactly as before RAG was added).
-
-**PDF extraction**: pypdf per page; falls back to Tesseract OCR (via `pdf2image` + `pytesseract`) for any page that extracts fewer than 100 characters. This handles the common case of workbook PDFs where instructional text is rendered as images. Requires system binaries:
-
-```bash
-# macOS
-brew install poppler tesseract
-# Debian/Ubuntu
-sudo apt-get install poppler-utils tesseract-ocr
-```
-
-OCR adds ~2s per page; text-heavy pages are unaffected.
-
-**Copyright**: keep source files and the vector store private. The `.gitignore` already excludes them.
-
-## Not in v1
-
-- **File-upload outlines** — the Outline Parser already handles arbitrary text; a PDF upload path in the web UI just needs to extract text and call the same agent.
-- **Additional subjects** — add a `prompts/question_generator_<subject>.txt` file, register the subject in `question_generator.py`, and optionally add a subject-specific validator (e.g. a chemistry-equation-balancing rules engine to strengthen science validation).
-- **Senior maths sympy adapters** (integration, implicit differentiation, vectors) — currently fall back to LLM-judge; a real sympy adapter would give rigorous symbolic verification for Year 11-12 topics.
-- **Analytics / auth** — v2.
+Dockerfile plus `render.yaml`, served by gunicorn. See `DEPLOY.md`. One Postgres
+backs both the accounts and the vector library, so `DATABASE_URL` is the single
+setting that makes a deployment durable.
 
 ## Layout
 
 ```
 booklet_gen/
-  agents/
-    outline_parser.py       description -> Outline JSON
-    question_generator.py   subject-aware question generation
-    validator.py            sympy symbolic validator
-    llm_judge.py            LLM-as-judge validator (fresh context)
-  llm/
-    base.py                 provider-agnostic interface
-    gemini.py               Gemini backend
-    claude.py               Claude backend
-  prompts/
-    outline_parser.txt
-    question_generator_maths.txt
-    question_generator_science.txt
-    question_generator_english.txt
-    validator_llm_judge.txt
-  config.py                 env-loaded config
-  schemas.py                Pydantic schemas at every agent boundary
-  pipeline.py               orchestration + validator routing
-  formatter.py              PDF renderer
-  logging_setup.py          JSONL structured logs
-app.py                      Flask web UI
-main.py                     CLI
+  agents/          outline parser, intro writer, question + challenge +
+                   exam generators, term planner, validators
+  llm/             provider-agnostic client (Gemini, Claude)
+  prompts/         one system prompt per subject and agent
+  rag/             chunking, embeddings, store (pgvector or Chroma), retrieval
+  visuals/         matplotlib diagrams, including 3D solids for volume
+  webapp/          Flask app: auth, generate form, library, downloads
+  pipeline.py      orchestration, validator routing, concurrency
+  formatter.py     booklet and exam PDF renderers
+  schemas.py       Pydantic schemas at every agent boundary
+  dbpool.py        shared Postgres pool
+scripts/           ingestion, RAG status, migration, verification checks
+main.py            CLI
 ```
+
+## Verification scripts
+
+Not a full test suite, but the correctness-critical paths have checks:
+
+```bash
+python scripts/check_calculus_validator.py   # 17 cases, right and wrong answers
+python scripts/check_postgres_backends.py    # accounts + pgvector, needs DATABASE_URL
+python scripts/check_library.py              # history, downloads, retention, isolation
+```
+
+## Known gaps
+
+- No automated test suite beyond the verification scripts above.
+- Science has an engine and prompts but is not offered, since there is no
+  Science material in the library to ground it.
+- `google-generativeai` is deprecated upstream; a migration to `google-genai`
+  is pending.
+- No password reset or email verification.
