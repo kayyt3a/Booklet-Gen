@@ -75,13 +75,47 @@ point never made it in. Re-run once quota resets and check `rag_status.py`.
 
 ## Where to get sources
 
-- **NAPLAN past papers**, free and public, the single biggest lift for NAPLAN
-  quality: https://www.acara.edu.au/assessment/naplan
-  Numeracy papers go under `Mathematics/`, reading/language/writing under
-  `English/`.
-- **SCSA (WA curriculum)**, free and official, good for school-focused work:
-  https://k10outline.scsa.wa.edu.au/
+Ordered by what actually moves booklet quality, given what is already ingested.
+
+### 1. Curriculum scope and sequence (fills the even-year gap)
+
+NAPLAN only runs in Years 3, 5, 7 and 9, so past papers can never ground
+Academic Accelerate in the even years. Scope-and-sequence documents can: file
+them under `All Years` and every year level retrieves them.
+
+- **SCSA (WA)**, free, official, already PDF, no conversion needed. Best fit.
+  https://k10outline.scsa.wa.edu.au/home/wa-curriculum/learning-areas/mathematics/p-10-mat-curriculum
+  https://k10outline.scsa.wa.edu.au/home/wa-curriculum/learning-areas/english/p-10-english-curriculum
+  Look for the Mathematics P-10, Years 7-10 Mathematics, Mathematics P-6, and
+  English P-10 scope-and-sequence PDFs.
+- **Australian Curriculum v9 (national)**, free and official, but the downloads
+  are `.docx` and the ingester reads `.pdf` only, so convert first.
+  https://www.australiancurriculum.edu.au/downloads/learning-areas/
+  QCAA mirrors the same content as browsable pages:
+  https://www.qcaa.qld.edu.au/p-10/aciq/version-9/learning-areas/p-10-mathematics
+
+### 2. Reasoning material (Scholarships has none)
+
+The Scholarships program currently generates ungrounded. The NSW Department of
+Education publishes free official Selective High School Placement Test sample
+papers with answer keys, covering Reading, Mathematical Reasoning, Thinking
+Skills and Writing. That maps straight onto `Reasoning/`. Prefer the
+department's own copies over the third-party sites that mirror them, and favour
+recent material: the test became computer-based in 2025.
+
+### 3. NAPLAN past papers
+
+Free and public, the biggest lift for NAPLAN quality:
+https://www.acara.edu.au/assessment/naplan
+Numeracy papers go under `Mathematics/`, reading/language/writing under
+`English/`. Note that public archives thin out after 2016, when the test moved
+to online adaptive delivery. The 2008-2011 and 2012-2016 sets may be the
+complete official offering.
+
+### 4. Other
+
 - **WACE ATAR past papers and marking keys** for Methods Exam, from SCSA.
+  Methods only. Specialist is not a product line.
 - **Textbooks**, copyrighted. Fine privately to guide *style*, since generated
   questions are new content rather than copies. Do not redistribute.
 
