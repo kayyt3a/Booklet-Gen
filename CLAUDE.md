@@ -11,11 +11,13 @@ cumulative "Final Challenge", with a verified answer key.
   formatter. Calls Gemini via `booklet_gen/llm/`.
 - **Booklet types** (`booklet_gen/programs.py`): Scholarships (reasoning engine),
   NAPLAN Practice (maths+English combined), Academic Accelerate (parent picks
-  subject). Names here are the source of truth for cover/menu labels.
+  subject: Mathematics or English; Science exists but is not offered, no RAG
+  material), Methods Exam (Year 11-12 WACE practice paper, separate pipeline
+  and formatter path). Names here are the source of truth for cover/menu labels.
 - **Validation**: SymPy for maths, a deterministic cipher/sequence checker for
   Reasoning (`booklet_gen/agents/reasoning_validator.py`), an LLM judge for
   everything else. Validation is **batched** (one call per subtopic, not one
-  per question) via `pipeline._validate_many` — don't regress this to
+  per question) via `pipeline._validate_many`. Don't regress this to
   per-question calls, it's the main lever on API cost/quota.
 - **RAG**: ingested from `rag_sources/<Subject>/<Year>/<Tag>/` via
   `scripts/ingest_folder.py`. `rag_sources/` is gitignored (large + some
@@ -47,15 +49,16 @@ cumulative "Final Challenge", with a verified answer key.
   formatter has a deterministic stripper (`_dedash` in `formatter.py`) as a
   backstop, but write clean in the first place.
 - **All commits/pushes go to `main`** directly, per explicit user instruction
-  from earlier in this project — this is a deliberate override of the usual
+  from earlier in this project. This is a deliberate override of the usual
   feature-branch default. Exception: anything an autonomous agent does (see
   below) opens a PR instead.
 - User is on **Windows** (PowerShell), moderate technical comfort, learning as
   they go. When giving them commands, use PowerShell syntax and remind them to
   `cd` into the repo first if relevant.
-- User's Gemini key is on the **free tier** (500 requests/day) unless they've
-  said otherwise recently — batched validation and `--workers` exist partly to
-  stretch this.
+- User's Gemini key has **billing enabled** (since 2026-07-27), so free-tier
+  rate limits no longer apply. Batched validation still matters for cost.
+- Deployed on **Render** with a **Supabase Postgres** (session pooler) as
+  DATABASE_URL, backing both accounts and the pgvector RAG library.
 
 ## Running things
 
