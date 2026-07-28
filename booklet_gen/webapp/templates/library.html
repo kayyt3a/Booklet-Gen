@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}My booklets - Folio{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>My booklets</h1>
+  <p class="sub">Everything you have generated, newest first.</p>
+
+  {% if not jobs %}
+    <div class="empty">
+      <p>You have not generated anything yet.</p>
+      <a class="btn small" href="{{ url_for('views.index') }}">Create your first booklet</a>
+    </div>
+  {% else %}
+    <ul class="jobs">
+      {% for j in jobs %}
+        <li class="jobItem">
+          <div class="jobMain">
+            <p class="jobTitle">{{ j.label or 'Booklet' }}</p>
+            <div class="jobMeta">
+              {{ j.created_at | timeago }}
+              {% if j.status == 'done' and j.bytes %}
+                &middot; {{ (j.bytes / 1024 / 1024) | round(1) }} MB
+              {% endif %}
+              {% if j.status == 'error' and j.error %}
+                &middot; {{ j.error[:90] }}
+              {% endif %}
+            </div>
+          </div>
+
+          {% if j.status == 'done' %}
+            {% if j.filename %}
+              <a class="btn secondary small" href="{{ url_for('views.download', job_id=j.id) }}">Download</a>
+            {% else %}
+              <span class="pill done" title="This file was cleared to save space">Expired</span>
+            {% endif %}
+          {% elif j.status == 'running' %}
+            <a class="btn secondary small" href="{{ url_for('views.progress', job_id=j.id) }}">In progress</a>
+          {% else %}
+            <span class="pill error">Failed</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    <div class="hint">
+      Only your {{ retention }} most recent files are kept for download. Older
+      entries stay in this list but the file is cleared to save space.
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

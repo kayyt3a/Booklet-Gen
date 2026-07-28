@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS jobs_user_created_idx ON jobs (user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS job_files (
+    job_id     TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+    filename   TEXT NOT NULL,
+    mimetype   TEXT NOT NULL,
+    data       BYTEA NOT NULL,
+    bytes      INTEGER NOT NULL,
+    created_at BIGINT NOT NULL
+);
 """
 
 _SQLITE_SCHEMA = """
@@ -92,6 +100,15 @@ CREATE TABLE IF NOT EXISTS jobs (
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS jobs_user_created_idx ON jobs (user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS job_files (
+    job_id     TEXT PRIMARY KEY,
+    filename   TEXT NOT NULL,
+    mimetype   TEXT NOT NULL,
+    data       BLOB NOT NULL,
+    bytes      INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(job_id) REFERENCES jobs(id)
+);
 """
 
 
@@ -180,6 +197,71 @@ def fail_job(job_id: str, error: str) -> None:
 def get_job(job_id: str):
     with _cursor() as cur:
         cur.execute(_q("SELECT * FROM jobs WHERE id=?"), (job_id,))
+        return cur.fetchone()
+
+
+def list_jobs(user_id: int, limit: int = 50) -> list:
+    """A user's generation history, newest first, with whether the file is
+    still downloadable."""
+    with _cursor() as cur:
+        cur.execute(
+            _q("""
+            SELECT j.id, j.status, j.label, j.error, j.created_at,
+                   f.filename, f.bytes
+            FROM jobs j
+            LEFT JOIN job_files f ON f.job_id = j.id
+            WHERE j.user_id = ?
+            ORDER BY j.created_at DESC
+            LIMIT ?
+            """),
+            (user_id, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+# Keep the newest N deliverables per account. Booklet PDFs are megabytes and a
+# free Postgres tier is ~500MB, so old blobs are dropped while the job rows
+# stay, leaving the history intact with the download marked expired.
+FILE_RETENTION_PER_USER = int(os.environ.get("FOLIO_FILE_RETENTION", "20"))
+
+
+def save_job_file(job_id: str, user_id: int, filename: str,
+                  mimetype: str, data: bytes) -> None:
+    """Store the finished deliverable in the database so it survives restarts.
+
+    Render's filesystem is ephemeral, so a PDF left only on disk disappears on
+    the next deploy and the history page links to nothing.
+    """
+    payload = memoryview(data) if is_postgres() else sqlite3.Binary(data)
+    with _cursor() as cur:
+        cur.execute(
+            _q("DELETE FROM job_files WHERE job_id=?"), (job_id,))
+        cur.execute(
+            _q("INSERT INTO job_files (job_id, filename, mimetype, data, bytes,"
+               " created_at) VALUES (?,?,?,?,?,?)"),
+            (job_id, filename, mimetype, payload, len(data), int(time.time())),
+        )
+        # Trim this user's older blobs.
+        cur.execute(
+            _q("""
+            DELETE FROM job_files WHERE job_id IN (
+                SELECT f.job_id FROM job_files f
+                JOIN jobs j ON j.id = f.job_id
+                WHERE j.user_id = ?
+                ORDER BY f.created_at DESC
+                LIMIT 1000 OFFSET ?
+            )
+            """),
+            (user_id, FILE_RETENTION_PER_USER),
+        )
+
+
+def get_job_file(job_id: str):
+    with _cursor() as cur:
+        cur.execute(
+            _q("SELECT filename, mimetype, data FROM job_files WHERE job_id=?"),
+            (job_id,),
+        )
         return cur.fetchone()
 
 

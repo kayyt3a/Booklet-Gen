@@ -81,7 +81,7 @@ def generate():
 
     args = dict(program=program, year=year, subject=subject or None,
                 topic=topic or None, name=name, is_term=is_term,
-                is_exam=is_exam, user_id=g.user["id"],
+                is_exam=is_exam, user_id=g.user["id"], label=label,
                 out_dir=str(current_app.config["OUTPUT_DIR"]))
     threading.Thread(target=_run_job, args=(job_id, args), daemon=True).start()
     return redirect(url_for("views.progress", job_id=job_id))
@@ -95,12 +95,14 @@ def _run_job(job_id: str, a: dict):
         pipeline = BookletPipeline()
         out_dir = Path(a["out_dir"])
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        slug = _slug(a.get("label") or "booklet")
         if a.get("is_exam"):
             paper = pipeline.run_exam(
                 a["year"], a["name"], topic_focus=a["topic"],
             )
             path = out_dir / f"{job_id}.pdf"
             render_exam_pdf(paper, path)
+            _archive(job_id, a["user_id"], path, f"{slug}.pdf", "application/pdf")
             db.finish_job(job_id, path=str(path))
         elif a["is_term"]:
             booklets = pipeline.run_term_plan(
@@ -112,6 +114,13 @@ def _run_job(job_id: str, a: dict):
             for data in booklets:
                 fn = f"week-{data.week_number:02d}-{_slug(data.week_focus or 'booklet')}.pdf"
                 render_pdf(data, folder / fn)
+            # Archive the term plan as the same zip the user would download.
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for pdf in sorted(folder.glob("*.pdf")):
+                    zf.write(pdf, pdf.name)
+            db.save_job_file(job_id, a["user_id"], f"{slug}.zip",
+                             "application/zip", buf.getvalue())
             db.finish_job(job_id, dir=str(folder))
         else:
             data = pipeline.run_program(
@@ -120,9 +129,24 @@ def _run_job(job_id: str, a: dict):
             )
             path = out_dir / f"{job_id}.pdf"
             render_pdf(data, path)
+            _archive(job_id, a["user_id"], path, f"{slug}.pdf", "application/pdf")
             db.finish_job(job_id, path=str(path))
     except Exception as e:
         db.fail_job(job_id, str(e))
+
+
+def _archive(job_id: str, user_id: int, path: Path, filename: str, mimetype: str):
+    """Copy a finished file into the database.
+
+    The instance filesystem is ephemeral, so anything left only on disk is gone
+    after the next restart or deploy and the history page would link to
+    nothing. Failing to archive must not fail the job: the user can still
+    download it in this session from disk.
+    """
+    try:
+        db.save_job_file(job_id, user_id, filename, mimetype, path.read_bytes())
+    except Exception as e:
+        current_app.logger.warning("archive failed for %s: %s", job_id, e)
 
 
 @bp.route("/progress/<job_id>")
@@ -148,27 +172,41 @@ def status(job_id: str):
     return jsonify(payload)
 
 
+@bp.route("/library")
+@login_required
+def library():
+    """Everything this account has generated, newest first."""
+    return render_template("library.html", jobs=db.list_jobs(g.user["id"]),
+                           retention=db.FILE_RETENTION_PER_USER)
+
+
 @bp.route("/download/<job_id>")
 @login_required
 def download(job_id: str):
     job = db.get_job(job_id)
     if not job or job["user_id"] != g.user["id"] or job["status"] != "done":
         abort(404)
-    if job["path"]:
-        p = Path(job["path"])
-        if not p.exists():
-            abort(404)
-        return send_file(p, as_attachment=True, download_name=f"{_slug(job['label'])}.pdf",
+
+    # Prefer the archived copy: it is the only one that survives a restart.
+    stored = db.get_job_file(job_id)
+    if stored is not None:
+        return send_file(
+            io.BytesIO(bytes(stored["data"])), as_attachment=True,
+            download_name=stored["filename"], mimetype=stored["mimetype"],
+        )
+
+    # Fall back to the instance filesystem (same session, or archiving failed).
+    if job["path"] and Path(job["path"]).exists():
+        return send_file(Path(job["path"]), as_attachment=True,
+                         download_name=f"{_slug(job['label'])}.pdf",
                          mimetype="application/pdf")
-    # Term plan: zip the folder of weekly PDFs.
-    folder = Path(job["dir"])
-    if not folder.exists():
-        abort(404)
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for pdf in sorted(folder.glob("*.pdf")):
-            zf.write(pdf, pdf.name)
-    buf.seek(0)
-    return send_file(buf, as_attachment=True,
-                     download_name=f"{_slug(job['label'])}.zip",
-                     mimetype="application/zip")
+    if job["dir"] and Path(job["dir"]).exists():
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for pdf in sorted(Path(job["dir"]).glob("*.pdf")):
+                zf.write(pdf, pdf.name)
+        buf.seek(0)
+        return send_file(buf, as_attachment=True,
+                         download_name=f"{_slug(job['label'])}.zip",
+                         mimetype="application/zip")
+    abort(404)

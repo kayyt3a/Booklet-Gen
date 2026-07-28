@@ -1,41 +1,82 @@
 {% extends "base.html" %}
 {% block title %}Generating - Folio{% endblock %}
 {% block body %}
-<div class="card">
-  <h1>Building your booklet</h1>
-  <p class="sub" id="msg">Generating "{{ job['label'] }}". This can take a few minutes.
-    You can keep this tab open.</p>
-  <div id="spinner" class="muted">Working...</div>
+<div class="card narrow">
+  <h1 id="heading">Building your booklet</h1>
+  <p class="sub" id="msg">{{ job['label'] }}</p>
+
+  <div id="working">
+    <div class="bar"><span></span></div>
+    <p class="muted" id="stage" style="margin-top:14px">Starting up...</p>
+    <div class="hint">
+      This usually takes a couple of minutes. You can safely close this tab:
+      the booklet keeps generating and appears in
+      <a class="link" href="{{ url_for('views.library') }}">My booklets</a> when it is done.
+    </div>
+  </div>
+
   <div id="done" style="display:none">
     <a class="btn" id="dl" href="#">Download</a>
-    <p class="muted" style="margin-top:10px"><a class="link" href="{{ url_for('views.index') }}">Make another</a></p>
+    <a class="btn secondary" href="{{ url_for('views.index') }}">Make another</a>
   </div>
+
   <div id="err" style="display:none">
     <div class="flash" id="errmsg"></div>
-    <p class="muted"><a class="link" href="{{ url_for('views.index') }}">Try again</a>.</p>
+    <a class="btn secondary" href="{{ url_for('views.index') }}">Try again</a>
   </div>
 </div>
+
+<style>
+  .bar{height:7px;border-radius:99px;background:#e8edf5;overflow:hidden}
+  .bar span{
+    display:block;height:100%;width:38%;border-radius:99px;
+    background:linear-gradient(90deg,var(--navy-l),var(--navy));
+    animation:slide 1.5s ease-in-out infinite;
+  }
+  @keyframes slide{
+    0%{margin-left:-38%} 100%{margin-left:100%}
+  }
+</style>
+
 <script>
-  var jobId = "{{ job['id'] }}";
+  // Rough progress narration. The pipeline does not report stages, so these
+  // are time-based and only there to show the request is alive.
+  var stages = [
+    "Planning the topics...",
+    "Writing the mini-lessons...",
+    "Generating practice questions...",
+    "Checking every answer...",
+    "Laying out the PDF..."
+  ];
+  var i = 0, stageEl = document.getElementById('stage');
+  var ticker = setInterval(function () {
+    if (i < stages.length) stageEl.textContent = stages[i++];
+  }, 12000);
+  stageEl.textContent = stages[i++];
+
+  function finish() { clearInterval(ticker); document.getElementById('working').style.display = 'none'; }
+
   function poll() {
     fetch("{{ url_for('views.status', job_id=job['id']) }}")
-      .then(r => r.json())
-      .then(d => {
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
         if (d.status === "done") {
-          document.getElementById('spinner').style.display='none';
-          document.getElementById('msg').textContent='Your booklet is ready.';
-          var dl=document.getElementById('dl'); dl.href=d.download_url;
-          document.getElementById('done').style.display='block';
+          finish();
+          document.getElementById('heading').textContent = 'Your booklet is ready';
+          document.getElementById('msg').textContent = "{{ job['label'] }}";
+          document.getElementById('dl').href = d.download_url;
+          document.getElementById('done').style.display = 'block';
         } else if (d.status === "error") {
-          document.getElementById('spinner').style.display='none';
-          document.getElementById('msg').textContent='Something went wrong.';
-          document.getElementById('errmsg').textContent=d.error || 'Generation failed.';
-          document.getElementById('err').style.display='block';
+          finish();
+          document.getElementById('heading').textContent = 'Something went wrong';
+          document.getElementById('msg').textContent = 'No booklet was produced.';
+          document.getElementById('errmsg').textContent = d.error || 'Generation failed.';
+          document.getElementById('err').style.display = 'block';
         } else {
           setTimeout(poll, 2500);
         }
       })
-      .catch(() => setTimeout(poll, 4000));
+      .catch(function () { setTimeout(poll, 4000); });
   }
   poll();
 </script>

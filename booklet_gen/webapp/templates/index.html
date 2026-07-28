@@ -6,9 +6,12 @@
     with a mini-lesson, practice questions, and a worked answer key.</p>
 
   {% if not g.user %}
-    <p class="muted">Please <a class="link" href="{{ url_for('auth.login') }}">log in</a>
-      or <a class="link" href="{{ url_for('auth.signup') }}">sign up</a> to generate booklets.
-      It's free.</p>
+    <div class="empty">
+      <p>Create a free account to start generating booklets.</p>
+      <a class="btn small" href="{{ url_for('auth.signup') }}">Sign up</a>
+      <p class="muted" style="margin-top:16px">Already have one?
+        <a class="link" href="{{ url_for('auth.login') }}">Log in</a>.</p>
+    </div>
   {% else %}
   <form method="post" action="{{ url_for('views.generate') }}">
     <label for="program">Booklet type</label>
@@ -54,7 +57,10 @@
     </div>
 
     <button type="submit" id="submitBtn">Generate booklet</button>
-    <p class="muted" style="margin-top:10px" id="formNote">Free to generate.</p>
+    <div class="hint" id="formNote">
+      Free to generate. This takes a couple of minutes, and the finished PDF is
+      saved to <a class="link" href="{{ url_for('views.library') }}">My booklets</a>.
+    </div>
   </form>
   {% endif %}
 </div>
@@ -89,9 +95,11 @@
 
     document.getElementById('submitBtn').textContent =
       isExam ? 'Generate exam paper' : 'Generate booklet';
-    document.getElementById('formNote').textContent = isExam
-      ? 'Free to generate. Produces a full practice paper with a marking key.'
-      : 'Free to generate.';
+    document.getElementById('formNote').innerHTML = isExam
+      ? 'Produces a full practice paper with two sections and a marking key. '
+        + 'This takes a few minutes and is saved to My booklets.'
+      : 'Free to generate. This takes a couple of minutes, and the finished '
+        + 'PDF is saved to My booklets.';
   }
 </script>
 {% endblock %}

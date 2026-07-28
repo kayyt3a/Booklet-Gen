@@ -13,6 +13,8 @@ Serve in production with gunicorn (see Dockerfile):
 from __future__ import annotations
 
 import os
+import time
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask
@@ -31,6 +33,26 @@ def create_app() -> Flask:
     app.config["OUTPUT_DIR"].mkdir(parents=True, exist_ok=True)
 
     init_db()
+
+    @app.template_filter("timeago")
+    def _timeago(ts) -> str:
+        """Render a unix timestamp as a short relative time."""
+        try:
+            delta = int(time.time()) - int(ts)
+        except (TypeError, ValueError):
+            return ""
+        if delta < 60:
+            return "just now"
+        if delta < 3600:
+            n = delta // 60
+            return f"{n} minute{'s' if n != 1 else ''} ago"
+        if delta < 86400:
+            n = delta // 3600
+            return f"{n} hour{'s' if n != 1 else ''} ago"
+        n = delta // 86400
+        if n < 30:
+            return f"{n} day{'s' if n != 1 else ''} ago"
+        return datetime.fromtimestamp(int(ts)).strftime("%d %b %Y")
 
     from .auth import bp as auth_bp
     from .views import bp as views_bp
