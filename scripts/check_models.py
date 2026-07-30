@@ -53,8 +53,12 @@ def main() -> int:
     for name in names:
         label = name + ("  (preview)" if "preview" in name else "")
         try:
+            # retry=None disables the SDK's own retry-with-backoff loop.
+            # Without it, a transient error (rate limit, 503) makes the call
+            # sleep and retry internally for minutes, ignoring the timeout
+            # below, which only bounds a single attempt.
             reply = genai.GenerativeModel(name).generate_content(
-                PROMPT, request_options={"timeout": 20})
+                PROMPT, request_options={"timeout": 15, "retry": None})
             text = (reply.text or "").strip().replace("\n", " ")[:40]
             print(f"  OK      {label:34} -> {text!r}")
             working.append(name)
