@@ -133,12 +133,12 @@ def _make_styles():
         ),
         "intro_para": ParagraphStyle(
             "intro_para", parent=base["Normal"], fontName=FONT_REGULAR,
-            fontSize=11, leading=16, alignment=TA_LEFT, spaceAfter=8,
+            fontSize=10, leading=14, alignment=TA_LEFT, spaceAfter=6,
         ),
         "key_point": ParagraphStyle(
             "key_point", parent=base["Normal"], fontName=FONT_REGULAR,
-            fontSize=10.5, leading=15, leftIndent=14, bulletIndent=2,
-            spaceAfter=4,
+            fontSize=10, leading=13.5, leftIndent=14, bulletIndent=2,
+            spaceAfter=3,
         ),
         "we_label": ParagraphStyle(
             "we_label", parent=base["Normal"], fontName=FONT_BOLD,
@@ -147,11 +147,11 @@ def _make_styles():
         ),
         "we_question": ParagraphStyle(
             "we_question", parent=base["Normal"], fontName=FONT_REGULAR,
-            fontSize=10.5, leading=15, spaceAfter=8,
+            fontSize=10, leading=14, spaceAfter=6,
         ),
         "we_step": ParagraphStyle(
             "we_step", parent=base["Normal"], fontName=FONT_REGULAR,
-            fontSize=10, leading=14.5, leftIndent=12, spaceAfter=4,
+            fontSize=9.5, leading=13, leftIndent=12, spaceAfter=3,
         ),
         "we_answer": ParagraphStyle(
             "we_answer", parent=base["Normal"], fontName=FONT_BOLD,
@@ -165,11 +165,11 @@ def _make_styles():
         ),
         "question": ParagraphStyle(
             "question", parent=base["Normal"], fontName=FONT_REGULAR,
-            fontSize=11, leading=16.5, alignment=TA_LEFT,
+            fontSize=10.5, leading=14.5, alignment=TA_LEFT,
         ),
         "answer": ParagraphStyle(
             "answer", parent=base["Normal"], fontName=FONT_BOLD,
-            fontSize=11, leading=16,
+            fontSize=10.5, leading=14.5,
         ),
         # Marks printed in the right margin of an exam question.
         "exam_marks": ParagraphStyle(
@@ -179,7 +179,7 @@ def _make_styles():
         ),
         "working": ParagraphStyle(
             "working", parent=base["Normal"], fontName=FONT_REGULAR,
-            fontSize=10, leading=15, textColor=colors.HexColor("#333333"),
+            fontSize=9.5, leading=13, textColor=colors.HexColor("#333333"),
             leftIndent=12,
         ),
         "answers_heading": ParagraphStyle(
@@ -295,10 +295,10 @@ def _escape(text: str) -> str:
     ))
 
 
-MAX_IMG_WIDTH = 10 * cm
-MAX_IMG_HEIGHT = 7 * cm
-WE_IMG_WIDTH = 8 * cm
-WE_IMG_HEIGHT = 5.5 * cm
+MAX_IMG_WIDTH = 7.5 * cm
+MAX_IMG_HEIGHT = 4.8 * cm
+WE_IMG_WIDTH = 6 * cm
+WE_IMG_HEIGHT = 4 * cm
 
 
 def _make_image(path: str | None, max_w=MAX_IMG_WIDTH, max_h=MAX_IMG_HEIGHT):
@@ -417,8 +417,15 @@ def cover_background_path() -> str | None:
     env = os.environ.get("FOLIO_COVER_BACKGROUND")
     if env and Path(env).exists():
         return env
-    default = ASSET_DIR / "cover_background.png"
-    return str(default) if default.exists() else None
+    # Prefer the JPEG: the PNG is the higher-quality source, but it is 1.4MB
+    # and rides along in every booklet, which dominated the output file size.
+    # The JPEG is visually equivalent for a soft-gradient background at a
+    # tenth of the size.
+    for name in ("cover_background.jpg", "cover_background.png"):
+        path = ASSET_DIR / name
+        if path.exists():
+            return str(path)
+    return None
 
 
 def _draw_page_chrome(canvas, doc):
