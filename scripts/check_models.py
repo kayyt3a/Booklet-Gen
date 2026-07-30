@@ -53,7 +53,8 @@ def main() -> int:
     for name in names:
         label = name + ("  (preview)" if "preview" in name else "")
         try:
-            reply = genai.GenerativeModel(name).generate_content(PROMPT)
+            reply = genai.GenerativeModel(name).generate_content(
+                PROMPT, request_options={"timeout": 20})
             text = (reply.text or "").strip().replace("\n", " ")[:40]
             print(f"  OK      {label:34} -> {text!r}")
             working.append(name)
