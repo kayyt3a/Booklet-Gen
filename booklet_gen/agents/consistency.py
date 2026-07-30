@@ -32,18 +32,43 @@ log = logging.getLogger(__name__)
 # Phrases that only appear when the model is thinking out loud. A student-facing
 # answer key should never contain them, and their presence is a strong signal
 # that the model changed its mind partway and the stated answer may be stale.
+# Note the absence of a trailing \b: several of these end in punctuation, and
+# \b after a colon or comma can never match, which silently disabled
+# "Correction:" and "Actually," until it was tested.
 _SELF_CORRECTION = re.compile(
-    r"\b(wait|hold on|actually,|let me recalculate|recalculating|correction:"
-    r"|i made an error|that'?s wrong|scratch that|on second thought)\b",
+    r"\b(wait\b|hold on\b|actually,|let me recalculate\b|recalculating\b"
+    r"|correction:|i made an error\b|that'?s wrong\b|scratch that\b"
+    r"|on second thought\b|apologies\b|my mistake\b|let me redo\b)",
     re.IGNORECASE,
 )
 
+# Fractions must be matched before bare numbers, or "5/8" is read as 5 and 8.
+# Covers "5/8" and the Unicode form the formatter renders, since working is
+# checked before and after prettification depending on the call site.
+_FRACTION = re.compile(r"(\d+)\s*[/⁄]\s*(\d+)")
 _NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
+
+_SUP = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789")
+_SUB = str.maketrans("₀₁₂₃₄₅₆₇₈₉", "0123456789")
 
 
 def _numbers(text: str) -> list[float]:
+    """Every value in the text, with fractions resolved to their quotient.
+
+    Fractions are extracted first and blanked out, so "3/8 + 2/8 = 5/8" yields
+    the three quotients rather than six loose integers. Without this, a
+    fractions booklet, which is most of a primary maths booklet, bypasses the
+    contradiction check entirely.
+    """
+    text = (text or "").translate(_SUP).translate(_SUB)
     out = []
-    for raw in _NUMBER.findall(text or ""):
+    def take_fraction(m):
+        num, den = float(m.group(1)), float(m.group(2))
+        if den:
+            out.append(num / den)
+        return " "
+    text = _FRACTION.sub(take_fraction, text)
+    for raw in _NUMBER.findall(text):
         try:
             out.append(float(raw.replace(",", "")))
         except ValueError:
@@ -66,9 +91,12 @@ def working_contradicts_answer(answer: str, working: str) -> bool:
     if not answer or not working:
         return False
 
+    # Reject only when the answer reduces to a single value. Multi-part
+    # answers ("a) 32 b) 64") are out of scope rather than risk false
+    # rejections. A fraction counts as one value, not two.
     ans_nums = _numbers(answer)
     if len(ans_nums) != 1:
-        return False          # not a single-number answer, out of scope
+        return False
 
     work_nums = _numbers(working)
     if not work_nums:
@@ -79,6 +107,17 @@ def working_contradicts_answer(answer: str, working: str) -> bool:
     # state it mid-derivation and then restate units or simplify afterwards.
     if any(abs(n - target) < 1e-9 for n in work_nums):
         return False
+
+    # A simplification key derives the parts, not the fraction: "Answer: 1/2"
+    # over "4/4 = 1, 8/4 = 2" never writes 1/2 anywhere. Accept when both the
+    # numerator and denominator appear. Without this the check strips the mark
+    # from every simplify-this-fraction question in the booklet.
+    frac = _FRACTION.fullmatch(answer.strip())
+    if frac:
+        num, den = float(frac.group(1)), float(frac.group(2))
+        have = lambda v: any(abs(n - v) < 1e-9 for n in work_nums)
+        if have(num) and have(den):
+            return False
 
     # Nowhere in the working does the stated answer appear. That is the Q63
     # case: "Answer: 75" over working that only ever produces 80.
@@ -138,12 +177,28 @@ def dimensions_in_text(text: str) -> dict:
     return found
 
 
+def units_in_text(text: str) -> set:
+    """Every distinct unit named in the text, canonicalised."""
+    out = set()
+    for raw in _UNIT_RE.findall(text or ""):
+        low = raw.lower()
+        out.add(_UNIT_CANON.get(low, low))
+    return out
+
+
 def unit_in_text(text: str) -> Optional[str]:
-    m = _UNIT_RE.search(text or "")
-    if not m:
+    """The question's single unit, or None when it mixes units.
+
+    Returning the *first* unit found and stamping it on every label was
+    actively harmful: "1 metre long, 50 cm wide, 20 cm deep" relabelled a
+    correct 100 x 50 x 20 cm spec as 1 x 50 x 20 **metres**, inventing the
+    very defect this module exists to prevent. Mixed-unit capacity questions
+    are standard Year 5 work, so bail rather than guess.
+    """
+    units = units_in_text(text)
+    if len(units) != 1:
         return None
-    raw = m.group(0).lower()
-    return _UNIT_CANON.get(raw, raw)
+    return next(iter(units))
 
 
 def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
@@ -159,6 +214,12 @@ def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
     kind = str(spec.get("type", "")).lower()
     if kind not in {"cuboid", "cylinder", "rectangle"}:
         return spec, False       # only shapes whose labels are literal measurements
+
+    # Mixed units mean the stated numbers are not on a common scale ("1 metre
+    # long, 50 cm wide"), so overriding any of them produces a nonsense
+    # drawing. Leave the model's spec alone: it is at least self-consistent.
+    if len(units_in_text(question_text)) > 1:
+        return spec, False
 
     stated = dimensions_in_text(question_text)
     if not stated:
