@@ -18,6 +18,16 @@ import threading
 from contextlib import contextmanager
 from typing import Optional
 
+from dotenv import load_dotenv
+
+# Load .env here rather than relying on some other module having done it
+# first. config.py also calls this, but scripts that only touch the database
+# or the vector store (rag_status.py, ingest_folder.py) never import config,
+# and would silently fall back to local storage while DATABASE_URL sat
+# correctly in .env. Repeat calls are cheap and do not override real
+# environment variables, so a shell-set DATABASE_URL still wins.
+load_dotenv()
+
 log = logging.getLogger(__name__)
 
 _pool = None

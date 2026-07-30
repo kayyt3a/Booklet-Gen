@@ -13,7 +13,16 @@ log = logging.getLogger(__name__)
 # calibrate style and difficulty against real papers without crowding the
 # prompt. Raise it when the library is deep for a subject, lower it if the
 # retrieved material starts drowning out the instructions.
-DEFAULT_TOP_K = int(os.environ.get("FOLIO_RAG_TOP_K", "6"))
+_FALLBACK_TOP_K = 6
+
+
+def default_top_k() -> int:
+    """Read at call time rather than import time: at import this can run
+    before .env is loaded, silently ignoring FOLIO_RAG_TOP_K."""
+    try:
+        return max(1, int(os.environ.get("FOLIO_RAG_TOP_K", _FALLBACK_TOP_K)))
+    except ValueError:
+        return _FALLBACK_TOP_K
 
 
 @dataclass
@@ -27,7 +36,7 @@ class RetrievedChunk:
 
 class Retriever:
     def __init__(self, top_k: Optional[int] = None, persist_dir: Optional[str] = None):
-        self._top_k = DEFAULT_TOP_K if top_k is None else top_k
+        self._top_k = default_top_k() if top_k is None else top_k
         self._persist_dir = persist_dir
         self._store = None
         self._embedder = None
