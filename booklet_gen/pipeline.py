@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Optional
 
@@ -21,6 +22,10 @@ from .schemas import (
     BookletData, ExamPaper, ExamSection, Question, SubtopicOutput,
     SubtopicTeaching, ValidatedQuestion,
 )
+
+# A tutoring session runs an hour, so the Class Work half of a booklet has to
+# fit inside one. Anything past this moves to Homework rather than being cut.
+CLASSWORK_CAP_MINUTES = int(os.environ.get("FOLIO_CLASSWORK_CAP_MINUTES", "60"))
 
 # WACE ATAR examination shape: two sections, 35% calculator-free and 65%
 # calculator-assumed, 10 minutes reading plus 150 minutes working time.
@@ -87,6 +92,7 @@ class BookletPipeline:
         challenge = self._build_challenge(
             outline.subject, outline.year_level, covered, rag_pool,
         )
+        self._fit_classwork_to_cap(sections)
         t = self._timing(sections, challenge, recap)
         return BookletData(
             subject=outline.subject,
@@ -156,6 +162,7 @@ class BookletPipeline:
                 self._build_challenge(subj, year_level, covered, rag_pool)
             )
 
+        self._fit_classwork_to_cap(all_sections)
         t = self._timing(all_sections, all_challenge, all_recap)
         return BookletData(
             subject=subject_display,
@@ -293,6 +300,43 @@ class BookletPipeline:
                 "calculators satisfying SCSA conditions.",
             ],
         )
+
+    @staticmethod
+    def _fit_classwork_to_cap(sections) -> None:
+        """Move classwork past the time cap into homework, in place.
+
+        A tutoring session is an hour, so the Class Work half has to fit in
+        one. Trimming the printed estimate alone would just make the booklet
+        lie about its own workload, so move the surplus questions into
+        Homework instead, where there is no clock. Longest section first, so
+        the trimming lands on whichever subtopic is overweight rather than
+        flattening every one of them equally.
+
+        Every subtopic keeps at least one classwork question: a mini-lesson
+        with nothing to try immediately afterwards is worse than a slightly
+        long session.
+        """
+        if not sections:
+            return
+
+        def classwork_total() -> float:
+            return sum(
+                section_minutes(len(s.questions), s.teaching is not None, None)
+                for s in sections
+            )
+
+        # Bounded: each pass moves exactly one question and no section goes
+        # below one, so this cannot spin.
+        while classwork_total() > CLASSWORK_CAP_MINUTES:
+            movable = [s for s in sections if len(s.questions) > 1]
+            if not movable:
+                break
+            biggest = max(movable, key=lambda s: len(s.questions))
+            biggest.homework_questions.append(biggest.questions.pop())
+            biggest.estimated_minutes = round_display(
+                section_minutes(len(biggest.questions),
+                                biggest.teaching is not None, None)
+            )
 
     @staticmethod
     def _timing(sections, challenge, recap) -> dict:

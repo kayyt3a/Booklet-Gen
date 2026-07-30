@@ -362,6 +362,30 @@ def _part_band(styles, text: str, bg_hex: str, subtitle: str = ""):
     return tbl
 
 
+# Blank space left under a question for the student to work in.
+#
+# This used to be a flat gap, so "what is 28 x 3?" and a three-part volume
+# problem got exactly the same room: the one-liners wasted half a page and the
+# multi-step questions had nowhere to work. Scale it by difficulty, and give
+# multi-part questions room per part, the way the exam renderer scales by marks.
+_DIFFICULTY_SPACE_CM = {"easy": 1.2, "medium": 2.2, "hard": 3.2}
+
+# "a)", "(b)", "c." at a word boundary: the model's usual way of numbering parts.
+_PART_MARKER_RE = re.compile(r"(?:^|\s)\(?([a-e])[\).]\s")
+
+# One question should never swallow a whole page.
+_MAX_WORKING_SPACE_CM = 8.0
+
+
+def _working_space_cm(question) -> float:
+    base = _DIFFICULTY_SPACE_CM.get(
+        (question.difficulty or "medium").strip().lower(), 2.2)
+    parts = len(set(_PART_MARKER_RE.findall(question.question)))
+    if parts >= 2:
+        base += parts * 1.1
+    return min(base, _MAX_WORKING_SPACE_CM)
+
+
 def _question_block(styles, q_num: int, vq: ValidatedQuestion):
     symbol_html = f' <font color="#1B8A3A"><b>✓</b></font>' if vq.verified else ""
     block = [
@@ -379,7 +403,7 @@ def _question_block(styles, q_num: int, vq: ValidatedQuestion):
                 f"<i>Image: {_escape(vq.image_attribution)}</i>",
                 styles["footer_note"],
             ))
-    block.append(Spacer(1, 0.9 * cm))
+    block.append(Spacer(1, _working_space_cm(vq.question) * cm))
     return KeepTogether(block)
 
 
