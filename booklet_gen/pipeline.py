@@ -258,7 +258,8 @@ class BookletPipeline:
             for q, r in zip(draft.questions, verdicts):
                 image_path, image_attr = self._resolve_visual(q)
                 kept.append(ValidatedQuestion(
-                    question=q, verified=r.verified, validator_notes=r.notes,
+                    question=q, verified=self._trusted(q, r.verified),
+                    validator_notes=r.notes,
                     image_path=str(image_path) if image_path else None,
                     image_attribution=image_attr,
                 ))
@@ -381,7 +382,8 @@ class BookletPipeline:
                 continue
             img, attr = self._resolve_visual(q)
             out.append(ValidatedQuestion(
-                question=q, verified=r.verified, validator_notes=r.notes,
+                question=q, verified=self._trusted(q, r.verified),
+                    validator_notes=r.notes,
                 image_path=str(img) if img else None, image_attribution=attr))
         return out
 
@@ -491,6 +493,12 @@ class BookletPipeline:
             if not spec:
                 continue
             from .visuals import render_diagram
+            from .agents.consistency import reconcile_diagram_spec
+            spec, fixed = reconcile_diagram_spec(spec, ex.question)
+            if fixed:
+                log.info("pipeline.example_diagram_corrected",
+                         extra={"type": spec.get("type")})
+                ex.diagram_spec = spec
             try:
                 path = render_diagram(spec)
             except Exception as e:
@@ -641,7 +649,7 @@ class BookletPipeline:
             image_path, image_attr = self._resolve_visual(q)
             results.append(ValidatedQuestion(
                 question=q,
-                verified=result.verified,
+                verified=self._trusted(q, result.verified),
                 validator_notes=result.notes,
                 retry_count=retry_count,
                 image_path=str(image_path) if image_path else None,
@@ -682,7 +690,7 @@ class BookletPipeline:
             image_path, image_attr = self._resolve_visual(q)
             results.append(ValidatedQuestion(
                 question=q,
-                verified=result.verified,
+                verified=self._trusted(q, result.verified),
                 validator_notes=result.notes,
                 retry_count=0,
                 image_path=str(image_path) if image_path else None,
@@ -690,12 +698,43 @@ class BookletPipeline:
             ))
         return results
 
+    @staticmethod
+    def _trusted(q, verified: bool) -> bool:
+        """Withhold the verified mark when the working betrays the answer.
+
+        The judge grades the answer against the question, so it never sees
+        working that disagrees with the answer it is supposedly justifying.
+        A real booklet shipped "Answer: 75" above working that concluded 80,
+        carrying a check mark. An unmarked question is a small loss; a wrong
+        one wearing a verified badge undermines every other question in the
+        booklet.
+        """
+        if not verified:
+            return False
+        from .agents.consistency import answer_is_trustworthy
+        ok, why = answer_is_trustworthy(
+            getattr(q, "answer", "") or "", getattr(q, "working", "") or "")
+        if not ok:
+            log.warning("pipeline.answer_untrusted",
+                        extra={"reason": why,
+                               "answer": (getattr(q, "answer", "") or "")[:40]})
+        return ok
+
     # ---------- Visuals ----------
 
     def _resolve_visual(self, q):
         """Return (path, attribution) for whichever optional visual the LLM asked for."""
         if q.diagram_spec:
             from .visuals import render_diagram
+            from .agents.consistency import reconcile_diagram_spec
+            # Models often emit a scaled-down spec so the shape draws nicely
+            # and forget the labels are what the student reads, producing a
+            # 4cm x 2cm x 1cm drawing beside a 40cm x 20cm x 10cm question.
+            spec, fixed = reconcile_diagram_spec(q.diagram_spec, q.question)
+            if fixed:
+                log.info("pipeline.diagram_corrected",
+                         extra={"type": spec.get("type")})
+                q.diagram_spec = spec
             path = render_diagram(q.diagram_spec)
             if path:
                 log.info("pipeline.diagram", extra={"type": q.diagram_spec.get("type")})
