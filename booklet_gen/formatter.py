@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date
 from pathlib import Path
@@ -20,126 +21,184 @@ from .schemas import BookletData, ExamPaper, ValidatedQuestion, WorkedExample
 
 PAGE_MARGIN = 2.0 * cm
 
+log = logging.getLogger(__name__)
+
+
+# Font family. Helvetica is one of ReportLab's built-in Type 1 fonts: always
+# available, but it carries no Unicode beyond Latin-1, so superscripts and
+# fraction glyphs render as black boxes. DejaVu Sans ships with matplotlib
+# (already a hard dependency for diagrams), covers the full Unicode range we
+# need, and reads warmer and rounder on the page than Helvetica does, which
+# matters for a booklet a primary-school student has to sit in front of.
+#
+# Registration is best-effort: if anything about the matplotlib font bundle
+# changes, we fall back to Helvetica and the booklet still renders.
+FONT_REGULAR = "Helvetica"
+FONT_BOLD = "Helvetica-Bold"
+FONT_ITALIC = "Helvetica-Oblique"
+
+_UNICODE_FONT = False
+
+
+def _register_fonts() -> None:
+    """Register DejaVu Sans with ReportLab. Falls back to Helvetica silently."""
+    global FONT_REGULAR, FONT_BOLD, FONT_ITALIC, _UNICODE_FONT
+    if _UNICODE_FONT:
+        return
+    try:
+        from matplotlib import font_manager
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfbase.pdfmetrics import registerFontFamily
+
+        faces = {
+            "DejaVuSans": "DejaVu Sans",
+            "DejaVuSans-Bold": "DejaVu Sans:bold",
+            "DejaVuSans-Oblique": "DejaVu Sans:italic",
+            "DejaVuSans-BoldOblique": "DejaVu Sans:bold:italic",
+        }
+        for name, query in faces.items():
+            prop = font_manager.FontProperties()
+            parts = query.split(":")
+            prop.set_family(parts[0])
+            if "bold" in parts:
+                prop.set_weight("bold")
+            if "italic" in parts:
+                prop.set_style("oblique")
+            path = font_manager.findfont(prop, fallback_to_default=False)
+            pdfmetrics.registerFont(TTFont(name, path))
+
+        registerFontFamily(
+            "DejaVuSans", normal="DejaVuSans", bold="DejaVuSans-Bold",
+            italic="DejaVuSans-Oblique", boldItalic="DejaVuSans-BoldOblique",
+        )
+        FONT_REGULAR, FONT_BOLD, FONT_ITALIC = (
+            "DejaVuSans", "DejaVuSans-Bold", "DejaVuSans-Oblique")
+        _UNICODE_FONT = True
+    except Exception as e:
+        log.info("formatter.font_fallback", extra={"reason": str(e)[:200]})
+
 
 def _make_styles():
+    _register_fonts()
     base = getSampleStyleSheet()
     return {
         "title": ParagraphStyle(
-            "title", parent=base["Title"], fontName="Helvetica-Bold",
+            "title", parent=base["Title"], fontName=FONT_BOLD,
             fontSize=26, leading=30, alignment=TA_CENTER, spaceAfter=6,
         ),
         "subtitle": ParagraphStyle(
-            "subtitle", parent=base["Normal"], fontName="Helvetica",
+            "subtitle", parent=base["Normal"], fontName=FONT_REGULAR,
             fontSize=13, alignment=TA_CENTER, textColor=colors.HexColor("#555555"),
             spaceAfter=4,
         ),
         "meta": ParagraphStyle(
-            "meta", parent=base["Normal"], fontName="Helvetica",
+            "meta", parent=base["Normal"], fontName=FONT_REGULAR,
             fontSize=10, alignment=TA_CENTER, textColor=colors.HexColor("#888888"),
         ),
         "wordmark": ParagraphStyle(
-            "wordmark", parent=base["Normal"], fontName="Helvetica-Bold",
+            "wordmark", parent=base["Normal"], fontName=FONT_BOLD,
             fontSize=12, alignment=TA_CENTER, textColor=colors.HexColor("#1F3A5F"),
             spaceAfter=4,
         ),
         "subject_band": ParagraphStyle(
-            "subject_band", parent=base["Heading1"], fontName="Helvetica-Bold",
+            "subject_band", parent=base["Heading1"], fontName=FONT_BOLD,
             fontSize=15, leading=19, spaceBefore=10, spaceAfter=10,
             textColor=colors.white, backColor=colors.HexColor("#1F3A5F"),
             borderPadding=(6, 8, 6, 8), alignment=TA_CENTER,
         ),
         "part_band": ParagraphStyle(
-            "part_band", parent=base["Heading1"], fontName="Helvetica-Bold",
+            "part_band", parent=base["Heading1"], fontName=FONT_BOLD,
             fontSize=17, leading=20, textColor=colors.white, alignment=TA_CENTER,
         ),
         "part_band_sub": ParagraphStyle(
-            "part_band_sub", parent=base["Normal"], fontName="Helvetica",
+            "part_band_sub", parent=base["Normal"], fontName=FONT_REGULAR,
             fontSize=10, leading=13, textColor=colors.HexColor("#F4F7FB"),
             alignment=TA_CENTER, spaceBefore=2,
         ),
         "mnemonic": ParagraphStyle(
-            "mnemonic", parent=base["Normal"], fontName="Helvetica-Bold",
+            "mnemonic", parent=base["Normal"], fontName=FONT_BOLD,
             fontSize=12, leading=15, textColor=colors.HexColor("#8B1E3F"),
             spaceBefore=4, spaceAfter=4,
         ),
         "topic": ParagraphStyle(
-            "topic", parent=base["Heading1"], fontName="Helvetica-Bold",
+            "topic", parent=base["Heading1"], fontName=FONT_BOLD,
             fontSize=18, leading=22, spaceBefore=6, spaceAfter=8,
             textColor=colors.HexColor("#1F3A5F"),
         ),
         "subtopic": ParagraphStyle(
-            "subtopic", parent=base["Heading2"], fontName="Helvetica-Bold",
-            fontSize=13, leading=16, spaceBefore=4, spaceAfter=6,
+            "subtopic", parent=base["Heading2"], fontName=FONT_BOLD,
+            fontSize=13.5, leading=17, spaceBefore=12, spaceAfter=7,
             textColor=colors.HexColor("#333333"),
         ),
         "intro_para": ParagraphStyle(
-            "intro_para", parent=base["Normal"], fontName="Helvetica",
-            fontSize=10.5, leading=14, alignment=TA_LEFT, spaceAfter=5,
+            "intro_para", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=11, leading=16, alignment=TA_LEFT, spaceAfter=8,
         ),
         "key_point": ParagraphStyle(
-            "key_point", parent=base["Normal"], fontName="Helvetica",
-            fontSize=10, leading=13, leftIndent=14, bulletIndent=2,
-            spaceAfter=2,
+            "key_point", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=10.5, leading=15, leftIndent=14, bulletIndent=2,
+            spaceAfter=4,
         ),
         "we_label": ParagraphStyle(
-            "we_label", parent=base["Normal"], fontName="Helvetica-Bold",
+            "we_label", parent=base["Normal"], fontName=FONT_BOLD,
             fontSize=10, leading=13, textColor=colors.HexColor("#1F3A5F"),
             spaceAfter=3,
         ),
         "we_question": ParagraphStyle(
-            "we_question", parent=base["Normal"], fontName="Helvetica",
-            fontSize=10.5, leading=14, spaceAfter=6,
+            "we_question", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=10.5, leading=15, spaceAfter=8,
         ),
         "we_step": ParagraphStyle(
-            "we_step", parent=base["Normal"], fontName="Helvetica",
-            fontSize=10, leading=13, leftIndent=12, spaceAfter=2,
+            "we_step", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=10, leading=14.5, leftIndent=12, spaceAfter=4,
         ),
         "we_answer": ParagraphStyle(
-            "we_answer", parent=base["Normal"], fontName="Helvetica-Bold",
-            fontSize=10.5, leading=14, spaceBefore=4,
+            "we_answer", parent=base["Normal"], fontName=FONT_BOLD,
+            fontSize=10.5, leading=15, spaceBefore=7,
             textColor=colors.HexColor("#1B8A3A"),
         ),
         "practice_label": ParagraphStyle(
-            "practice_label", parent=base["Normal"], fontName="Helvetica-Bold",
+            "practice_label", parent=base["Normal"], fontName=FONT_BOLD,
             fontSize=11, leading=14, spaceBefore=8, spaceAfter=6,
             textColor=colors.HexColor("#1F3A5F"),
         ),
         "question": ParagraphStyle(
-            "question", parent=base["Normal"], fontName="Helvetica",
-            fontSize=11, leading=15, alignment=TA_LEFT,
+            "question", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=11, leading=16.5, alignment=TA_LEFT,
         ),
         "answer": ParagraphStyle(
-            "answer", parent=base["Normal"], fontName="Helvetica-Bold",
-            fontSize=11, leading=14,
+            "answer", parent=base["Normal"], fontName=FONT_BOLD,
+            fontSize=11, leading=16,
         ),
         # Marks printed in the right margin of an exam question.
         "exam_marks": ParagraphStyle(
-            "exam_marks", parent=base["Normal"], fontName="Helvetica-Bold",
+            "exam_marks", parent=base["Normal"], fontName=FONT_BOLD,
             fontSize=10, leading=14, alignment=TA_RIGHT,
             textColor=colors.HexColor("#1F3A5F"),
         ),
         "working": ParagraphStyle(
-            "working", parent=base["Normal"], fontName="Helvetica",
-            fontSize=10, leading=13, textColor=colors.HexColor("#333333"),
+            "working", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=10, leading=15, textColor=colors.HexColor("#333333"),
             leftIndent=12,
         ),
         "answers_heading": ParagraphStyle(
-            "answers_heading", parent=base["Heading1"], fontName="Helvetica-Bold",
+            "answers_heading", parent=base["Heading1"], fontName=FONT_BOLD,
             fontSize=20, leading=24, alignment=TA_CENTER, spaceAfter=12,
             textColor=colors.HexColor("#1F3A5F"),
         ),
         "challenge_heading": ParagraphStyle(
-            "challenge_heading", parent=base["Heading1"], fontName="Helvetica-Bold",
+            "challenge_heading", parent=base["Heading1"], fontName=FONT_BOLD,
             fontSize=22, leading=26, alignment=TA_CENTER, spaceAfter=6,
             textColor=colors.HexColor("#8B1E3F"),
         ),
         "challenge_blurb": ParagraphStyle(
-            "challenge_blurb", parent=base["Normal"], fontName="Helvetica-Oblique",
+            "challenge_blurb", parent=base["Normal"], fontName=FONT_ITALIC,
             fontSize=11, leading=14, alignment=TA_CENTER, spaceAfter=14,
             textColor=colors.HexColor("#555555"),
         ),
         "footer_note": ParagraphStyle(
-            "footer_note", parent=base["Normal"], fontName="Helvetica-Oblique",
+            "footer_note", parent=base["Normal"], fontName=FONT_ITALIC,
             fontSize=9, textColor=colors.HexColor("#888888"), alignment=TA_CENTER,
         ),
     }
@@ -147,26 +206,49 @@ def _make_styles():
 
 import re
 
-_FRACTION_RE = re.compile(r"(?<![0-9./\-])(\d{1,4})/(\d{1,4})(?![0-9./])")
+# A fraction is digits/digits, but not part of a date (15/07/2025), a decimal
+# (1/2.5), or a negative. Trailing punctuation is fine and must stay matched:
+# an earlier lookahead of (?![0-9./]) silently skipped every fraction that
+# ended a sentence, so "1/2 + 1/4." rendered with only the first one styled.
+_FRACTION_RE = re.compile(r"(?<![\d./\-])(\d{1,4})/(\d{1,4})(?![\d/]|\.\d)")
+
+_SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+_SUBSCRIPT = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+_FRACTION_SLASH = "⁄"
 
 
 def _prettify_fractions(text: str) -> str:
-    """Turn "3/4" into "<sup>3</sup>/<sub>4</sub>" so it reads as a real fraction.
+    """Turn "3/4" into "³⁄₄" using real Unicode glyphs.
 
-    Reportlab's <sup>/<sub> markup uses the current font's baseline shift and
-    auto-shrinks the digit — safe with Helvetica which has no dedicated
-    superscript/subscript glyphs (Unicode chars ⁰¹²³ etc render as black
-    boxes in Helvetica).
+    These sit on the normal baseline, so unlike ReportLab's <sup>/<sub>
+    markup they cannot collide with the lines above and below. The old
+    approach shifted digits outside the line box, and at the leading these
+    styles use that produced visibly overlapping text in the answer key.
 
-    The negative lookbehind/lookahead avoid dates (15/07/2025), decimal-ish
-    tokens, and negatives.
+    Requires a Unicode font: Helvetica has no superscript glyphs and would
+    render black boxes, so fall back to plain "3/4" when registration failed.
     """
+    if not _UNICODE_FONT:
+        return text
+
     def repl(m: re.Match) -> str:
         num, den = m.group(1), m.group(2)
         if int(den) == 0:
             return m.group(0)
-        return f"<sup>{num}</sup>/<sub>{den}</sub>"
+        return (num.translate(_SUPERSCRIPT) + _FRACTION_SLASH
+                + den.translate(_SUBSCRIPT))
     return _FRACTION_RE.sub(repl, text)
+
+
+# Models write units inconsistently: the question text says "cm²" but the
+# worked solution often says "cm^2". Normalise to the real glyph.
+_CARET_POWER_RE = re.compile(r"(?<=[A-Za-z])\^([23])\b")
+
+
+def _tidy_units(text: str) -> str:
+    if not _UNICODE_FONT:
+        return text
+    return _CARET_POWER_RE.sub(lambda m: m.group(1).translate(_SUPERSCRIPT), text)
 
 
 _EM_DASH = re.compile(r"\s*—\s*")
@@ -193,13 +275,24 @@ def _dedash(text: str) -> str:
     return text.strip()
 
 
+# Models habitually open each worked-example step with "Step 1:", which is
+# pure repetition once the step sits in a numbered list. Strip it so the
+# student reads the maths instead of the scaffolding.
+_STEP_PREFIX_RE = re.compile(r"^\s*Step\s*\d+\s*[:.\)-]\s*", re.IGNORECASE)
+
+
+def _strip_step_prefix(text: str) -> str:
+    stripped = _STEP_PREFIX_RE.sub("", text, count=1)
+    return stripped or text
+
+
 def _escape(text: str) -> str:
-    return _prettify_fractions(
+    return _prettify_fractions(_tidy_units(
         _dedash(text)
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
-    )
+    ))
 
 
 MAX_IMG_WIDTH = 10 * cm
@@ -236,7 +329,8 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
         inner.append(img)
         inner.append(Spacer(1, 0.15 * cm))
     for i, step in enumerate(we.steps, 1):
-        inner.append(Paragraph(f"<b>{i}.</b> {_escape(step)}", styles["we_step"]))
+        inner.append(Paragraph(f"<b>{i}.</b> {_escape(_strip_step_prefix(step))}",
+                               styles["we_step"]))
     inner.append(Paragraph(f"Answer: {_escape(we.answer)}", styles["we_answer"]))
 
     tbl = Table([[inner]], colWidths=[A4[0] - 2 * PAGE_MARGIN - 0.4 * cm])
@@ -322,7 +416,7 @@ def _draw_page_chrome(canvas, doc):
     if doc.page == 1 and getattr(doc, "_plain_cover", False):
         canvas.restoreState()
         return
-    canvas.setFont("Helvetica", 9)
+    canvas.setFont(FONT_REGULAR, 9)
     canvas.setFillColor(colors.HexColor("#888888"))
     canvas.drawRightString(
         A4[0] - PAGE_MARGIN, 1.2 * cm, f"Page {doc.page}",
@@ -614,7 +708,7 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
         info.append([s.name, f"{s.total_marks} marks ({pct}%)"])
     tbl = Table(info, colWidths=[body_width * 0.45, body_width * 0.55])
     tbl.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME", (0, 0), (0, -1), FONT_BOLD),
         ("FONTSIZE", (0, 0), (-1, -1), 10),
         ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#1c2434")),
         ("LINEBELOW", (0, 0), (-1, -2), 0.4, colors.HexColor("#DDDDDD")),
