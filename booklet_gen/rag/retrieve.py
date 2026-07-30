@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Optional
 
 log = logging.getLogger(__name__)
+
+# Chunks of source material fed to the generator per subtopic. Chunks target
+# 800 characters, so 6 is roughly 5k characters of grounding: enough to
+# calibrate style and difficulty against real papers without crowding the
+# prompt. Raise it when the library is deep for a subject, lower it if the
+# retrieved material starts drowning out the instructions.
+DEFAULT_TOP_K = int(os.environ.get("FOLIO_RAG_TOP_K", "6"))
 
 
 @dataclass
@@ -18,8 +26,8 @@ class RetrievedChunk:
 
 
 class Retriever:
-    def __init__(self, top_k: int = 3, persist_dir: Optional[str] = None):
-        self._top_k = top_k
+    def __init__(self, top_k: Optional[int] = None, persist_dir: Optional[str] = None):
+        self._top_k = DEFAULT_TOP_K if top_k is None else top_k
         self._persist_dir = persist_dir
         self._store = None
         self._embedder = None
