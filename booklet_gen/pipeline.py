@@ -279,6 +279,11 @@ class BookletPipeline:
             kept: list[ValidatedQuestion] = []
             for q, r in zip(draft.questions, verdicts):
                 image_path, image_attr = self._resolve_visual(q)
+                orphan = self._orphan_figure(q.question, image_path)
+                if orphan:
+                    log.info("pipeline.exam.drop_missing_figure",
+                             extra={"section": name, "phrase": orphan})
+                    continue
                 kept.append(ValidatedQuestion(
                     question=q, verified=self._trusted(q, r.verified),
                     validator_notes=r.notes,
@@ -442,6 +447,11 @@ class BookletPipeline:
             if self._reasoning_reject(subject, q):
                 continue
             img, attr = self._resolve_visual(q)
+            orphan = self._orphan_figure(q.question, img)
+            if orphan:
+                log.info("pipeline.drop_missing_figure_recap",
+                         extra={"subject": subject, "phrase": orphan})
+                continue
             out.append(ValidatedQuestion(
                 question=q, verified=self._trusted(q, r.verified),
                     validator_notes=r.notes,
@@ -567,7 +577,44 @@ class BookletPipeline:
                 path = None
             if path:
                 ex.image_path = str(path)
-        return teaching
+        return self._drop_orphan_examples(teaching, subtopic.name)
+
+    def _drop_orphan_examples(self, teaching, subtopic_name: str):
+        """Remove teaching examples that point at a figure that was not drawn.
+
+        A worked example reading "how many cubes are needed to build this
+        object" with nothing beside it teaches the child that the booklet is
+        broken. The guided examples are optional, so a bad one is simply
+        dropped. The worked example is not optional (the formatter always
+        renders one), so a clean guided example is promoted into its place;
+        only when there is nothing left to promote does the whole mini-lesson
+        go, which is the same soft failure the intro writer already has.
+        """
+        def orphan(ex):
+            return self._orphan_figure(ex.question, ex.image_path)
+
+        kept = []
+        for ex in teaching.guided_examples:
+            phrase = orphan(ex)
+            if phrase:
+                log.info("pipeline.drop_orphan_guided_example",
+                         extra={"subtopic": subtopic_name, "phrase": phrase})
+                continue
+            kept.append(ex)
+        teaching.guided_examples = kept
+
+        phrase = orphan(teaching.worked_example)
+        if not phrase:
+            return teaching
+        if kept:
+            log.info("pipeline.promote_guided_example",
+                     extra={"subtopic": subtopic_name, "phrase": phrase})
+            teaching.worked_example = kept[0]
+            teaching.guided_examples = kept[1:]
+            return teaching
+        log.warning("pipeline.drop_teaching_orphan_figure",
+                    extra={"subtopic": subtopic_name, "phrase": phrase})
+        return None
 
     # ---------- Validation ----------
 
@@ -719,8 +766,14 @@ class BookletPipeline:
                          extra={"subject": subject, "subtopic": subtopic.name,
                                 "reason": result.notes})
                 continue
-            seen.add(self._norm_q(q.question))
             image_path, image_attr = self._resolve_visual(q)
+            orphan = self._orphan_figure(q.question, image_path)
+            if orphan:
+                log.info("pipeline.drop_missing_figure",
+                         extra={"subject": subject, "subtopic": subtopic.name,
+                                "phrase": orphan})
+                continue
+            seen.add(self._norm_q(q.question))
             results.append(ValidatedQuestion(
                 question=q,
                 verified=self._trusted(q, result.verified),
@@ -756,12 +809,17 @@ class BookletPipeline:
                 log.info("pipeline.drop_broken_challenge",
                          extra={"subject": subject})
                 continue
-            seen.add(self._norm_q(q.question))
             result = self._validate(subject, year_level, q, reference_chunks)
             # For the challenge set we tolerate the LLM's first attempt more —
             # regeneration would cost another full-set call. Just record the
             # verification status.
             image_path, image_attr = self._resolve_visual(q)
+            orphan = self._orphan_figure(q.question, image_path)
+            if orphan:
+                log.info("pipeline.drop_missing_figure_challenge",
+                         extra={"subject": subject, "phrase": orphan})
+                continue
+            seen.add(self._norm_q(q.question))
             results.append(ValidatedQuestion(
                 question=q,
                 verified=self._trusted(q, result.verified),
@@ -795,6 +853,19 @@ class BookletPipeline:
         return ok
 
     # ---------- Visuals ----------
+
+    @staticmethod
+    def _orphan_figure(text: str, image_path) -> str | None:
+        """The phrase pointing at a picture we do not have, or None.
+
+        A question that says "how many cubes are needed to build this object"
+        with nothing drawn beside it cannot be answered, and no amount of
+        validation notices: the judge reads the text, which is fine on its
+        own terms. Callers drop the item. Stripping the phrase instead would
+        leave the same unanswerable question with the evidence removed.
+        """
+        from .agents.consistency import refers_to_missing_figure
+        return refers_to_missing_figure(text or "", bool(image_path))
 
     def _resolve_visual(self, q):
         """Return (path, attribution) for whichever optional visual the LLM asked for."""
