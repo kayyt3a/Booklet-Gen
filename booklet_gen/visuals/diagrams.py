@@ -39,6 +39,21 @@ Supported spec types
     dashed hidden back base, labelled with radius and height. Use for
     volume/surface-area of cylinders (typically upper primary and beyond).
 
+Hiding the answer
+-----------------
+`rectangle`, `cuboid` and `cylinder` accept an optional "unknown" list naming
+dimensions whose label must not be printed:
+
+{ "type": "cuboid", "length": 4, "width": 3, "height": 2,
+  "unknown": ["height"] }
+    Draws the box to shape but writes "?" where the height label would go.
+
+A find-the-missing-dimension question ("the base is 4 by 3 blocks, how many
+layers high?") still needs a number to draw the solid, but printing that
+number on the drawing hands over the answer. The "?" is how a textbook poses
+it, and the diagram stays worth having. `agents.consistency` sets this key
+from the question text; the model is not asked to.
+
 { "type": "compare", "items": [
     {"label": "A", "spec": {...}},
     {"label": "B", "spec": {...}}
@@ -63,6 +78,42 @@ SHADE_COLOR = "#1F3A5F"
 SHADE_ALPHA = 0.55
 LINE_COLOR = "#1F3A5F"
 LINE_WIDTH = 1.8
+
+
+UNKNOWN_LABEL = "?"
+
+
+def _dim_label(spec: dict, key: str, value: float, unit_suffix: str) -> str:
+    """The text drawn against one side: the measurement, or "?" if unknown.
+
+    The value stays in the spec because the shape still has to be drawn to
+    roughly the right proportions. Only the label is withheld.
+    """
+    raw = spec.get("unknown") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    if key in {str(k).strip().lower() for k in raw}:
+        return UNKNOWN_LABEL
+    return f"{_pretty_num(value)}{unit_suffix}"
+
+
+def _side_rotation(label: str) -> int:
+    """Measurements read up the side; a lone "?" reads better upright."""
+    return 0 if label == UNKNOWN_LABEL else 90
+
+
+def _scale_note(ax, spec: dict) -> None:
+    """Caption a figure whose unknown side is still drawn in proportion.
+
+    Hiding the label stops the number being printed, but the shape is drawn
+    to scale, so a child with a ruler can still read the answer off the
+    page. Every textbook says "not to scale" for exactly this reason.
+    """
+    if not (spec.get("unknown") or []):
+        return
+    ax.annotate("Diagram not to scale", xy=(0.5, -0.06),
+                xycoords="axes fraction", ha="center", va="top",
+                fontsize=7, color=LINE_COLOR, alpha=0.75)
 
 
 def _cache_path(spec: dict) -> Path:
@@ -223,14 +274,16 @@ def _rectangle(spec: dict, out: Path) -> None:
                            edgecolor=LINE_COLOR, linewidth=LINE_WIDTH))
     # Labels
     unit_s = f" {unit}" if unit else ""
-    ax.text(length / 2, -width * 0.08, f"{_pretty_num(length)}{unit_s}",
+    ax.text(length / 2, -width * 0.08, _dim_label(spec, "length", length, unit_s),
             ha="center", va="top", fontsize=11)
-    ax.text(-length * 0.05, width / 2, f"{_pretty_num(width)}{unit_s}",
-            ha="right", va="center", fontsize=11, rotation=90)
+    side = _dim_label(spec, "width", width, unit_s)
+    ax.text(-length * 0.05, width / 2, side,
+            ha="right", va="center", fontsize=11, rotation=_side_rotation(side))
     ax.set_xlim(-length * 0.15, length * 1.05)
     ax.set_ylim(-width * 0.18, width * 1.08)
     ax.set_aspect("equal")
     ax.axis("off")
+    _scale_note(ax, spec)
     fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
@@ -332,19 +385,21 @@ def _cuboid(spec: dict, out: Path) -> None:
 
     us = f" {unit}" if unit else ""
     # length: front bottom edge A-B, below.
-    ax.text((A[0] + B[0]) / 2, -H * 0.07, f"{_pretty_num(L)}{us}",
+    ax.text((A[0] + B[0]) / 2, -H * 0.07, _dim_label(spec, "length", L, us),
             ha="center", va="top", fontsize=11)
     # height: front left edge A-D, to the left.
-    ax.text(-L * 0.05, H / 2, f"{_pretty_num(H)}{us}",
-            ha="right", va="center", fontsize=11, rotation=90)
+    side = _dim_label(spec, "height", H, us)
+    ax.text(-L * 0.05, H / 2, side,
+            ha="right", va="center", fontsize=11, rotation=_side_rotation(side))
     # width (depth): receding edge B-B2, offset to the lower right.
     ax.text((B[0] + B2[0]) / 2 + L * 0.03, (B[1] + B2[1]) / 2 - H * 0.02,
-            f"{_pretty_num(W)}{us}", ha="left", va="center", fontsize=11)
+            _dim_label(spec, "width", W, us), ha="left", va="center", fontsize=11)
 
     ax.set_xlim(-L * 0.2, L + ox + L * 0.12)
     ax.set_ylim(-H * 0.18, H + oy + H * 0.1)
     ax.set_aspect("equal")
     ax.axis("off")
+    _scale_note(ax, spec)
     fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
@@ -386,16 +441,19 @@ def _cylinder(spec: dict, out: Path) -> None:
     # radius: from centre of top ellipse out to the rim.
     ax.plot([cx, cx + r], [top_y, top_y], color=SHADE_COLOR,
             linewidth=LINE_WIDTH, linestyle=(0, (2, 2)))
-    ax.text(cx + r / 2, top_y + ell_h * 0.35, f"r = {_pretty_num(r)}{us}",
+    ax.text(cx + r / 2, top_y + ell_h * 0.35,
+            f"r = {_dim_label(spec, 'radius', r, us)}",
             ha="center", va="bottom", fontsize=10, color=LINE_COLOR)
     # height: down the right side.
-    ax.text(cx + r + r * 0.12, H / 2, f"{_pretty_num(H)}{us}",
-            ha="left", va="center", fontsize=11, rotation=90)
+    side = _dim_label(spec, "height", H, us)
+    ax.text(cx + r + r * 0.12, H / 2, side,
+            ha="left", va="center", fontsize=11, rotation=_side_rotation(side))
 
     ax.set_xlim(cx - r * 1.5, cx + r * 1.7)
     ax.set_ylim(-ell_h * 2.2, top_y + ell_h * 2.2)
     ax.set_aspect("equal")
     ax.axis("off")
+    _scale_note(ax, spec)
     fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
