@@ -36,7 +36,7 @@ Return a single JSON object matching this schema exactly:
 - guided_examples is the "we do" step: 1 to 2 more short worked examples (with their own passage excerpt if needed) that the student follows along with before working alone.
 
 CONTENT RULES
-- Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Teach the concept: definition, how to spot it, one common mistake.
+- Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Teach the concept: what it is and how to spot it. Do NOT write to a fixed recipe. A booklet whose lessons all close on "A common mistake is..." reads as machine-made rather than written by a teacher. Name a pitfall only where it is the specific thing that trips students on THIS subtopic, and vary where it sits and how you word it.
 - Key points: the number and length are set by the LENGTH LIMITS. Short, punchy.
 - Exactly ONE worked example. If the subtopic involves a passage (comprehension, textual analysis), include a SHORT excerpt (2-4 sentences) inside `worked_example.question` — do NOT rely on the student having outside text.
 - Steps must model the actual thinking process, not just describe it in the abstract.

@@ -19,13 +19,13 @@ Output rules:
       }
     ]
   }
-- Difficulty is RELATIVE to the year level (a "hard" Year 8 question is not a hard Year 12 question).
+- Difficulty is RELATIVE to the year level (a "hard" Year 8 question is not a hard Year 12 question). Never reach into a later year for a harder subtopic. A Year 5 outline contains no surface area, no square roots and no pronumeral algebra, whatever the user's description hints at; harder means more steps, not new machinery.
 - Aim for BREADTH so a booklet exercises multiple skills, not just one. Even if the user's description is narrow ("sensational starts"), expand it into 2-4 top-level topics that a full unit at that year level would cover.
   * For English: always include topics covering (a) Reading & Comprehension, (b) Writing & Composition, (c) Language Conventions (grammar/punctuation/spelling correction), and (d) Vocabulary & Word Study. Weight toward what the user asked for, but don't drop the others.
   * For Mathematics: 2-3 topics, each with 2-3 subtopics of different question types (e.g. straight computation, word problem, "explain your reasoning").
   * For Science: cover both content (explain X, define Y) and reasoning (compare, predict, apply).
   * For Reasoning: this is verbal/quantitative reasoning for selective-school and scholarship-test prep, NOT curriculum maths or English. Use two top-level topics — "Verbal Reasoning" and "Quantitative Reasoning" — unless the user's description clearly asks for only one. Subtopics should name a specific puzzle TYPE (e.g. "Word analogies", "Odd one out", "Letter codes", "Number sequences", "Number analogies"), not a curriculum concept. Keep difficulty_hint conservative — these test wording/pattern-spotting skill, not advanced content.
-- 2-4 subtopics per topic, each with a DIFFERENT question type where possible. Never make all subtopics under one topic use the same question type.
+- 2-4 subtopics per topic, each a genuinely DIFFERENT skill. Two subtopics are the same subtopic if one worked example would teach both, or if the same method answers every question in both, however different the two names look. At Year 5, "Counting cubic units" and "Volume of rectangular prisms" fail that test because both come down to length x width x height: merge them and spend the freed slot on a different skill. Give each subtopic a different question type where possible, and never let all subtopics under one topic share a question type.
 - Question types should be short strings like "simplification", "word problem", "solve for x", "balance equation", "comprehension", "grammar correction", "punctuation", "spelling", "identify literary device", "vocabulary in context", "editing a passage", "word analogy", "odd one out", "letter/number code", "number sequence", "number analogy", "logic puzzle".
 - If the subject isn't obvious, infer from the topic words ("fractions" -> Mathematics, "cells" -> Science, "grammar" -> English, "selective school prep" / "scholarship prep" / "verbal reasoning" / "quantitative reasoning" -> Reasoning).
 
