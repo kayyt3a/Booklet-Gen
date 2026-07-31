@@ -27,7 +27,7 @@ class Question(BaseModel):
     # Exam papers only: marks allocated to this question. Booklet questions
     # leave this as None.
     marks: Optional[int] = None
-    # Optional visual — only one of these is populated per question.
+    # Optional visual: only one of these is populated per question.
     # Maths: diagram_spec triggers a matplotlib-rendered figure.
     # English/Science: image_query triggers a Wikimedia Commons lookup.
     diagram_spec: Optional[dict] = None

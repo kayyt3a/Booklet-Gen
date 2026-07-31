@@ -151,6 +151,54 @@ def classwork_section_minutes(section) -> float:
             + (_SECTION_CHANGEOVER if section.teaching is not None else 0.0))
 
 
+# Homework is set once and worked "through the week", which in a real booklet
+# meant 35 questions and one number. Split it into sittings of about this long,
+# never more than a handful, so a parent can hand out one at a time.
+_SESSION_TARGET_MINUTES = 20.0
+_MAX_SESSIONS = 4
+_MIN_QUESTIONS_TO_SPLIT = 6
+
+
+def homework_session_plan(data) -> list[dict]:
+    """Split the homework questions into sittings of roughly equal length.
+
+    Returns a list of {"start", "end", "count", "minutes"} over the flat
+    homework question list, in printed order. Empty when there is too little
+    homework to be worth splitting.
+    """
+    mins = [question_minutes(vq.question, "homework")
+            for s in data.sections for vq in s.homework_questions]
+    n = len(mins)
+    if n < _MIN_QUESTIONS_TO_SPLIT:
+        return []
+    total = sum(mins)
+    k = max(2, min(_MAX_SESSIONS, int(round(total / _SESSION_TARGET_MINUTES))))
+    k = min(k, n)
+
+    cum, run = [], 0.0
+    for m in mins:
+        run += m
+        cum.append(run)
+
+    bounds: list[int] = []
+    for j in range(1, k):
+        thr = total * j / k
+        # The tolerance matters: with questions of equal length the running
+        # total lands exactly on the threshold, and float error would otherwise
+        # push every boundary one question late.
+        idx = next((i + 1 for i, c in enumerate(cum) if c >= thr - 1e-9), n)
+        idx = max(idx, (bounds[-1] if bounds else 0) + 1)
+        idx = min(idx, n - (k - j))
+        if not bounds or idx > bounds[-1]:
+            bounds.append(idx)
+
+    starts = [0] + bounds
+    ends = bounds + [n]
+    return [{"start": s, "end": e, "count": e - s,
+             "minutes": round_display(sum(mins[s:e]))}
+            for s, e in zip(starts, ends) if e > s]
+
+
 def booklet_timing(data) -> dict:
     """Recompute every printed time from the booklet itself.
 
