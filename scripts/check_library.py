@@ -1,5 +1,15 @@
 """Check the booklet history + durable file storage on whichever backend is set."""
-import io, os, re, sys, zipfile
+import io, os, re, sys, tempfile, zipfile
+
+# On SQLite, point at a throwaway database before importing anything that
+# reads the path: webapp/db.py captures DB_PATH at import time. Without this
+# the script signs up the same address into whatever folio.db is lying around
+# and fails on a second run, while the Postgres branch below drops its tables
+# and is idempotent. That asymmetry made the suite pass or fail depending on
+# whether someone had run it before.
+if not os.environ.get("DATABASE_URL"):
+    os.environ["FOLIO_DB"] = os.path.join(
+        tempfile.mkdtemp(prefix="folio-check-"), "folio.db")
 
 from booklet_gen.dbpool import is_postgres, get_pool
 from booklet_gen.webapp import create_app
