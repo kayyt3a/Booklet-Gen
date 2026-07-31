@@ -68,9 +68,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     error      TEXT,
     path       TEXT,
     dir        TEXT,
-    created_at BIGINT NOT NULL
+    created_at BIGINT NOT NULL,
+    units      INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS jobs_user_created_idx ON jobs (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS jobs_created_idx ON jobs (created_at DESC);
 CREATE TABLE IF NOT EXISTS job_files (
     job_id     TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
     filename   TEXT NOT NULL,
@@ -97,9 +99,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     path       TEXT,
     dir        TEXT,
     created_at INTEGER NOT NULL,
+    units      INTEGER NOT NULL DEFAULT 1,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS jobs_user_created_idx ON jobs (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS jobs_created_idx ON jobs (created_at DESC);
 CREATE TABLE IF NOT EXISTS job_files (
     job_id     TEXT PRIMARY KEY,
     filename   TEXT NOT NULL,
@@ -118,10 +122,20 @@ def init_db() -> None:
         # fresh database; serialize schema creation so only one actually races.
         with advisory_lock(_SCHEMA_LOCK_KEY) as conn:
             conn.execute(_PG_SCHEMA)
+            # Existing deployments predate the units column (see the abuse
+            # guard below). Backfilled to 1, which is what every old row was.
+            conn.execute(
+                "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS units"
+                " INTEGER NOT NULL DEFAULT 1"
+            )
     else:
         conn = sqlite3.connect(DB_PATH, timeout=30)
         try:
             conn.executescript(_SQLITE_SCHEMA)
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+            if "units" not in cols:
+                conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN units INTEGER NOT NULL DEFAULT 1")
             conn.commit()
         finally:
             conn.close()
@@ -169,19 +183,22 @@ def verify_login(email: str, password: str):
 
 # ---------- jobs ----------
 
-def create_job(job_id: str, user_id: int, label: str) -> None:
+def create_job(job_id: str, user_id: int, label: str, units: int = 1) -> None:
+    """Record a new job. `units` is how many booklets it will produce, which
+    is what the abuse guard counts: a term plan is one job but ten booklets
+    and ten booklets' worth of API spend."""
     with _cursor() as cur:
         cur.execute(
-            _q("INSERT INTO jobs (id, user_id, status, label, created_at)"
-               " VALUES (?,?,?,?,?)"),
-            (job_id, user_id, "running", label, int(time.time())),
+            _q("INSERT INTO jobs (id, user_id, status, label, created_at, units)"
+               " VALUES (?,?,?,?,?,?)"),
+            (job_id, user_id, "running", label, int(time.time()), max(1, int(units))),
         )
 
 
 def finish_job(job_id: str, *, path: str = None, dir: str = None) -> None:
     with _cursor() as cur:
         cur.execute(
-            _q("UPDATE jobs SET status='done', path=?, dir=? WHERE id=?"),
+            _q("UPDATE jobs SET status='done', path=?, dir=?, error=NULL WHERE id=?"),
             (path, dir, job_id),
         )
 
@@ -192,6 +209,40 @@ def fail_job(job_id: str, error: str) -> None:
             _q("UPDATE jobs SET status='error', error=? WHERE id=?"),
             (error[:500], job_id),
         )
+
+
+def fail_job_if_running(job_id: str, error: str) -> bool:
+    """Fail a job only while it is still running.
+
+    Used by the watchdog so a job that finished a moment before the timeout
+    is not retroactively marked failed.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            _q("UPDATE jobs SET status='error', error=?"
+               " WHERE id=? AND status='running'"),
+            (error[:500], job_id),
+        )
+        return bool(cur.rowcount)
+
+
+def fail_stale_running_jobs(max_age_seconds: int) -> int:
+    """Settle jobs whose worker thread is gone.
+
+    Generation runs in a background thread, so a redeploy, a crash or a free
+    tier spin-down takes the thread with it and leaves the row saying
+    "running" for ever. Anything older than the timeout could not still be
+    alive: the process that owned it no longer exists.
+    """
+    cutoff = int(time.time()) - int(max_age_seconds)
+    with _cursor() as cur:
+        cur.execute(
+            _q("UPDATE jobs SET status='error', error=?"
+               " WHERE status='running' AND created_at < ?"),
+            ("Generation stopped before it finished. This usually means the "
+             "server restarted mid-run. Please try again.", cutoff),
+        )
+        return int(cur.rowcount or 0)
 
 
 def get_job(job_id: str):
@@ -265,18 +316,102 @@ def get_job_file(job_id: str):
         return cur.fetchone()
 
 
-def jobs_started_last_24h(user_id: int) -> int:
-    """Count jobs a user has started in the last 24h, for the abuse guard.
-    Every job counts once regardless of type, so a term plan (heavier) counts
-    the same as a single booklet - kept simple on purpose."""
+def _scalar(cur) -> int:
+    row = cur.fetchone()
+    if row is None:
+        return 0
+    # sqlite3.Row indexes positionally; the psycopg dict_row is by name.
+    value = row["n"] if is_postgres() else row[0]
+    return int(value or 0)
+
+
+def booklets_started_last_24h(user_id: int) -> int:
+    """Booklets (not jobs) a user has started in the last 24h.
+
+    Counting jobs undercounted by a factor of ten for anyone ticking the term
+    plan box, because that is one job row and ten generated booklets.
+    """
     since = int(time.time()) - 86400
     with _cursor() as cur:
         cur.execute(
-            _q("SELECT COUNT(*) AS n FROM jobs WHERE user_id=? AND created_at>=?"),
+            _q("SELECT COALESCE(SUM(units),0) AS n FROM jobs"
+               " WHERE user_id=? AND created_at>=?"),
             (user_id, since),
         )
-        row = cur.fetchone()
-        if row is None:
-            return 0
-        # sqlite3.Row indexes positionally; the psycopg dict_row is by name.
-        return int(row["n"] if is_postgres() else row[0])
+        return _scalar(cur)
+
+
+def booklets_started_globally_last_24h() -> int:
+    """Booklets started by every account in the last 24h.
+
+    Signup is free and unverified, so a per-account cap alone only costs an
+    abuser the effort of making more accounts. This is the ceiling on the
+    whole instance's API spend.
+    """
+    since = int(time.time()) - 86400
+    with _cursor() as cur:
+        cur.execute(
+            _q("SELECT COALESCE(SUM(units),0) AS n FROM jobs WHERE created_at>=?"),
+            (since,),
+        )
+        return _scalar(cur)
+
+
+# ---------- account data: export and deletion ----------
+
+def export_account(user_id: int) -> dict:
+    """Everything this account holds, as plain data.
+
+    The booklets themselves stay downloadable from the library; this is the
+    record of what exists, which is what a data request actually asks for.
+    """
+    user = get_user(user_id)
+    if user is None:
+        return {}
+    jobs = list_jobs(user_id, limit=10_000)
+    return {
+        "account": {
+            "id": int(user["id"]),
+            "email": user["email"],
+            "created_at": int(user["created_at"]),
+        },
+        "booklets": [
+            {
+                "id": j["id"],
+                "label": j["label"],
+                "status": j["status"],
+                "created_at": int(j["created_at"]),
+                "filename": j["filename"],
+                "bytes": j["bytes"],
+                "error": j["error"],
+            }
+            for j in jobs
+        ],
+        "exported_at": int(time.time()),
+    }
+
+
+def delete_account(user_id: int) -> list:
+    """Delete an account and everything stored for it.
+
+    Returns the on-disk locations the deleted jobs referenced so the caller
+    can clean up the (ephemeral) instance filesystem too. Ordering matters on
+    SQLite, which does not enforce the cascade Postgres has.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            _q("SELECT path, dir FROM jobs WHERE user_id=?"), (user_id,))
+        rows = cur.fetchall()
+        leftovers = [
+            ((r["path"] if is_postgres() else r[0]),
+             (r["dir"] if is_postgres() else r[1]))
+            for r in rows
+        ]
+        cur.execute(
+            _q("DELETE FROM job_files WHERE job_id IN"
+               " (SELECT id FROM jobs WHERE user_id=?)"),
+            (user_id,),
+        )
+        cur.execute(_q("DELETE FROM jobs WHERE user_id=?"), (user_id,))
+        cur.execute(_q("DELETE FROM users WHERE id=?"), (user_id,))
+    return leftovers

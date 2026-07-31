@@ -27,10 +27,13 @@ assert "hunter2pass" not in u["password_hash"], "password stored in plaintext"
 print("accounts: signup, lookup, correct + incorrect login all OK")
 
 # ---------- jobs + abuse guard ----------
-assert db.jobs_started_last_24h(uid) == 0
+assert db.booklets_started_last_24h(uid) == 0
 for i in range(3):
     db.create_job(f"job{i}", uid, f"Test booklet {i}")
-assert db.jobs_started_last_24h(uid) == 3, db.jobs_started_last_24h(uid)
+assert db.booklets_started_last_24h(uid) == 3, db.booklets_started_last_24h(uid)
+db.create_job("job-term", uid, "Test term plan", units=10)
+assert db.booklets_started_last_24h(uid) == 13, "term plan not counted by weeks"
+assert db.booklets_started_globally_last_24h() == 13
 db.finish_job("job0", path="/tmp/x.pdf")
 assert db.get_job("job0")["status"] == "done"
 db.fail_job("job1", "boom")

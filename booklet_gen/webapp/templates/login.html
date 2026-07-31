@@ -5,6 +5,7 @@
   <h1>Welcome back</h1>
   <p class="sub">Log in to generate booklets and reach your saved ones.</p>
   <form method="post">
+    {{ csrf_field() }}
     <label for="email">Email</label>
     <input id="email" name="email" type="email" autocomplete="email" required autofocus>
     <label for="password">Password</label>

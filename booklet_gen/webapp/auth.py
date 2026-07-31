@@ -9,6 +9,7 @@ from flask import (
 )
 
 from . import db
+from .security import rotate_csrf_token, safe_redirect_target
 
 bp = Blueprint("auth", __name__)
 
@@ -30,6 +31,19 @@ def login_required(view):
     return wrapped
 
 
+def _start_session(user_id: int) -> None:
+    """Log a user in on a clean session.
+
+    Clearing first means a session id handed to the visitor before login (by
+    someone else, in a session fixation attempt) cannot carry over into the
+    authenticated session, and the CSRF token is re-minted with the new
+    identity.
+    """
+    session.clear()
+    session["user_id"] = user_id
+    rotate_csrf_token()
+
+
 @bp.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
@@ -43,7 +57,7 @@ def signup():
             flash("An account with that email already exists. Try logging in.")
         else:
             uid = db.create_user(email, password)
-            session["user_id"] = uid
+            _start_session(uid)
             return redirect(url_for("views.index"))
     return render_template("signup.html")
 
@@ -55,8 +69,13 @@ def login():
         password = request.form.get("password") or ""
         user = db.verify_login(email, password)
         if user:
-            session["user_id"] = user["id"]
-            nxt = request.args.get("next") or url_for("views.index")
+            # `next` comes from the query string of a link someone may have
+            # sent the user, so it is attacker controlled. Only same-site
+            # relative paths are honoured; anything else lands on the home
+            # page rather than turning login into an open redirect.
+            nxt = safe_redirect_target(
+                request.args.get("next"), url_for("views.index"))
+            _start_session(user["id"])
             return redirect(nxt)
         flash("Incorrect email or password.")
     return render_template("login.html")
