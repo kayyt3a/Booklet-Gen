@@ -130,6 +130,8 @@
              class="{{ 'active' if request.endpoint == 'views.index' }}">Create</a>
           <a href="{{ url_for('views.library') }}"
              class="{{ 'active' if request.endpoint == 'views.library' }}">My booklets</a>
+          <a href="{{ url_for('views.account') }}"
+             class="{{ 'active' if request.endpoint == 'views.account' }}">Account</a>
           <a href="{{ url_for('auth.logout') }}">Log out</a>
         {% else %}
           <a href="{{ url_for('auth.login') }}">Log in</a>

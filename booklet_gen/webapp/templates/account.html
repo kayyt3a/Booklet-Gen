@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Account - Folio{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>Your account</h1>
+  <p class="sub">{{ g.user['email'] }}</p>
+
+  <ul class="jobs">
+    <li class="jobItem">
+      <div class="jobMain">
+        <p class="jobTitle">Booklets generated</p>
+        <div class="jobMeta">{{ job_count }} in total, {{ file_count }} still
+          downloadable</div>
+      </div>
+    </li>
+    <li class="jobItem">
+      <div class="jobMain">
+        <p class="jobTitle">Today's allowance</p>
+        <div class="jobMeta">{{ used_today }} of {{ daily_limit }} booklets used
+          in the last 24 hours. A term plan counts as its number of weeks.</div>
+      </div>
+    </li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>Download your data</h2>
+  <p class="muted">A JSON file listing your account details and every booklet
+    you have generated. The booklets themselves stay in
+    <a class="link" href="{{ url_for('views.library') }}">My booklets</a>.</p>
+  <a class="btn secondary small" style="margin-top:14px"
+     href="{{ url_for('views.account_export') }}">Download my data</a>
+</div>
+
+<div class="card">
+  <h2>Delete your account</h2>
+  <p class="muted">This removes your login, your booklet history and every
+    stored file. It cannot be undone, and nothing is kept afterwards.</p>
+  <form method="post" action="{{ url_for('views.account_delete') }}"
+        onsubmit="return confirm('Delete your account and every booklet? This cannot be undone.')">
+    {{ csrf_field() }}
+    <label for="password">Confirm your password</label>
+    <input id="password" name="password" type="password"
+           autocomplete="current-password" required>
+    <button type="submit" style="background:#a02020">Delete my account</button>
+  </form>
+</div>
+{% endblock %}

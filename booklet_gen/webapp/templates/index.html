@@ -14,6 +14,7 @@
     </div>
   {% else %}
   <form method="post" action="{{ url_for('views.generate') }}">
+    {{ csrf_field() }}
     <label for="program">Booklet type</label>
     <select id="program" name="program" required onchange="onProgramChange()">
       <option value="" disabled selected>Choose a type</option>

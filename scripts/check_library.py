@@ -1,11 +1,20 @@
 """Check the booklet history + durable file storage on whichever backend is set."""
-import io, os, sys, zipfile
+import io, os, re, sys, zipfile
 
 from booklet_gen.dbpool import is_postgres, get_pool
 from booklet_gen.webapp import create_app
 from booklet_gen.webapp import db
 
 print("backend:", "postgres" if is_postgres() else "sqlite")
+
+
+def signup(client, email, password="password123"):
+    """Sign up, carrying the CSRF token the form embeds."""
+    page = client.get("/signup").data.decode()
+    token = re.search(r'name="csrf_token" value="([^"]+)"', page).group(1)
+    return client.post("/signup", data={"email": email, "password": password,
+                                        "csrf_token": token},
+                       follow_redirects=True)
 
 if is_postgres():
     with get_pool().connection() as c:
@@ -15,8 +24,7 @@ app = create_app()
 c = app.test_client()
 
 # signup
-assert c.post("/signup", data={"email": "lib@test.com", "password": "password123"},
-              follow_redirects=True).status_code == 200
+assert signup(c, "lib@test.com").status_code == 200
 uid = db.get_user_by_email("lib@test.com")["id"]
 
 # empty state
@@ -53,8 +61,7 @@ print("download served from database after the on-disk copy vanished")
 
 # another user must not reach it
 c2 = app.test_client()
-c2.post("/signup", data={"email": "other@test.com", "password": "password123"},
-        follow_redirects=True)
+signup(c2, "other@test.com")
 assert c2.get("/download/j1").status_code == 404, "LEAK: other user downloaded the file"
 assert "Academic Accelerate" not in c2.get("/library").data.decode(), "LEAK: history visible"
 print("other accounts cannot see or download it")
