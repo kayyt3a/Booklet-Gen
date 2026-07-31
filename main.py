@@ -18,10 +18,10 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from booklet_gen.formatter import render_booklet_pair
+from booklet_gen.formatter import render_booklet_pair, render_exam_pdf
 from booklet_gen.logging_setup import configure_logging
 from booklet_gen.pipeline import BookletPipeline
-from booklet_gen.programs import PROGRAMS
+from booklet_gen.programs import PROGRAMS, EXAM_PROGRAMS, EXAM_YEARS
 
 
 def _slug(s: str) -> str:
@@ -56,6 +56,13 @@ def main() -> int:
         parser.error("provide either a free-text description or --program")
     if args.program and not args.year:
         parser.error("--program requires --year")
+    # Check before building the pipeline, which needs an API key: a wrong year
+    # should fail on the argument, not on a missing credential.
+    if args.program in EXAM_PROGRAMS and args.year not in EXAM_YEARS:
+        parser.error(
+            f"--program {args.program} is only offered at "
+            f"{' and '.join(EXAM_YEARS)}; got {args.year!r}"
+        )
 
     log_file = configure_logging()
     print(f"Logging to {log_file}")
@@ -84,6 +91,22 @@ def main() -> int:
         print(f"Term plan written: {len(booklets)} booklets in {out_dir}")
         print("Each week has two files: '<week>.pdf' (tutor copy, with the "
               "answer key) and '<week>-student.pdf' (no answers).")
+        return 0
+
+    # Exam programs take a different pipeline entry point and formatter: they
+    # produce a WACE-shaped paper with marks and a marking key, not a teaching
+    # booklet. Without this branch the CLI silently generated an ordinary
+    # booklet for --program methods_exam.
+    if args.program in EXAM_PROGRAMS:
+        paper = pipeline.run_exam(args.program, args.year, args.name,
+                                  topic_focus=args.topic)
+        stem = f"{_slug(args.name)}-{_slug(args.program)}-{_slug(args.year)}"
+        out_path = Path(args.out) if args.out else (
+            Path("output") /
+            f"{stem}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        render_exam_pdf(paper, out_path)
+        print(f"Exam paper written to {out_path}")
         return 0
 
     if args.program:

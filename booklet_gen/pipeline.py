@@ -14,7 +14,8 @@ from .agents.question_generator import QuestionGeneratorAgent
 from .agents.reasoning_validator import ReasoningValidator
 from .agents.term_planner import TermPlannerAgent
 from .agents.validator import SympyValidator, ValidationResult
-from .timing import section_minutes, round_display, round_total
+from .timing import (section_minutes, round_display, round_total,
+                     classwork_section_minutes)
 from .config import Config, load_config
 from .llm import get_client
 from .rag import Retriever
@@ -26,6 +27,11 @@ from .schemas import (
 # A tutoring session runs an hour, so the Class Work half of a booklet has to
 # fit inside one. Anything past this moves to Homework rather than being cut.
 CLASSWORK_CAP_MINUTES = int(os.environ.get("FOLIO_CLASSWORK_CAP_MINUTES", "60"))
+
+# Never teach fewer than this many subtopics in a session, even if the cap
+# says so. A booklet that teaches one thing is not worth an hour of a
+# tutor's time, and at that point the honest answer is a longer session.
+MIN_CLASSWORK_SUBTOPICS = int(os.environ.get("FOLIO_MIN_CLASSWORK_SUBTOPICS", "3"))
 
 # WACE ATAR examination shape: two sections, 35% calculator-free and 65%
 # calculator-assumed, 10 minutes reading plus 150 minutes working time.
@@ -39,6 +45,22 @@ EXAM_SPEC = {
 }
 
 log = logging.getLogger(__name__)
+
+
+class _WithQuestions:
+    """A read-only view of a subtopic with a different question list.
+
+    Lets the fitter cost a hypothetical ("what if this section kept only one
+    question?") without mutating the real section or copying its teaching.
+    """
+    __slots__ = ("_section", "questions")
+
+    def __init__(self, section, questions):
+        self._section = section
+        self.questions = questions
+
+    def __getattr__(self, name):
+        return getattr(self._section, name)
 
 
 class BookletPipeline:
@@ -320,24 +342,63 @@ class BookletPipeline:
         if not sections:
             return
 
-        def classwork_total() -> float:
+        def in_session():
+            """Subtopics the tutor actually covers in the hour.
+
+            A subtopic with no classwork questions left is not taught in the
+            session, but it stays in the booklet: its mini-lesson still prints
+            for the student to read, and its questions have moved to Homework.
+            Nothing is deleted, so the time comes down without content loss.
+            """
+            return [s for s in sections if s.questions]
+
+        def total() -> float:
+            return sum(classwork_section_minutes(s) for s in in_session())
+
+        # Teaching is the product, so trim in the order that costs the least
+        # of it.
+        #
+        def leanest() -> float:
+            """What the session would cost with practice cut to the bone.
+
+            Teaching dominates: a mini-lesson with its worked and guided
+            examples runs about 12 minutes before a single practice question.
+            So this is the floor a given set of subtopics can reach, and if
+            even that is over the cap then no amount of trimming practice will
+            help and a subtopic has to go.
+            """
             return sum(
-                section_minutes(len(s.questions), s.teaching is not None, None)
-                for s in sections
+                classwork_section_minutes(
+                    _WithQuestions(s, s.questions[:1])) for s in in_session()
             )
 
-        # Bounded: each pass moves exactly one question and no section goes
-        # below one, so this cannot spin.
-        while classwork_total() > CLASSWORK_CAP_MINUTES:
-            movable = [s for s in sections if len(s.questions) > 1]
+        # Step 1: hand whole subtopics to Homework, but only when practice
+        # cannot absorb the overrun. Dropping a subtopic costs about 16
+        # minutes, so doing it first overshoots: a 64-minute booklet would
+        # fall to 48 and waste a quarter of the session. A subtopic that
+        # moves keeps its questions as homework practice; only its mini-lesson
+        # goes unread in the session.
+        while (leanest() > CLASSWORK_CAP_MINUTES
+               and len(in_session()) > MIN_CLASSWORK_SUBTOPICS):
+            dropped = in_session()[-1]
+            dropped.homework_questions[:0] = dropped.questions
+            dropped.questions = []
+            log.info("pipeline.subtopic_to_homework",
+                     extra={"subtopic": dropped.subtopic,
+                            "still_over_by": round(total() - CLASSWORK_CAP_MINUTES, 1)})
+
+        # Step 2: thin the practice on what remains.
+        # Bounded: each pass moves one question and no section goes below one.
+        while total() > CLASSWORK_CAP_MINUTES:
+            movable = [s for s in in_session() if len(s.questions) > 1]
             if not movable:
                 break
             biggest = max(movable, key=lambda s: len(s.questions))
             biggest.homework_questions.append(biggest.questions.pop())
-            biggest.estimated_minutes = round_display(
-                section_minutes(len(biggest.questions),
-                                biggest.teaching is not None, None)
-            )
+
+        for s in sections:
+            s.estimated_minutes = (
+                round_display(classwork_section_minutes(s)) if s.questions else None)
 
     @staticmethod
     def _timing(sections, challenge, recap) -> dict:
