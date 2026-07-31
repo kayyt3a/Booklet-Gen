@@ -18,7 +18,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from booklet_gen.formatter import render_pdf
+from booklet_gen.formatter import render_booklet_pair
 from booklet_gen.logging_setup import configure_logging
 from booklet_gen.pipeline import BookletPipeline
 from booklet_gen.programs import PROGRAMS
@@ -80,8 +80,10 @@ def main() -> int:
         )
         for data in booklets:
             fn = f"week-{data.week_number:02d}-{_slug(data.week_focus or 'booklet')}.pdf"
-            render_pdf(data, out_dir / fn)
+            render_booklet_pair(data, out_dir / fn)
         print(f"Term plan written: {len(booklets)} booklets in {out_dir}")
+        print("Each week has two files: '<week>.pdf' (tutor copy, with the "
+              "answer key) and '<week>-student.pdf' (no answers).")
         return 0
 
     if args.program:
@@ -100,8 +102,9 @@ def main() -> int:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         out_path = Path("output") / f"{stem}-{ts}.pdf"
 
-    result = render_pdf(data, out_path)
-    print(f"Booklet written to {result}")
+    tutor, student = render_booklet_pair(data, out_path)
+    print(f"Tutor copy (with answer key): {tutor}")
+    print(f"Student copy (no answers):    {student}")
     return 0
 
 
