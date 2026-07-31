@@ -15,18 +15,25 @@ Output rules:
   }
 
 Content rules:
-- Every question MUST be symbolically verifiable — no diagrams, no measurement estimation, no ambiguous wording.
+- Every question MUST have one unambiguous, checkable answer: no measurement estimation, no ambiguous wording, no "it depends".
 - Use standard notation: `x`, `y` for variables; `*` is fine but `x*y` should be written as multiplication. Fractions as `a/b`. Powers as `x^2`.
-- Prefer single-variable algebra, arithmetic, fractions/decimals/percentages, ratios, linear/quadratic equations at the right year level.
-- AVOID: word problems that hinge on real-world interpretation you can't verify (e.g. "how many buses"), geometry needing a figure, probability trees, anything requiring a table.
+- STAY INSIDE THE YEAR LEVEL. As a guide: Years 1-4 are whole-number arithmetic, simple fractions, money, time, and length/mass/capacity. Years 5-6 add the four operations on fractions and decimals, percentages, area of rectangles, volume of rectangular prisms by counting or by length x width x height, and finding an unknown by an inverse operation described in words; they do NOT include pronumeral algebra, squares or square roots, or surface area. Years 7-8 add directed numbers, indices, rate and ratio, linear equations in a pronumeral, and area and volume of composite and round shapes. Years 9-10 add index laws and surds, quadratics, Pythagoras and trigonometry, and surface area.
+- A question is out of scope if solving it needs any method the student has not met at this year level, however tidy the arithmetic. "A cube has a total surface area of 150 square cm, what is its volume?" needs 6 x side^2 and a square root, so it is not a Year 5 question.
+- Every question must be an instance of the NAMED subtopic. If it would sit more naturally under a different heading, it does not belong in this set: "Solve for x: x/5 + 1/5 = 4/5" is not a question about adding fractions with the same denominator.
+- AVOID: word problems that hinge on real-world interpretation you can't verify (e.g. "how many buses"), geometry whose figure cannot be built from the supported diagram types below, probability trees, anything requiring a table.
+- AVOID multiple-choice phrasing entirely. The schema has no options field, so "Which of these is the simplest form of 4/12?" prints with nothing to choose from and the child hunts for a missing page. Ask for the answer directly: "Write 4/12 in its simplest form."
 - The `answer` field must be the exact final answer only. If it's an equation solution, use the form "x = 3" or "x = -1/2".
 - The `working` field is a short worked solution students can read, 2-5 lines.
 - Difficulty should sit around the requested level; vary slightly across the set.
 
 Vary the questions within the set:
-- Do NOT produce N near-identical questions with only the numbers changed.
+- Vary the FORM, not just the numbers. Two questions have the same form when one sentence solves both. Six "simplify this fraction" items is one question asked six times even though every fraction differs, and ten "multiply the three dimensions" items is one question asked ten times.
+- Rotate what is given and what is asked: give the result and ask for a missing input, ask the student to check and correct someone else's answer, set it in a real context, run it backwards, ask which of two situations gives the larger result.
 - Mix straight computation, word problems, and "explain your reasoning" style where the subtopic allows.
-- Progress from easier to harder within the set.
+- No two questions in the set may have the same answer.
+- Order the set strictly easiest to hardest with no step backwards: question k must never be easier than question k-1. The set is split in order, the front becoming in-lesson practice and the rest homework, so an easy item late in the list lands exactly where the hardest work belongs.
+- A question whose own text contains its answer is not the easy one, it is not a question at all. "A solid object is made by stacking 4 cubes in a single column, how many cubes are in the stack?" must be cut, not used to open the set.
+- Question 1 is the plainest, most direct form of the subtopic, the one a teacher would model on the board first.
 
 VISUAL DIAGRAMS (optional per question)
 Any question may include an OPTIONAL `diagram_spec` field. Populate it ONLY when a diagram is clearly helpful (fractions of a shape, number lines, geometry). Leave it out for pure symbolic computation.
@@ -43,7 +50,7 @@ Supported spec types (use exactly these keys):
 - {"type":"l_shape","outer_length":12,"outer_width":10,"cut_length":4,"cut_width":3,"unit":"m"}
   L-shape (rectangle with a corner cut out). All six sides get labelled with the computed dimensions.
 - {"type":"cuboid","length":5,"width":3,"height":4,"unit":"cm"}
-  A rectangular prism (3D box) drawn as a labelled solid with dashed hidden edges. USE THIS for volume and surface-area questions about boxes, cubes (set length=width=height), and rectangular prisms. A volume question should almost always show a cuboid, never a flat rectangle.
+  A rectangular prism (3D box) drawn as a labelled solid with dashed hidden edges. USE THIS for volume questions about boxes, cubes (set length=width=height), and rectangular prisms whose three dimensions are all GIVEN in the question: show a cuboid, not a flat rectangle. When the question withholds one of the three because that is what it is asking for, show nothing at all (see Rules below).
 - {"type":"cylinder","radius":3,"height":8,"unit":"cm"}
   An upright 3D cylinder labelled with radius and height. Use for volume/surface-area of cylinders (upper primary and beyond).
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
@@ -56,11 +63,15 @@ COMPARISON QUESTIONS — hard rules:
 - The `answer` must name the labelled winner, e.g. "A" or "Circle A (3/4 > 2/3)".
 
 Rules:
-- When you use a diagram, phrase the question in terms of what the DIAGRAM shows ("The figure below shows...", "What fraction is shaded in the figure?") — do NOT re-describe the shape in words.
+- A diagram may show ONLY what the question states. Never label a value the student is being asked to find, or a value derived from it. A box question that asks how many layers high the box is must not be drawn with "2 blocks" up its side, and a question asking for the depth AFTER a change must not be drawn at the new depth.
+- Every dimension key of `cuboid`, `cylinder` and `rectangle` renders as a visible label, so a question whose unknown IS one of those dimensions cannot be illustrated without giving the answer away. Emit no diagram_spec for those.
+- If the question text refers to a figure at all ("this object", "the diagram below", "the shape shown"), a diagram_spec is MANDATORY. If you cannot build one from the types above, rewrite the question so it stands alone in words.
+- Label the diagram with the same numbers and units the question states. Never rescale: a tank stated as 40 cm long is labelled 40 cm, not 4 dm.
+- When the diagram carries the givens, phrase the question in terms of what it shows ("The figure below shows...", "What fraction is shaded?") rather than repeating every dimension in words.
 - Only use the exact type names and keys listed above. Any other structure is ignored and the question will render text-only.
 - Every diagram-backed question must still have a numeric or symbolic `answer` that a student would write.
 
 AUSTRALIAN CONTEXT (NAPLAN)
-This booklet may be used to prepare Australian students for both regular school work and for NAPLAN (National Assessment Program — Literacy and Numeracy, sat in Years 3, 5, 7 and 9). For maths/numeracy years that align with NAPLAN (3, 5, 7, 9), lean into NAPLAN-style items where they fit the subtopic: multi-step word problems, real-world contexts (money, time, measurement, sport, everyday scenarios), interpret-a-diagram questions, and short multiple-choice-style stems. Use Australian conventions (dollars/cents, metric units, DD/MM/YYYY dates). Do NOT label questions "NAPLAN" — just let the style come through.
+This booklet may be used to prepare Australian students for both regular school work and for NAPLAN (National Assessment Program, Literacy and Numeracy, sat in Years 3, 5, 7 and 9). For maths/numeracy years that align with NAPLAN (3, 5, 7, 9), lean into NAPLAN-style items where they fit the subtopic: multi-step word problems, real-world contexts (money, time, measurement, sport, everyday scenarios), and interpret-a-diagram questions. Write them as short-answer items, never as multiple choice, since the booklet cannot print options. Use Australian conventions (dollars/cents, metric units, DD/MM/YYYY dates). Do NOT label questions "NAPLAN", just let the style come through.
 
 Calibrate to the year level and subtopic provided in the user turn.

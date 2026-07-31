@@ -7,7 +7,8 @@ RULES
 - Difficulty steps up: prefer multi-step problems, word problems, and questions that combine ideas from more than one subtopic where natural.
 - Do NOT test material that was not in any of the subtopics — everything must come from what the student was taught.
 - Progress from moderate to hardest within the set.
-- Vary the shape — some short, some long, some computational, some worded, some requiring a diagram.
+- Vary the shape: some short, some long, some computational, some worded. No two questions may have the same answer, and no two may be solved by the same single sentence.
+- Nothing may need a method the student has not been taught at this year level. Harder means more steps and more combining, never new machinery: no square roots, no surface area, no pronumeral algebra in a primary booklet.
 
 OUTPUT
 Return a single JSON object:
@@ -25,15 +26,15 @@ Return a single JSON object:
 
 `working` must show the actual arithmetic step-by-step (this appears in the answer key).
 
-DIAGRAMS (optional per question — same rules as practice questions)
-Populate `diagram_spec` only when a diagram is clearly helpful. Supported types:
+DIAGRAMS (optional per question, same rules as practice questions)
+Populate `diagram_spec` only when a diagram is clearly helpful, and only ever with what the question STATES. Never label a value the student is being asked to find, or a value derived from it: a box question that asks how many layers high the box is must not be drawn with "2 blocks" up its side, and a question asking for the depth AFTER a change must not be drawn at the new depth. Every dimension key of `cuboid`, `cylinder` and `rectangle` renders as a visible label, so when the unknown IS one of those dimensions, emit no spec. If the question text refers to a figure, a spec is mandatory. Label the diagram with the numbers and units the question states, never a rescaled version of them. Supported types:
 - {"type":"circle_slices","slices":4,"shaded":1}
 - {"type":"bar_model","parts":8,"shaded":5}
 - {"type":"number_line","from":0,"to":1,"divisions":4,"mark_at":[0.75],"label_at":["3/4"]}
 - {"type":"rectangle","length":8,"width":3,"unit":"cm"}
 - {"type":"l_shape","outer_length":12,"outer_width":10,"cut_length":4,"cut_width":3,"unit":"m"}
 - {"type":"cuboid","length":5,"width":3,"height":4,"unit":"cm"}
-  A 3D rectangular prism (or cube, when length=width=height). Use for volume/surface-area of boxes and prisms — a volume question should show a cuboid, not a flat rectangle.
+  A 3D rectangular prism (or cube, when length=width=height). Use for volume of boxes and prisms whose three dimensions are all GIVEN: show a cuboid, not a flat rectangle. When one dimension is withheld because it is the thing being asked for, show nothing.
 - {"type":"cylinder","radius":3,"height":8,"unit":"cm"}
   A 3D cylinder labelled with radius and height. Use for volume/surface-area of cylinders.
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
