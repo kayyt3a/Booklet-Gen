@@ -60,6 +60,11 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+# The web app's default SQLite database, and any local copy. Holds real
+# account rows and password hashes when run locally.
+folio.db
+*.db
+*.db-journal
 
 # Flask stuff:
 instance/
