@@ -517,9 +517,12 @@ class BookletPipeline:
         key = subject.strip().lower()
         if key in {"mathematics", "maths", "math"}:
             result = self._sympy.validate(q)
-            if result.verified:
-                return result
-            if result.notes and "substitution" in result.notes:
+            # Only a CONCLUSIVE sympy verdict is final, in either direction. A
+            # pass that only matched part of the question is not a pass: it
+            # goes to the judge like any other unproven answer. Treating a
+            # partial match as final is what let wrong answers ship with a
+            # check mark, because it also short-circuited the judge.
+            if result.conclusive:
                 return result
             fallback = self._judge.validate(subject, year_level, q, reference_chunks)
             fallback.notes = f"sympy inconclusive; {fallback.notes}"
@@ -551,7 +554,10 @@ class BookletPipeline:
         for i, q in enumerate(questions):
             if is_maths:
                 r = self._sympy.validate(q)
-                if r.verified or (r.notes and "substitution" in r.notes):
+                # Conclusive either way (proved right, proved wrong) is final.
+                # Inconclusive, including a match against only part of the
+                # question, is handed to the judge in the batched call below.
+                if r.conclusive:
                     results[i] = r
                 else:
                     needs_judge.append(i)
@@ -576,8 +582,15 @@ class BookletPipeline:
                     r.notes = f"sympy inconclusive; {r.notes}"
                 results[i] = r
 
-        return [r if r is not None else ValidationResult(False, "unvalidated")
-                for r in results]
+        out = [r if r is not None else ValidationResult(False, "unvalidated")
+               for r in results]
+        log.info(
+            "pipeline.validated",
+            extra={"subject": subject, "total": len(out),
+                   "verified": sum(1 for r in out if r.verified),
+                   "judged": len(needs_judge)},
+        )
+        return out
 
     @staticmethod
     def _norm_q(text: str) -> str:
