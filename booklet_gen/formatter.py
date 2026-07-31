@@ -12,11 +12,13 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     BaseDocTemplate, Frame, PageTemplate, Paragraph, Spacer,
-    PageBreak, KeepTogether, Table, TableStyle, Image,
+    PageBreak, CondPageBreak, KeepTogether, Table, TableStyle, Image,
 )
+from reportlab.platypus.flowables import Flowable
 from reportlab.lib.utils import ImageReader
 
 from .schemas import BookletData, ExamPaper, ValidatedQuestion, WorkedExample
+from .timing import booklet_timing
 
 
 PAGE_MARGIN = 2.0 * cm
@@ -201,6 +203,11 @@ def _make_styles():
             "footer_note", parent=base["Normal"], fontName=FONT_ITALIC,
             fontSize=9, textColor=colors.HexColor("#888888"), alignment=TA_CENTER,
         ),
+        "closing": ParagraphStyle(
+            "closing", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=10.5, leading=15, alignment=TA_CENTER,
+            textColor=colors.HexColor("#1F3A5F"),
+        ),
     }
 
 
@@ -251,6 +258,89 @@ def _tidy_units(text: str) -> str:
     return _CARET_POWER_RE.sub(lambda m: m.group(1).translate(_SUPERSCRIPT), text)
 
 
+# ---------------------------------------------------------------------------
+# Notation normalisation
+#
+# The generator is not consistent with itself, and a booklet is where that
+# shows. One real Year 5 booklet printed "15 * 4 + 7", then "5x = 45", then
+# "1 x 3 = 3" within two pages: three meanings across two symbols, for a child
+# who is still learning what the symbols mean. Volume appeared as "cubic
+# centimetres", "cubic cm" and "cm^3" in the same document.
+#
+# None of that can be fixed reliably in a prompt, so it is fixed here, at render
+# time, deterministically. After this pass the booklet uses exactly one symbol
+# per operation:
+#     x  is always an unknown            *  never appears
+#     ×  is always multiplication        ÷  is always division
+#     cm³ is always volume               cm² is always area
+# ---------------------------------------------------------------------------
+
+MULTIPLY = "×"
+DIVIDE = "÷"
+
+# "15 * 4", "2 * (7 + 4)", "5 * side". Emphasis asterisks (*like this*) have a
+# space on the outside, so neither lookaround matches and they survive.
+_STAR_MULT_RE = re.compile(r"(?<=[0-9A-Za-z\)])\s*\*\s*(?=[0-9A-Za-z\(])")
+
+# "1 x 3", "5x3", "40 x 20 x 10", "l x w x h". Both sides must be a number or a
+# single letter that is not itself x, so the unknown in "5x = 45", "solve for x"
+# and any ordinary word containing an x are all left alone.
+_MULT_OPERAND = r"(?:[0-9]+(?:\.[0-9]+)?|[a-wyzA-WYZ])"
+_X_MULT_RE = re.compile(
+    r"(?<![A-Za-z0-9])(" + _MULT_OPERAND + r")\s*[xX]\s*(?="
+    + _MULT_OPERAND + r"(?![A-Za-z0-9]))")
+
+# "40 cm x 20 cm", "3 units x 2 units": a unit word, then x, then a number.
+_X_MULT_UNIT_RE = re.compile(
+    r"\b(cm|mm|km|m|litres?|units?|cubes?|blocks?)\s+[xX]\s+(?=[0-9])", re.IGNORECASE)
+
+# "8000 / 2 = 4000". A slash with a space beside it is a division sign; a slash
+# with no spaces ("3/4") is a fraction and is left for _prettify_fractions. The
+# trailing lookahead keeps "3 / 4 of the pizza" a quantity rather than a sum.
+_SLASH_DIV_RE = re.compile(
+    r"(?<=[0-9])(?:\s+/\s*|\s*/\s+)(?=[0-9])(?![0-9]{0,3}\s+of\b)")
+
+# "8000 divided by 2" in the middle of an expression.
+_WORD_DIV_RE = re.compile(r"(?<=[0-9])\s+divided by\s+(?=[0-9])", re.IGNORECASE)
+
+_UNIT_WORDS = {
+    "centimetre": "cm", "centimetres": "cm", "centimeter": "cm", "centimeters": "cm",
+    "cm": "cm",
+    "millimetre": "mm", "millimetres": "mm", "millimeter": "mm", "millimeters": "mm",
+    "mm": "mm",
+    "metre": "m", "metres": "m", "meter": "m", "meters": "m", "m": "m",
+    "kilometre": "km", "kilometres": "km", "kilometer": "km", "kilometers": "km",
+    "km": "km",
+}
+_POWER_WORD_RE = re.compile(
+    r"\b(cubic|square)\s+(" + "|".join(sorted(_UNIT_WORDS, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE)
+
+# "cm3", "cm^3", "m2" written flat. No space is allowed before the digit, or
+# "a rope 2 m 3 cm long" would turn into cubic metres.
+_UNIT_POWER_FLAT_RE = re.compile(r"\b(cm|mm|km|m)\^?([23])\b")
+
+# Both superscripts, the multiplication sign and the division sign are Latin-1,
+# so they render in Helvetica too and need no Unicode-font guard.
+_SUPER_23 = {"2": "²", "3": "³"}
+
+
+def _normalise_notation(text: str) -> str:
+    text = _STAR_MULT_RE.sub(f" {MULTIPLY} ", text)
+    text = _X_MULT_UNIT_RE.sub(lambda m: f"{m.group(1)} {MULTIPLY} ", text)
+    text = _X_MULT_RE.sub(rf"\1 {MULTIPLY} ", text)
+    text = _SLASH_DIV_RE.sub(f" {DIVIDE} ", text)
+    text = _WORD_DIV_RE.sub(f" {DIVIDE} ", text)
+
+    def unit_word(m: re.Match) -> str:
+        digit = "3" if m.group(1).lower() == "cubic" else "2"
+        return _UNIT_WORDS[m.group(2).lower()] + _SUPER_23[digit]
+
+    text = _POWER_WORD_RE.sub(unit_word, text)
+    text = _UNIT_POWER_FLAT_RE.sub(lambda m: m.group(1) + _SUPER_23[m.group(2)], text)
+    return text
+
+
 _EM_DASH = re.compile(r"\s*—\s*")
 _EN_RANGE = re.compile(r"(?<=\d)\s*–\s*(?=\d)")
 _EN_DASH = re.compile(r"\s*–\s*")
@@ -287,12 +377,12 @@ def _strip_step_prefix(text: str) -> str:
 
 
 def _escape(text: str) -> str:
-    return _prettify_fractions(_tidy_units(
+    return _prettify_fractions(_tidy_units(_normalise_notation(
         _dedash(text)
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
-    ))
+    )))
 
 
 MAX_IMG_WIDTH = 7.5 * cm
@@ -376,21 +466,128 @@ _PART_MARKER_RE = re.compile(r"(?:^|\s)\(?([a-e])[\).]\s")
 # One question should never swallow a whole page.
 _MAX_WORKING_SPACE_CM = 8.0
 
+# Height of one ruled "Answer:" line, and the least working room a question may
+# be squeezed down to at the foot of a page.
+_ANSWER_LINE_CM = 0.75
+_MIN_WORKING_SPACE_CM = 0.9
+
+BODY_HEIGHT = A4[1] - 2 * PAGE_MARGIN
+
+# Room needed at the foot of a page for the Homework part to start there rather
+# than on a fresh page: the band, a heading and a question or two. Raise this to
+# BODY_HEIGHT / cm to go back to Homework always starting on its own page.
+HOMEWORK_MIN_START_CM = 7.0
+
+
+def part_labels(text: str) -> list[str]:
+    """The part markers in a question, in order: ["a", "b"] for "a) ... b) ...".
+
+    Shared with timing.py, which charges for each part.
+    """
+    seen: list[str] = []
+    for m in _PART_MARKER_RE.findall(text or ""):
+        if m not in seen:
+            seen.append(m)
+    return seen
+
+
+# Questions that want prose, a diagram or a demonstration rather than a value.
+# An "Answer: ____" rule under one of these tells the child to compress an
+# explanation onto a single line, so they do not get one.
+_EXTENDED_RESPONSE_RE = re.compile(
+    r"\b(explain|describe|justify|discuss|prove|show that|show why|show your working|"
+    r"draw|sketch|shade|colour|color|plot|label|construct|write a (?:short )?"
+    r"(?:paragraph|sentence|story)|in your own words)\b", re.IGNORECASE)
+
+
+def answer_line_labels(question) -> list[str]:
+    """Labels for the ruled answer lines under a question, empty for none."""
+    text = getattr(question, "question", "") or ""
+    if _EXTENDED_RESPONSE_RE.search(text):
+        return []
+    parts = part_labels(text)
+    if len(parts) >= 2:
+        return [f"{p}) Answer:" for p in parts]
+    return ["Answer:"]
+
 
 def _working_space_cm(question) -> float:
     base = _DIFFICULTY_SPACE_CM.get(
         (question.difficulty or "medium").strip().lower(), 2.2)
-    parts = len(set(_PART_MARKER_RE.findall(question.question)))
+    parts = len(part_labels(question.question))
     if parts >= 2:
         base += parts * 1.1
     return min(base, _MAX_WORKING_SPACE_CM)
 
 
+class WorkingSpace(Flowable):
+    """The blank area under a question, with its ruled answer line(s).
+
+    Two jobs, and they are the same job. It draws the "Answer: _____" rule the
+    booklet had nowhere for, and it is the piece that gives when a page runs
+    out: it reports its full height when there is room and shrinks toward
+    `min_height` when there is not.
+
+    Why it has to shrink: the question used to be a KeepTogether wrapping a
+    fixed Spacer, so a question whose blank space did not fit was moved whole to
+    the next page and the current page was abandoned, two thirds empty, in one
+    real booklet. KeepTogether measures its contents with an unbounded height
+    (0xfffffff), so reporting the *minimum* during measurement makes the
+    keep-together decision on the small size, and the real height is then
+    negotiated against the space actually left on the page.
+    """
+
+    def __init__(self, height: float, labels=(), min_height: float | None = None):
+        super().__init__()
+        self.labels = list(labels)
+        self.answers_height = _ANSWER_LINE_CM * cm * len(self.labels)
+        self.height = height + self.answers_height
+        floor = _MIN_WORKING_SPACE_CM * cm + self.answers_height
+        self.min_height = min(self.height, min_height if min_height is not None else floor)
+        self.width = 0
+
+    def wrap(self, availWidth, availHeight):
+        self.width = availWidth
+        if availHeight > BODY_HEIGHT:
+            # Being measured, not placed (KeepTogether/_listWrapOn). Quote the
+            # minimum so the question is not bounced to the next page over
+            # blank space that is allowed to shrink.
+            h = self.min_height
+        else:
+            h = max(self.min_height, min(self.height, availHeight))
+        self._h = h
+        return availWidth, h
+
+    def draw(self):
+        if not self.labels:
+            return
+        c = self.canv
+        c.saveState()
+        c.setFont(FONT_REGULAR, 9.5)
+        c.setFillColor(colors.HexColor("#333333"))
+        c.setStrokeColor(colors.HexColor("#9AA6B8"))
+        c.setLineWidth(0.6)
+        line_h = _ANSWER_LINE_CM * cm
+        for i, label in enumerate(reversed(self.labels)):
+            # Offset so the rule does not sit tight against the next question.
+            y = i * line_h + 0.42 * cm
+            c.drawString(0, y, label)
+            x0 = c.stringWidth(label, FONT_REGULAR, 9.5) + 6
+            c.line(x0, y - 2.5, self.width, y - 2.5)
+        c.restoreState()
+
+
 def _question_block(styles, q_num: int, vq: ValidatedQuestion):
-    symbol_html = f' <font color="#1B8A3A"><b>✓</b></font>' if vq.verified else ""
+    """One numbered question plus its working space.
+
+    No verification mark here. Every question in a generated booklet carried a
+    green tick, which to a child reading an unattempted page says "correct", and
+    which, being on every question, said nothing at all. Verification is shown
+    where it means something: beside the answer in the key.
+    """
     block = [
         Paragraph(
-            f"<b>{q_num}.</b> {_escape(vq.question.question)}{symbol_html}",
+            f"<b>{q_num}.</b> {_escape(vq.question.question)}",
             styles["question"],
         ),
     ]
@@ -403,7 +600,10 @@ def _question_block(styles, q_num: int, vq: ValidatedQuestion):
                 f"<i>Image: {_escape(vq.image_attribution)}</i>",
                 styles["footer_note"],
             ))
-    block.append(Spacer(1, _working_space_cm(vq.question) * cm))
+    block.append(WorkingSpace(
+        _working_space_cm(vq.question) * cm,
+        answer_line_labels(vq.question),
+    ))
     return KeepTogether(block)
 
 
@@ -460,7 +660,56 @@ def _draw_page_chrome(canvas, doc):
     canvas.restoreState()
 
 
-def render_pdf(data: BookletData, out_path: Path) -> Path:
+def _closing_note(styles, data: BookletData, include_answers: bool):
+    """A short sign-off after the last question, addressed to the student."""
+    name = _escape(data.student_name or "").strip()
+    opening = f"That is the end of the booklet, {name}." if name \
+        else "That is the end of the booklet."
+    tail = ("Check your answers against the key at the back, and mark anything "
+            "you want to go over again." if include_answers else
+            "Bring it to your next session so you can go through it with your "
+            "tutor, and mark anything you want to go over again.")
+    tbl = Table([[Paragraph(f"{opening} Well done for getting through it. {tail}",
+                            styles["closing"])]],
+                colWidths=[A4[0] - 2 * PAGE_MARGIN])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F4F7FB")),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#B7C3D4")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    return KeepTogether([tbl])
+
+
+def student_copy_path(out_path: Path) -> Path:
+    """Sibling path for the answer-free copy: booklet.pdf -> booklet-student.pdf."""
+    out_path = Path(out_path)
+    return out_path.with_name(f"{out_path.stem}-student{out_path.suffix or '.pdf'}")
+
+
+def render_booklet_pair(data: BookletData, out_path: Path) -> tuple[Path, Path]:
+    """Render both copies of a booklet.
+
+    Returns (tutor_copy, student_copy). The tutor copy keeps the given path and
+    the full answer key; the student copy is the same booklet with the key
+    removed, which is the copy you can actually hand to a child.
+    """
+    tutor = render_pdf(data, out_path, include_answers=True)
+    student = render_pdf(data, student_copy_path(out_path), include_answers=False)
+    return tutor, student
+
+
+def render_pdf(data: BookletData, out_path: Path, *,
+               include_answers: bool = True) -> Path:
+    """Render a booklet.
+
+    `include_answers=False` produces the student copy: the same booklet with no
+    answer key bound into the back of it. Without this a tutoring firm cannot
+    hand a booklet to a student at all, because the worked solution to every
+    question is a few pages further on in the same document.
+    """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     doc = BaseDocTemplate(
@@ -483,6 +732,12 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
 
     styles = _make_styles()
     story = []
+
+    # Times are recomputed here rather than read off the BookletData. The
+    # pipeline's numbers count questions only; these count what is actually
+    # printed, including the mini-lesson, the worked example and every guided
+    # example the student has to work through. See timing.py.
+    times = booklet_timing(data)
 
     # Cover - lead with the product line (program) when present, otherwise the
     # subject. The secondary line carries the subject(s) and year level. With a
@@ -507,22 +762,31 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         story.append(Paragraph(wk_line, styles["meta"]))
         story.append(Spacer(1, 0.15 * cm))
     story.append(Paragraph(date.today().strftime("%d %B %Y"), styles["meta"]))
-    if data.total_minutes:
+    if times["total_minutes"]:
         story.append(Spacer(1, 0.3 * cm))
         story.append(Paragraph(
-            f"Estimated time: about {data.total_minutes} minutes. "
+            f"Estimated time: about {times['total_minutes']} minutes. "
             "Take breaks whenever you need to.",
             styles["meta"],
         ))
     story.append(Spacer(1, 4 * cm))
-    section_subjects = {(s.subject or data.subject).strip().lower() for s in data.sections}
-    only_maths = section_subjects == {"mathematics"}
-    verify_note = (
-        "Questions marked with a check mark have been symbolically verified."
-        if only_maths else
-        "Questions marked with a check mark have been checked for accuracy."
-    )
-    story.append(Paragraph(verify_note, styles["footer_note"]))
+    if include_answers:
+        # Only the tutor copy has a key to point at, and the mark now lives
+        # beside the answers rather than beside the unattempted questions.
+        section_subjects = {(s.subject or data.subject).strip().lower()
+                            for s in data.sections}
+        only_maths = section_subjects == {"mathematics"}
+        story.append(Paragraph(
+            "Tutor copy. The answer key at the back marks each answer that has "
+            + ("been symbolically verified." if only_maths
+               else "been checked for accuracy."),
+            styles["footer_note"],
+        ))
+    else:
+        story.append(Paragraph(
+            "Student copy. Work through it in order and show your working.",
+            styles["footer_note"],
+        ))
     story.append(PageBreak())
 
     multi_subject = len({(s.subject or "") for s in data.sections if s.subject}) > 1
@@ -547,23 +811,23 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
 
     # ---- Warm-up Recap ----
     if data.recap_questions:
-        sub = f"Quick revision to warm up. About {data.recap_minutes} min." if data.recap_minutes \
-            else "Quick revision to warm up."
+        sub = f"Quick revision to warm up. About {times['recap_minutes']} min." \
+            if times["recap_minutes"] else "Quick revision to warm up."
         story.append(_part_band(styles, "Warm-up Recap", "#6b7280", sub))
         story.append(Spacer(1, 0.3 * cm))
         render_questions(data.recap_questions)
 
     # ---- Class Work (lesson + guided + now-you-try) ----
-    cw_sub = f"Do this in your lesson. About {data.classwork_minutes} min." if data.classwork_minutes \
-        else "Do this in your lesson."
+    cw_sub = f"Do this in your lesson. About {times['classwork_minutes']} min." \
+        if times["classwork_minutes"] else "Do this in your lesson."
     story.append(_part_band(styles, "Class Work", "#1F3A5F", cw_sub))
     story.append(Spacer(1, 0.3 * cm))
     state = {"subject": None, "topic": None}
-    for section in data.sections:
+    for si, section in enumerate(data.sections):
         subject_topic_headers(section, state)
         time_badge = (
-            f'  <font size=9 color="#1B8A3A">(about {section.estimated_minutes} min)</font>'
-            if section.estimated_minutes else ""
+            f'  <font size=9 color="#1B8A3A">'
+            f'(about {times["section_minutes"][si]} min)</font>'
         )
         story.append(Paragraph(_escape(section.subtopic) + time_badge, styles["subtopic"]))
 
@@ -590,9 +854,15 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     # ---- Homework (repetition through the week) + Final Challenge ----
     has_homework = any(s.homework_questions for s in data.sections)
     if has_homework or data.challenge_questions:
-        story.append(PageBreak())
-        hw_sub = f"Do these through the week to lock it in. About {data.homework_minutes} min." \
-            if data.homework_minutes else "Do these through the week to lock it in."
+        # Not an unconditional break. Class Work used to end wherever it ended
+        # and throw the rest of the page away: one real booklet finished the
+        # section two questions into a page and left the other two thirds
+        # blank. The coloured band is divider enough, so only break when there
+        # is too little room left to be worth starting Homework here.
+        story.append(CondPageBreak(HOMEWORK_MIN_START_CM * cm))
+        hw_sub = ("Do these through the week to lock it in. "
+                  f"About {times['homework_minutes']} min.") \
+            if times["homework_minutes"] else "Do these through the week to lock it in."
         story.append(_part_band(styles, "Homework", "#8B1E3F", hw_sub))
         story.append(Spacer(1, 0.3 * cm))
         state = {"subject": None, "topic": None}
@@ -606,7 +876,8 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         if data.challenge_questions:
             story.append(Spacer(1, 0.4 * cm))
             story.append(Paragraph("Final Challenge", styles["challenge_heading"]))
-            ct = f" (about {data.challenge_minutes} min)" if data.challenge_minutes else ""
+            ct = (f" (about {times['challenge_minutes']} min)"
+                  if times["challenge_minutes"] else "")
             story.append(Paragraph(
                 "Now let's see how well you know it all. Questions from across "
                 f"everything you practised.{ct}",
@@ -614,9 +885,22 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
             ))
             render_questions(data.challenge_questions)
 
+    # ---- Closing ----
+    # The booklet used to stop dead: the page after the last question was the
+    # answer key. Say something to the student first, by name.
+    story.append(Spacer(1, 0.6 * cm))
+    story.append(_closing_note(styles, data, include_answers))
+
+    if not include_answers:
+        doc.build(story)
+        return out_path
+
     # ---- Answer key (same order: recap, class work, homework, challenge) ----
     story.append(PageBreak())
     story.append(Paragraph("Answers &amp; Worked Solutions", styles["answers_heading"]))
+    story.append(Paragraph(
+        "Tutor copy only. The student copy of this booklet ends after the last "
+        "question.", styles["challenge_blurb"]))
     acount = {"n": 0}
 
     def render_answers(qs):
@@ -794,9 +1078,11 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
 
 
 def _answer_block(styles, q_num: int, vq: ValidatedQuestion):
-    symbol_html = (
-        f' <font color="#1B8A3A"><b>✓ verified</b></font>' if vq.verified else ""
-    )
+    # The only place a verification mark belongs: beside a worked answer, where
+    # it tells the person marking that this solution was checked. The check
+    # glyph is outside Latin-1, so drop it when we fell back to Helvetica.
+    mark = "✓ verified" if _UNICODE_FONT else "verified"
+    symbol_html = f' <font color="#1B8A3A"><b>{mark}</b></font>' if vq.verified else ""
     block = [
         Paragraph(
             f"<b>{q_num}.</b> Answer: {_escape(vq.question.answer)}{symbol_html}",

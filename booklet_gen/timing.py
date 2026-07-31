@@ -1,20 +1,42 @@
-"""Rough time estimates for a booklet, shown so a kid can see a section is
-short and not feel discouraged.
+"""Time estimates for a booklet.
 
-These are deliberately gentle, round numbers, not stopwatch-accurate. The aim
-is "this bit is about 10 minutes", not precision.
+Two different jobs live in this module and they must not be confused.
+
+1. `section_minutes` is a **capacity heuristic**. The pipeline uses it to decide
+   how many questions fit in a tutoring hour before the surplus is pushed into
+   homework. It is coarse on purpose: it counts questions and allows a nominal
+   amount for a mini-lesson.
+
+2. `booklet_timing` is the **printed estimate**. It walks the actual booklet and
+   charges for every thing a student has to do: reading the mini-lesson,
+   following the worked example, working through each guided example, and each
+   practice question sized by its own difficulty, length and number of parts.
+   The formatter calls this at render time so the number on the page describes
+   the page, not the plan that produced it.
+
+These two disagree, and that disagreement is real rather than a bug: a booklet
+whose Class Work half is capped at an hour of *question* time contains closer to
+an hour and a half of work once the teaching is counted. Printing the smaller
+number would not make the session shorter, so the printed number is the honest
+one, and how much content belongs in an hour is a decision for the owner.
 """
 from __future__ import annotations
+
+# ---------------------------------------------------------------------------
+# Capacity heuristic (pipeline)
+# ---------------------------------------------------------------------------
 
 # Minutes per practice question by difficulty. A child spends longer on a
 # multi-step "hard" question than a quick "easy" one.
 _PER_QUESTION = {"easy": 1.5, "medium": 2.5, "hard": 3.5}
 
-# Reading the mini-lesson (intro, key points, worked example).
+# Nominal allowance for a mini-lesson in the capacity heuristic.
 _LESSON_MINUTES = 2.0
 
 
 def section_minutes(n_questions: int, has_lesson: bool, difficulty: str | None) -> float:
+    """Coarse question-capacity estimate. See the module docstring: this is what
+    the pipeline caps against, not what the booklet prints."""
     per_q = _PER_QUESTION.get((difficulty or "medium").strip().lower(), 2.5)
     return (_LESSON_MINUTES if has_lesson else 0.0) + n_questions * per_q
 
@@ -27,3 +49,134 @@ def round_display(minutes: float) -> int:
 def round_total(minutes: float) -> int:
     """Round a booklet total to the nearest 5 minutes, minimum 5."""
     return max(5, int(round(minutes / 5.0)) * 5)
+
+
+# ---------------------------------------------------------------------------
+# Printed estimate (formatter)
+# ---------------------------------------------------------------------------
+
+# Base minutes for one practice question, before its length and parts are
+# counted. A first attempt at a newly taught skill, not a drill.
+_Q_BASE = {"easy": 1.2, "medium": 1.8, "hard": 2.6}
+
+# Reading and parsing the question itself. A one-line "Simplify 9/12" and a
+# forty-word word problem are not the same job, and charging both the same flat
+# rate is what made the old homework estimate twice the truth.
+_Q_MINUTES_PER_WORD = 1.0 / 40.0
+
+# Each extra labelled part, "a) ... b) ...", is close to another question.
+_Q_PER_EXTRA_PART = 0.7
+
+# Where a question sits changes how long it takes, even for identical text.
+#   classwork: first independent attempt, tutor still explaining
+#   homework:  the same skill a second time, alone, faster
+#   recap:     deliberately easy warm-up on old material
+#   challenge: mixed and cumulative, so recall costs before working does
+_CONTEXT_FACTOR = {
+    "classwork": 1.0,
+    "homework": 0.65,
+    "recap": 0.8,
+    "challenge": 1.2,
+}
+
+# Reading the mini-lesson prose: intro paragraphs, key points, mnemonic.
+# Roughly 120 words a minute for a primary reader meeting new material, with a
+# floor so a terse lesson is not charged at nothing.
+_LESSON_WORDS_PER_MINUTE = 120.0
+_LESSON_FLOOR_MINUTES = 0.8
+
+# "I do": the student reads a solved problem and follows the reasoning.
+_WORKED_BASE = 1.2
+_WORKED_PER_STEP = 0.2
+
+# "We do": the student actually attempts it alongside the tutor. This is the
+# line the old estimate missed most: a guided example is not reading, it is
+# working, and it costs about as much as a practice question.
+_GUIDED_BASE = 2.2
+_GUIDED_PER_STEP = 0.2
+
+# Settling, marking and moving on between subtopics.
+_SECTION_CHANGEOVER = 0.5
+
+
+def _words(text: str | None) -> int:
+    return len(text.split()) if text else 0
+
+
+def question_minutes(question, context: str = "classwork") -> float:
+    """Minutes for one practice question, from what the question actually says."""
+    base = _Q_BASE.get((getattr(question, "difficulty", None) or "medium").strip().lower(), 1.8)
+    text = getattr(question, "question", "") or ""
+    minutes = base + _words(text) * _Q_MINUTES_PER_WORD
+    minutes += _Q_PER_EXTRA_PART * max(0, _part_count(text) - 1)
+    return minutes * _CONTEXT_FACTOR.get(context, 1.0)
+
+
+def _part_count(text: str) -> int:
+    # Imported lazily to keep this module free of formatter imports.
+    from .formatter import part_labels
+    return len(part_labels(text))
+
+
+def questions_minutes(vqs, context: str = "classwork") -> float:
+    return sum(question_minutes(vq.question, context) for vq in vqs)
+
+
+def worked_example_minutes(we, guided: bool = False) -> float:
+    base = _GUIDED_BASE if guided else _WORKED_BASE
+    per_step = _GUIDED_PER_STEP if guided else _WORKED_PER_STEP
+    steps = len(getattr(we, "steps", None) or ())
+    return base + per_step * steps + _words(getattr(we, "question", "")) * _Q_MINUTES_PER_WORD
+
+
+def teaching_minutes(teaching) -> float:
+    """Minutes for one mini-lesson: prose, worked example, guided examples."""
+    if teaching is None:
+        return 0.0
+    words = sum(_words(p) for p in (teaching.intro_paragraphs or ()))
+    words += sum(_words(k) for k in (teaching.key_points or ()))
+    words += _words(teaching.mnemonic)
+    minutes = max(_LESSON_FLOOR_MINUTES, words / _LESSON_WORDS_PER_MINUTE)
+    if teaching.worked_example is not None:
+        minutes += worked_example_minutes(teaching.worked_example)
+    for ge in teaching.guided_examples or ():
+        minutes += worked_example_minutes(ge, guided=True)
+    return minutes
+
+
+def classwork_section_minutes(section) -> float:
+    """Minutes for one Class Work section: lesson plus its "now you try" set."""
+    return (teaching_minutes(section.teaching)
+            + questions_minutes(section.questions, "classwork")
+            + (_SECTION_CHANGEOVER if section.teaching is not None else 0.0))
+
+
+def booklet_timing(data) -> dict:
+    """Recompute every printed time from the booklet itself.
+
+    Returns raw floats under `*_raw` and rounded display integers under the
+    same keys the BookletData carries, plus `section_minutes` keyed by the
+    index of each section.
+    """
+    section_raw = [classwork_section_minutes(s) for s in data.sections]
+    classwork_raw = sum(section_raw)
+    homework_raw = sum(
+        questions_minutes(s.homework_questions, "homework") for s in data.sections)
+    recap_raw = questions_minutes(data.recap_questions, "recap")
+    challenge_raw = questions_minutes(data.challenge_questions, "challenge")
+    # The Final Challenge is printed inside the Homework half, so its time
+    # belongs to that heading.
+    homework_total_raw = homework_raw + challenge_raw
+    return {
+        "section_raw": section_raw,
+        "section_minutes": [round_display(m) for m in section_raw],
+        "recap_raw": recap_raw,
+        "classwork_raw": classwork_raw,
+        "homework_raw": homework_total_raw,
+        "challenge_raw": challenge_raw,
+        "recap_minutes": round_display(recap_raw) if data.recap_questions else None,
+        "classwork_minutes": round_display(classwork_raw) if data.sections else None,
+        "homework_minutes": round_display(homework_total_raw) if homework_total_raw else None,
+        "challenge_minutes": round_display(challenge_raw) if data.challenge_questions else None,
+        "total_minutes": round_total(recap_raw + classwork_raw + homework_total_raw),
+    }
