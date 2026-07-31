@@ -137,7 +137,7 @@ def generate():
 def _run_job(job_id: str, a: dict):
     """Background worker. Imported lazily so the web process starts fast."""
     from ..pipeline import BookletPipeline
-    from ..formatter import render_pdf, render_exam_pdf
+    from ..formatter import render_booklet_pair, render_exam_pdf
 
     # A Python thread cannot be killed from outside, and the LLM client owns
     # its own socket timeout (llm/gemini.py is not ours to change), so the
@@ -176,7 +176,9 @@ def _run_job(job_id: str, a: dict):
             folder.mkdir(parents=True, exist_ok=True)
             for data in booklets:
                 fn = f"week-{data.week_number:02d}-{_slug(data.week_focus or 'booklet')}.pdf"
-                render_pdf(data, folder / fn)
+                # Writes both the tutor copy and a "-student" copy beside it;
+                # the zip below globs *.pdf and picks up each pair.
+                render_booklet_pair(data, folder / fn)
             # Archive the term plan as the same zip the user would download.
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -191,8 +193,17 @@ def _run_job(job_id: str, a: dict):
                 subject=a["subject"], topic=a["topic"],
             )
             path = out_dir / f"{job_id}.pdf"
-            render_pdf(data, path)
-            _archive(job_id, a["user_id"], path, f"{slug}.pdf", "application/pdf")
+            # A tutor copy has the answer key bound in, so a tutoring firm
+            # cannot hand it to a student. Deliver both, zipped: job_files is
+            # keyed by job id and stores one file per job, which is the same
+            # reason term plans are zipped.
+            tutor, student = render_booklet_pair(data, path)
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.write(tutor, f"{slug}.pdf")
+                zf.write(student, f"{slug}-student.pdf")
+            db.save_job_file(job_id, a["user_id"], f"{slug}.zip",
+                             "application/zip", buf.getvalue())
             db.finish_job(job_id, path=str(path))
     except Exception as e:
         db.fail_job(job_id, str(e))
