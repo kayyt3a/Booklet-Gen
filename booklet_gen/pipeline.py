@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 from typing import Optional
 
 from .agents.challenge_generator import ChallengeGeneratorAgent
@@ -63,6 +64,42 @@ class _WithQuestions:
         return getattr(self._section, name)
 
 
+class _SeenQuestions:
+    """Question texts already accepted into THIS booklet, shared by every part.
+
+    The dedupe used to be a plain set rebuilt inside each subtopic, so it could
+    only ever see one subtopic's own questions. Subtopics run concurrently and
+    shared nothing, which is how a booklet shipped sixteen consecutive volume
+    questions: each subtopic was internally clean and none of them could see the
+    others. The recap and the Final Challenge were blind in the same way.
+
+    Concurrency: `add` is the one atomic check-and-claim, so two threads that
+    generate the same text cannot both keep it. `__contains__` is a deliberately
+    unlocked read used by the regeneration loop, where a stale answer costs at
+    worst one extra retry and never a wrong result.
+    """
+
+    __slots__ = ("_seen", "_lock")
+
+    def __init__(self) -> None:
+        self._seen: set[str] = set()
+        self._lock = threading.Lock()
+
+    def __contains__(self, norm: str) -> bool:
+        return norm in self._seen
+
+    def __len__(self) -> int:
+        return len(self._seen)
+
+    def add(self, norm: str) -> bool:
+        """Claim `norm`. True if it was new, False if another caller has it."""
+        with self._lock:
+            if norm in self._seen:
+                return False
+            self._seen.add(norm)
+            return True
+
+
 class BookletPipeline:
     def __init__(
         self,
@@ -109,10 +146,13 @@ class BookletPipeline:
             extra={"subject": outline.subject, "year_level": outline.year_level,
                    "topics": len(outline.topics)},
         )
-        sections, covered, rag_pool = self._generate_from_outline(outline)
-        recap = self._build_recap(outline.subject, outline.year_level, None, rag_pool)
+        # One seen-set for the whole booklet: a question the student has
+        # already answered under one heading is not practice under another.
+        seen = _SeenQuestions()
+        sections, covered, rag_pool = self._generate_from_outline(outline, seen)
+        recap = self._build_recap(outline.subject, outline.year_level, None, rag_pool, seen)
         challenge = self._build_challenge(
-            outline.subject, outline.year_level, covered, rag_pool,
+            outline.subject, outline.year_level, covered, rag_pool, seen,
         )
         self._fit_classwork_to_cap(sections)
         t = self._timing(sections, challenge, recap)
@@ -168,20 +208,24 @@ class BookletPipeline:
         all_sections: list[SubtopicOutput] = []
         all_challenge: list[ValidatedQuestion] = []
         all_recap: list[ValidatedQuestion] = []
+        # Spans the subjects too: one booklet, one set of questions. A term
+        # plan gets a fresh set per week, which is right, since revisiting a
+        # skill a week later is the point of the recap.
+        seen = _SeenQuestions()
         for subj in subjects:
             description = program.describe(subj, year_level, topic)
             outline = self._parser.parse(description)
             # Force the engine subject: the parser normalises to a known
             # subject, but the program is authoritative about which engine runs.
             outline.subject = subj
-            sections, covered, rag_pool = self._generate_from_outline(outline)
+            sections, covered, rag_pool = self._generate_from_outline(outline, seen)
             for s in sections:
                 s.subject = subj
             all_sections.extend(sections)
             # Recap revises the previous week (term plan) or earlier skills.
-            all_recap.extend(self._build_recap(subj, year_level, prev_focus, rag_pool))
+            all_recap.extend(self._build_recap(subj, year_level, prev_focus, rag_pool, seen))
             all_challenge.extend(
-                self._build_challenge(subj, year_level, covered, rag_pool)
+                self._build_challenge(subj, year_level, covered, rag_pool, seen)
             )
 
         self._fit_classwork_to_cap(all_sections)
@@ -422,12 +466,19 @@ class BookletPipeline:
             "total_minutes": round_total(recap_raw + classwork_raw + homework_raw),
         }
 
-    def _build_recap(self, subject, year_level, recap_focus, reference_chunks):
+    def _build_recap(self, subject, year_level, recap_focus, reference_chunks, seen=None):
         """A short easy warm-up quiz revising earlier material (spaced retrieval).
-        For a term plan `recap_focus` is the previous week's topic."""
+        For a term plan `recap_focus` is the previous week's topic.
+
+        The recap carries no mini-lesson by design: it revises what the student
+        already knows, so there is nothing to teach and nothing to pass to the
+        generator.
+        """
         if self._n_recap <= 0:
             return []
         from .schemas import Subtopic
+        if seen is None:
+            seen = _SeenQuestions()
         name = recap_focus or f"quick revision of key {subject} skills learned earlier"
         st = Subtopic(name=name, difficulty_hint="easy")
         try:
@@ -441,6 +492,11 @@ class BookletPipeline:
         for q, r in zip(picked, verdicts):
             if self._reasoning_reject(subject, q):
                 continue
+            # A warm-up that asks something the booklet asks again later is a
+            # spoiler, not spaced retrieval.
+            if not seen.add(self._norm_q(q.question)):
+                log.info("pipeline.drop_duplicate_recap", extra={"subject": subject})
+                continue
             img, attr = self._resolve_visual(q)
             out.append(ValidatedQuestion(
                 question=q, verified=self._trusted(q, r.verified),
@@ -448,13 +504,23 @@ class BookletPipeline:
                 image_path=str(img) if img else None, image_attribution=attr))
         return out
 
-    def _process_subtopic(self, subject, year_level, topic_name, subtopic):
+    def _process_subtopic(self, subject, year_level, topic_name, subtopic, seen=None):
         """Generate one subtopic: lesson + validated questions. Returns
-        (SubtopicOutput, rag_chunks). Self-contained so it can run in a thread."""
+        (SubtopicOutput, rag_chunks). Self-contained so it can run in a thread.
+
+        The lesson is written FIRST and handed to the question generator, so
+        the practice exercises the skill the worked example just modelled. This
+        ordering was already what the code did, so nothing was serialised to
+        get it: the two calls were sequential within a subtopic before, and
+        subtopics still run concurrently with each other. Passing the teaching
+        along costs no extra wall-clock time.
+        """
+        if seen is None:
+            seen = _SeenQuestions()
         chunks = self._retrieve(subject, year_level, topic_name, subtopic.name)
         teaching = self._make_teaching(subject, year_level, topic_name, subtopic, chunks)
         validated = self._generate_and_validate(
-            subject, year_level, topic_name, subtopic, chunks,
+            subject, year_level, topic_name, subtopic, chunks, teaching, seen,
         )
         total = len(validated)
         failed = sum(1 for v in validated if not v.verified)
@@ -484,11 +550,14 @@ class BookletPipeline:
         )
         return section, chunks
 
-    def _generate_from_outline(self, outline):
+    def _generate_from_outline(self, outline, seen=None):
         """Run generation for every subtopic in a single-subject outline.
-        Subtopics are independent, so they run concurrently (each is a batch of
+        Subtopics are independent apart from the shared `seen` set (which is
+        thread-safe), so they run concurrently (each is a batch of
         network-bound LLM calls). Output order matches the outline. Returns
         (sections, covered, rag_pool)."""
+        if seen is None:
+            seen = _SeenQuestions()
         tasks = [(t.name, st) for t in outline.topics for st in t.subtopics]
         results: list = [None] * len(tasks)
 
@@ -497,7 +566,7 @@ class BookletPipeline:
             with ThreadPoolExecutor(max_workers=self._max_workers) as ex:
                 futures = {
                     ex.submit(self._process_subtopic, outline.subject,
-                              outline.year_level, tn, st): i
+                              outline.year_level, tn, st, seen): i
                     for i, (tn, st) in enumerate(tasks)
                 }
                 for fut in as_completed(futures):
@@ -505,7 +574,7 @@ class BookletPipeline:
         else:
             for i, (tn, st) in enumerate(tasks):
                 results[i] = self._process_subtopic(
-                    outline.subject, outline.year_level, tn, st)
+                    outline.subject, outline.year_level, tn, st, seen)
 
         sections: list[SubtopicOutput] = []
         covered: list[tuple[str, str]] = []
@@ -655,7 +724,16 @@ class BookletPipeline:
 
     @staticmethod
     def _norm_q(text: str) -> str:
-        return re.sub(r"\s+", " ", text.strip().lower())
+        """Normalise a question for duplicate detection.
+
+        Case and whitespace only, plus trailing punctuation: "Calculate 3/8 +
+        2/8." and "Calculate 3/8 + 2/8" are the same question. Nothing deeper
+        is normalised on purpose, since digits and interior punctuation are
+        what make two similar questions different ("1,200" is not "1200" by
+        accident). This catches restatements, not same-shape questions with
+        different numbers; those are the generator's job, not the dedupe's.
+        """
+        return re.sub(r"\s+", " ", text.strip().lower()).strip(" .?!:;")
 
     def _reasoning_reject(self, subject: str, q: Question) -> bool:
         """True if the deterministic reasoning checker can PROVE the question is
@@ -671,10 +749,20 @@ class BookletPipeline:
 
     def _generate_and_validate(
         self, subject, year_level, topic_name, subtopic, reference_chunks,
+        teaching=None, seen=None,
     ) -> list[ValidatedQuestion]:
+        """Generate, validate and dedupe one subtopic's question set.
+
+        `teaching` is the mini-lesson that prints above these questions, so the
+        practice can exercise the method it modelled. `seen` is the booklet-wide
+        set of question texts already taken; it defaults to a private one so a
+        caller with no booklet context still behaves sanely.
+        """
         results: list[ValidatedQuestion] = []
-        seen: set[str] = set()  # normalised question text, to reject duplicates
-        qs = self._generator.generate(subject, year_level, topic_name, subtopic, reference_chunks)
+        if seen is None:
+            seen = _SeenQuestions()
+        qs = self._generator.generate(
+            subject, year_level, topic_name, subtopic, reference_chunks, teaching)
         # Validate the whole set in one batched judge call up front; per-question
         # regeneration below still uses the single-question path.
         initial = self._validate_many(subject, year_level, qs.questions, reference_chunks)
@@ -696,6 +784,7 @@ class BookletPipeline:
                 )
                 fresh = self._generator.generate(
                     subject, year_level, topic_name, subtopic, reference_chunks,
+                    teaching,
                 )
                 best_q, best_result = None, None
                 for cand in fresh.questions:
@@ -719,7 +808,15 @@ class BookletPipeline:
                          extra={"subject": subject, "subtopic": subtopic.name,
                                 "reason": result.notes})
                 continue
-            seen.add(self._norm_q(q.question))
+            # The one atomic claim. Losing it means a concurrent subtopic wrote
+            # the same question first while we were retrying; the retry loop
+            # above is best-effort, this is the guarantee. Dropping the loser is
+            # correct: printing the same question twice is worse than printing
+            # one fewer.
+            if not seen.add(self._norm_q(q.question)):
+                log.info("pipeline.drop_duplicate",
+                         extra={"subject": subject, "subtopic": subtopic.name})
+                continue
             image_path, image_attr = self._resolve_visual(q)
             results.append(ValidatedQuestion(
                 question=q,
@@ -734,10 +831,12 @@ class BookletPipeline:
     # ---------- Challenge ----------
 
     def _build_challenge(
-        self, subject, year_level, covered, reference_chunks,
+        self, subject, year_level, covered, reference_chunks, seen=None,
     ) -> list[ValidatedQuestion]:
         if not covered or self._n_challenge <= 0:
             return []
+        if seen is None:
+            seen = _SeenQuestions()
         try:
             qs = self._challenger.generate(
                 subject, year_level, covered, self._n_challenge, reference_chunks,
@@ -746,17 +845,22 @@ class BookletPipeline:
             log.warning("pipeline.challenge_failed", extra={"error": str(e)[:200]})
             return []
         results: list[ValidatedQuestion] = []
-        seen: set[str] = set()
         for q in qs.questions:
-            # Skip exact-duplicate challenge questions outright — the challenge
-            # set is a single batch, so we dedupe rather than regenerate.
-            if self._norm_q(q.question) in seen:
+            # Skip duplicate challenge questions outright: the challenge set is
+            # a single batch, so we dedupe rather than regenerate. `seen` spans
+            # the whole booklet: the Final Challenge is meant to combine the
+            # skills, not reprint a question already answered in the practice.
+            norm = self._norm_q(q.question)
+            if norm in seen:
                 continue
             if self._reasoning_reject(subject, q):
                 log.info("pipeline.drop_broken_challenge",
                          extra={"subject": subject})
                 continue
-            seen.add(self._norm_q(q.question))
+            # Claim it only once it is going to be kept, so a question dropped
+            # as broken does not block a sound one with the same text later.
+            if not seen.add(norm):
+                continue
             result = self._validate(subject, year_level, q, reference_chunks)
             # For the challenge set we tolerate the LLM's first attempt more —
             # regeneration would cost another full-set call. Just record the

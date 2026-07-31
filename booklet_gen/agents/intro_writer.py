@@ -42,19 +42,26 @@ def _year_number(year_level: str) -> int:
 # Reading budgets by year band. The whole point is to keep the *teaching* text
 # light — kids are here to practise, not to read an essay. Younger kids get the
 # bare minimum; the oldest get a little more but it stays lean.
+#
+# key_points is a RANGE, not a count. It used to be a single number rendered as
+# "exactly N", which meant every Year 5 lesson in a booklet carried exactly
+# three bullets. Six subtopics, six identically shaped lessons: that uniformity
+# is the tell that a booklet was generated rather than written, and no amount of
+# prompt work could break it while the code was demanding it. The ceilings below
+# are what stop the lessons ballooning instead.
 _BUDGETS = [
-    # (max_year, intro_paras, sentences_per_para, key_points, steps, vocab_note)
-    (2,  1, 2, 2, 3, "Use very simple words a 6 to 7 year old knows. Very short sentences."),
-    (4,  1, 3, 2, 3, "Use simple, everyday words. Keep sentences short."),
-    (6,  1, 3, 3, 4, "Keep language clear and plain."),
-    (8,  2, 3, 3, 4, "Clear language; a little more detail is fine."),
-    (99, 2, 4, 4, 5, "Clear language; you may include a little more nuance."),
+    # (max_year, intro_paras, sentences_per_para, kp_min, kp_max, steps, vocab_note)
+    (2,  1, 2, 1, 3, 3, "Use very simple words a 6 to 7 year old knows. Very short sentences."),
+    (4,  1, 3, 2, 3, 3, "Use simple, everyday words. Keep sentences short."),
+    (6,  1, 3, 2, 4, 4, "Keep language clear and plain."),
+    (8,  2, 3, 2, 4, 4, "Clear language; a little more detail is fine."),
+    (99, 2, 4, 3, 5, 5, "Clear language; you may include a little more nuance."),
 ]
 
 
 def _reading_budget(year_level: str) -> str:
     yr = _year_number(year_level)
-    for max_year, paras, sents, kps, steps, vocab in _BUDGETS:
+    for max_year, paras, sents, kp_min, kp_max, steps, vocab in _BUDGETS:
         if yr <= max_year:
             break
     return (
@@ -62,8 +69,12 @@ def _reading_budget(year_level: str) -> str:
         "booklet, not a textbook; do NOT exceed these):\n"
         f"- intro_paragraphs: at most {paras} paragraph(s), each at most {sents} "
         "short sentence(s).\n"
-        f"- key_points: exactly {kps}, each one short line (a few words to one "
-        "sentence).\n"
+        f"- key_points: between {kp_min} and {kp_max}, each one short line (a "
+        "few words to one sentence). Write as many as THIS subtopic genuinely "
+        "needs and no more. A simple skill may need only "
+        f"{kp_min}; do not pad up to {kp_max}, and do not settle on one habitual "
+        "number, because a booklet whose every lesson carries the same number "
+        "of bullets reads as machine-made.\n"
         f"- worked_example.steps: at most {steps} short steps.\n"
         f"- Vocabulary: {vocab}\n"
         "Favour brevity over completeness. If in doubt, write less."
