@@ -226,3 +226,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Transient git worktrees for background agents. Each is a full checkout of
+# the repo, created and removed by the agent runner.
+.claude/worktrees/
