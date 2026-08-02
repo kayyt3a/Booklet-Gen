@@ -72,6 +72,12 @@ class Question(BaseModel):
 
 class QuestionSet(BaseModel):
     questions: List[Question]
+    # Reading the questions refer to by passage_id. This has to live on the
+    # generator's parse target, not just on SubtopicOutput: Pydantic drops
+    # unknown keys silently, so without it a model that correctly emits
+    # passages loses them here and the questions reference reading that never
+    # prints, which is worse than the inline passages it replaced.
+    passages: List[Passage] = Field(default_factory=list)
 
 
 class ValidatedQuestion(BaseModel):
