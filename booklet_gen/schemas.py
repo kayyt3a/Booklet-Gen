@@ -19,10 +19,46 @@ class Outline(BaseModel):
     topics: List[Topic]
 
 
+class Passage(BaseModel):
+    """A block of reading that several questions ask about.
+
+    Comprehension used to live inside the question string, which produced two
+    defects at once: passages shrank to a sentence, because a question field
+    is not where you write three paragraphs, and a question could say "the
+    passage above" while the text rendered below it. Making the passage its
+    own object lets the formatter guarantee it is laid out before every
+    question that refers to it.
+    """
+    id: str
+    title: Optional[str] = None
+    # Paragraphs, not one blob: the renderer needs the breaks, and a model
+    # asked for a list writes more than a model asked for a string.
+    paragraphs: List[str] = Field(default_factory=list)
+
+
+class SpellingList(BaseModel):
+    """The words set for the coming week, printed at the back of a booklet."""
+    words: List[str] = Field(default_factory=list)
+
+
+class SpellingTest(BaseModel):
+    """A test on the previous week's list, printed at the front.
+
+    `words` is drawn from the previous booklet's SpellingList, which is why
+    this is carried by the term plan rather than generated fresh: a test on
+    words the student was never given is not a test.
+    """
+    words: List[str] = Field(default_factory=list)
+    from_week: Optional[int] = None
+
+
 class Question(BaseModel):
     question: str
     answer: str
     working: str
+    # Set when the question asks about a Passage; the formatter uses it to
+    # place the reading before the questions and to avoid reprinting it.
+    passage_id: Optional[str] = None
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     # Exam papers only: marks allocated to this question. Booklet questions
     # leave this as None.
@@ -77,6 +113,9 @@ class SubtopicOutput(BaseModel):
     teaching: Optional[SubtopicTeaching] = None
     questions: List[ValidatedQuestion]                 # classwork "Now you try"
     homework_questions: List[ValidatedQuestion] = Field(default_factory=list)
+    # Reading blocks this subtopic's questions refer to, looked up by
+    # Question.passage_id. Empty for maths.
+    passages: List[Passage] = Field(default_factory=list)
     failure_rate: float = 0.0
     estimated_minutes: Optional[int] = None  # classwork time for this section
 
@@ -102,6 +141,10 @@ class BookletData(BaseModel):
     week_number: Optional[int] = None
     total_weeks: Optional[int] = None
     week_focus: Optional[str] = None
+    # Spelling runs across a term: this week's list is set at the back, and
+    # next week's booklet opens with a test on it.
+    spelling_list: Optional[SpellingList] = None
+    spelling_test: Optional[SpellingTest] = None
 
 
 class ExamSection(BaseModel):
