@@ -13,6 +13,7 @@ from .agents.llm_judge import LLMJudgeValidator
 from .agents.outline_parser import OutlineParserAgent
 from .agents.question_generator import QuestionGeneratorAgent
 from .agents.reasoning_validator import ReasoningValidator
+from .agents.spelling import SpellingAgent
 from .agents.term_planner import TermPlannerAgent
 from .agents.validator import SympyValidator, ValidationResult
 from .timing import (section_minutes, round_display, round_total,
@@ -21,8 +22,8 @@ from .config import Config, load_config
 from .llm import get_client
 from .rag import Retriever
 from .schemas import (
-    BookletData, ExamPaper, ExamSection, Question, SubtopicOutput,
-    SubtopicTeaching, ValidatedQuestion,
+    BookletData, ExamPaper, ExamSection, Passage, Question, SpellingList,
+    SubtopicOutput, SubtopicTeaching, ValidatedQuestion,
 )
 
 # A tutoring session runs an hour, so the Class Work half of a booklet has to
@@ -129,6 +130,7 @@ class BookletPipeline:
         self._challenger = ChallengeGeneratorAgent(self._client, self._config.max_retries)
         self._exam = ExamGeneratorAgent(self._client, self._config.max_retries)
         self._term_planner = TermPlannerAgent(self._client, self._config.max_retries)
+        self._speller = SpellingAgent(self._client, self._config.max_retries)
         self._sympy = SympyValidator()
         self._reasoning = ReasoningValidator()
         self._judge = LLMJudgeValidator(self._client)
@@ -259,7 +261,14 @@ class BookletPipeline:
     ) -> list[BookletData]:
         """Generate a whole term: one booklet per week, progressing in
         difficulty, with the last weeks as revision. Returns one BookletData
-        per week (write each to its own PDF)."""
+        per week (write each to its own PDF).
+
+        This is the only place spelling can be set, because spelling is the one
+        part of a booklet that depends on the booklet before it: week N's list
+        is set at the back of week N, and week N+1 opens with a test on it.
+        A single booklet generated on its own has no previous week, so it
+        carries neither (see `run_program`, which never touches those fields).
+        """
         from .programs import get_program, normalise_subject
 
         program = get_program(program_key)
@@ -270,11 +279,17 @@ class BookletPipeline:
         plan = self._term_planner.plan(
             program.label, plan_subject, year_level, weeks, topic_hint,
         )
+        spelling = self._spelling_applies(program, plan_subject)
         log.info("pipeline.term_plan.start",
-                 extra={"program": program.key, "weeks": len(plan.weeks)})
+                 extra={"program": program.key, "weeks": len(plan.weeks),
+                        "spelling": spelling})
 
         booklets: list[BookletData] = []
         prev_focus = None
+        # Every word set so far this term, so no two weeks share a list.
+        words_set: list[str] = []
+        prev_list: SpellingList | None = None
+        prev_list_week: int | None = None
         for wk in plan.weeks:
             log.info("pipeline.term_plan.week",
                      extra={"week": wk.week, "focus": wk.focus, "difficulty": wk.difficulty})
@@ -284,9 +299,49 @@ class BookletPipeline:
                 week_number=wk.week, total_weeks=len(plan.weeks),
                 prev_focus=prev_focus,   # recap revises last week
             )
+            if spelling:
+                # The test comes first: it is on the list carried in from the
+                # previous booklet, and `prev_list` is still that one until
+                # this week's list replaces it below. Week 1 has no previous
+                # list, so it gets a list and no test.
+                data.spelling_test = self._speller.make_test(prev_list, prev_list_week)
+                this_list = self._speller.generate_list(
+                    year_level, wk.week, words_set, wk.focus,
+                )
+                if this_list.words:
+                    data.spelling_list = this_list
+                    words_set.extend(this_list.words)
+                    prev_list, prev_list_week = this_list, wk.week
+                else:
+                    # No list this week means no test next week rather than a
+                    # test on a list two weeks old wearing the wrong week
+                    # number. `prev_list` is left alone, so next week tests the
+                    # last list actually printed and says which week it came
+                    # from.
+                    log.warning("pipeline.term_plan.no_spelling_list",
+                                extra={"week": wk.week})
+                log.info("pipeline.term_plan.spelling",
+                         extra={"week": wk.week,
+                                "list": len(this_list.words),
+                                "test": len(data.spelling_test.words)
+                                if data.spelling_test else 0,
+                                "test_from_week": data.spelling_test.from_week
+                                if data.spelling_test else None})
             booklets.append(data)
             prev_focus = wk.focus
         return booklets
+
+    @staticmethod
+    def _spelling_applies(program, plan_subject: str) -> bool:
+        """Whether this product line gets a weekly spelling list.
+
+        Spelling is a literacy routine. It rides on booklets that teach
+        English, which is Academic Accelerate with English picked and NAPLAN
+        Practice (whose literacy half is English). A maths or reasoning booklet
+        with twenty words at the back is noise the parent has to explain.
+        """
+        subjects = (plan_subject,) if program.pick_subject else program.subjects
+        return any((s or "").strip().lower() == "english" for s in subjects)
 
     def run_exam(
         self,
@@ -437,17 +492,50 @@ class BookletPipeline:
                             "still_over_by": round(total() - CLASSWORK_CAP_MINUTES, 1)})
 
         # Step 2: thin the practice on what remains.
-        # Bounded: each pass moves one question and no section goes below one.
+        # Bounded: each pass moves at least one question and no section goes
+        # below one.
         while total() > CLASSWORK_CAP_MINUTES:
             movable = [s for s in in_session() if len(s.questions) > 1]
             if not movable:
                 break
             biggest = max(movable, key=lambda s: len(s.questions))
-            biggest.homework_questions.append(biggest.questions.pop())
+            BookletPipeline._move_tail_to_homework(biggest)
 
         for s in sections:
             s.estimated_minutes = (
                 round_display(classwork_section_minutes(s)) if s.questions else None)
+
+    @staticmethod
+    def _move_tail_to_homework(section) -> None:
+        """Move the last classwork question, or its whole passage group, down.
+
+        Trimming the hour one question at a time would otherwise undo the
+        passage-safe split: the last two questions of a three question reading
+        would end up in Homework while the third stayed in Class Work, and the
+        student would meet the same passage in both halves. Moving the group
+        keeps a reading and its questions together.
+
+        The exception is a section that is nothing but one passage group. There
+        the group cannot move whole without emptying Class Work, so one
+        question moves and the passage stays available to both halves through
+        `SubtopicOutput.passages`. That is the case the schema's
+        subtopic-level passage list exists for.
+        """
+        qs = section.questions
+        if len(qs) <= 1:
+            return
+        pid = qs[-1].question.passage_id
+        n = 1
+        if pid:
+            while n < len(qs) and qs[-(n + 1)].question.passage_id == pid:
+                n += 1
+            if n >= len(qs):
+                n = 1
+        moved = qs[-n:]
+        del qs[-n:]
+        # Prepend, so questions arrive in Homework in the order they were
+        # written and a moved group stays contiguous there too.
+        section.homework_questions[:0] = moved
 
     @staticmethod
     def _timing(sections, challenge, recap) -> dict:
@@ -487,7 +575,13 @@ class BookletPipeline:
         name = recap_focus or f"quick revision of key {subject} skills learned earlier"
         st = Subtopic(name=name, difficulty_hint="easy")
         try:
-            qs = self._generator.generate(subject, year_level, "Warm-up Recap", st, reference_chunks)
+            # allow_passages=False: the recap is a handful of loose questions
+            # with no section around them, so BookletData has nowhere to keep a
+            # passage and a comprehension item generated here would ask about
+            # reading the booklet never prints.
+            qs = self._generator.generate(
+                subject, year_level, "Warm-up Recap", st, reference_chunks,
+                allow_passages=False)
         except Exception as e:
             log.warning("pipeline.recap_failed", extra={"error": str(e)[:200]})
             return []
@@ -529,8 +623,10 @@ class BookletPipeline:
             seen = _SeenQuestions()
         chunks = self._retrieve(subject, year_level, topic_name, subtopic.name)
         teaching = self._make_teaching(subject, year_level, topic_name, subtopic, chunks)
+        passages: list[Passage] = []
         validated = self._generate_and_validate(
             subject, year_level, topic_name, subtopic, chunks, teaching, seen,
+            passages,
         )
         total = len(validated)
         failed = sum(1 for v in validated if not v.verified)
@@ -539,13 +635,22 @@ class BookletPipeline:
             "pipeline.subtopic.done",
             extra={"subject": subject, "topic": topic_name,
                    "subtopic": subtopic.name, "total": total, "failed": failed,
-                   "failure_rate": failure_rate, "rag_chunks": len(chunks)},
+                   "failure_rate": failure_rate, "rag_chunks": len(chunks),
+                   "passages": len(passages)},
         )
         # Split the generated set: the first chunk is classwork ("Now you try"),
         # the rest is homework practice on the same topic (repetition for
         # retention). Homework costs no extra API calls, it's the same batch.
-        classwork = validated[:self._n_classwork]
-        homework = validated[self._n_classwork:]
+        #
+        # A comprehension passage complicates that split, because its questions
+        # are only answerable next to the reading. The split is therefore made
+        # to land on a passage boundary rather than blindly at
+        # `self._n_classwork`. Both steps are no-ops for maths, where no
+        # question carries a passage_id.
+        validated = self._group_by_passage(validated)
+        cut = self._passage_safe_split(validated, self._n_classwork)
+        classwork = validated[:cut]
+        homework = validated[cut:]
         raw_min = section_minutes(
             len(classwork), teaching is not None, subtopic.difficulty_hint,
         )
@@ -555,10 +660,76 @@ class BookletPipeline:
             teaching=teaching,
             questions=classwork,
             homework_questions=homework,
+            passages=passages,
             failure_rate=failure_rate,
             estimated_minutes=round_display(raw_min),
         )
         return section, chunks
+
+    @staticmethod
+    def _group_by_passage(validated):
+        """Reorder so each passage's questions are consecutive.
+
+        Returns the list unchanged when no question carries a passage_id, which
+        is every maths, reasoning and science subtopic, so this only ever moves
+        English questions.
+
+        Questions that need no reading go last. That is not cosmetic: it puts
+        the loose questions where the split can fall anywhere, so the cut has
+        somewhere to land near the target even when the passages are large.
+        """
+        if not any(vq.question.passage_id for vq in validated):
+            return list(validated)
+        order: list[str] = []
+        groups: dict[str, list] = {}
+        loose: list = []
+        for vq in validated:
+            pid = vq.question.passage_id
+            if not pid:
+                loose.append(vq)
+                continue
+            if pid not in groups:
+                groups[pid] = []
+                order.append(pid)
+            groups[pid].append(vq)
+        out = [vq for pid in order for vq in groups[pid]]
+        out.extend(loose)
+        return out
+
+    @staticmethod
+    def _passage_safe_split(validated, target: int) -> int:
+        """Where to cut Class Work from Homework without straddling a passage.
+
+        The design decision this encodes: a passage's questions are NOT split
+        across the two halves. The alternative (split freely and reprint the
+        reading in both halves) makes the student read the same three
+        paragraphs twice in one booklet and pads the page count for nothing.
+
+        So the cut moves to the nearest boundary between passage groups. Ties
+        go to the larger Class Work half, because the hour cap
+        (`_fit_classwork_to_cap`) can move surplus work down into Homework
+        afterwards and nothing ever moves work back up.
+
+        The cut is never 0: a mini-lesson with no practice under it is worse
+        than a slightly long section, which is the same rule the hour cap
+        keeps.
+
+        This is a best effort, not a guarantee, and it is deliberately not the
+        only defence. `_fit_classwork_to_cap` can still move a question across
+        the line later, and `SubtopicOutput.passages` holds the reading for the
+        whole subtopic rather than for one half, so a group that does end up
+        split is still resolvable from either side.
+        """
+        n = len(validated)
+        if n <= 1:
+            return n
+
+        def pid(i):
+            return validated[i].question.passage_id
+
+        cuts = [i for i in range(1, n) if not (pid(i) and pid(i) == pid(i - 1))]
+        cuts.append(n)
+        return min(cuts, key=lambda c: (abs(c - target), -c))
 
     def _generate_from_outline(self, outline, seen=None):
         """Run generation for every subtopic in a single-subject outline.
@@ -796,7 +967,7 @@ class BookletPipeline:
 
     def _generate_and_validate(
         self, subject, year_level, topic_name, subtopic, reference_chunks,
-        teaching=None, seen=None,
+        teaching=None, seen=None, passages_out=None,
     ) -> list[ValidatedQuestion]:
         """Generate, validate and dedupe one subtopic's question set.
 
@@ -804,12 +975,35 @@ class BookletPipeline:
         practice can exercise the method it modelled. `seen` is the booklet-wide
         set of question texts already taken; it defaults to a private one so a
         caller with no booklet context still behaves sanely.
+
+        `passages_out` is an optional list the reading blocks are appended to,
+        in the order the kept questions cite them. It is an out-parameter rather
+        than a second return value so that callers who only want questions (the
+        whole maths path, and the checks) keep the signature they had.
         """
         results: list[ValidatedQuestion] = []
         if seen is None:
             seen = _SeenQuestions()
-        qs = self._generator.generate(
-            subject, year_level, topic_name, subtopic, reference_chunks, teaching)
+        # Passages from every call this subtopic makes, not just the first: a
+        # regenerated question below arrives from a fresh call and brings its
+        # own reading, and a question whose passage was not pooled would print
+        # asking about text that is not in the booklet.
+        pool: dict[str, Passage] = {}
+        # Where the caller will cut Class Work from Homework, passed to the
+        # generator as a hint so an English set can group its passage questions
+        # on one side of it. Read defensively: it is only a hint, and the guard
+        # checks drive this method on a bare pipeline that sets just the
+        # attributes they exercise.
+        cut_at = getattr(self, "_n_classwork", None)
+
+        def pooled(question_set):
+            for p in getattr(question_set, "passages", None) or []:
+                pool[p.id] = p
+            return question_set
+
+        qs = pooled(self._generator.generate(
+            subject, year_level, topic_name, subtopic, reference_chunks, teaching,
+            classwork_count=cut_at))
         # Validate the whole set in one batched judge call up front; per-question
         # regeneration below still uses the single-question path.
         initial = self._validate_many(subject, year_level, qs.questions, reference_chunks)
@@ -829,10 +1023,10 @@ class BookletPipeline:
                            "retry": retry_count,
                            "reason": result.notes if not result.verified else "duplicate"},
                 )
-                fresh = self._generator.generate(
+                fresh = pooled(self._generator.generate(
                     subject, year_level, topic_name, subtopic, reference_chunks,
-                    teaching,
-                )
+                    teaching, classwork_count=cut_at,
+                ))
                 best_q, best_result = None, None
                 for cand in fresh.questions:
                     if self._norm_q(cand.question) in seen:
@@ -880,7 +1074,36 @@ class BookletPipeline:
                 image_path=str(image_path) if image_path else None,
                 image_attribution=image_attr,
             ))
+        self._collect_passages(results, pool, passages_out)
         return results
+
+    @staticmethod
+    def _collect_passages(results, pool: dict, passages_out) -> None:
+        """Hand back the reading the kept questions actually cite.
+
+        Two things have to be true by the time a section is built. Every
+        passage_id on a kept question must resolve, or the formatter is asked
+        for text nobody wrote: a citation with nothing behind it is cleared, so
+        the question prints as an ordinary self-contained item. And every
+        passage handed on must be cited by a kept question, or the booklet
+        prints a page of reading with no questions under it. Questions get
+        dropped here for duplication and missing figures, so both directions
+        need re-checking after the loop rather than trusting the generator.
+        """
+        cited: list[str] = []
+        for vq in results:
+            pid = vq.question.passage_id
+            if not pid:
+                continue
+            if pid not in pool:
+                log.info("pipeline.drop_dangling_passage_id")
+                vq.question.passage_id = None
+                continue
+            if pid not in cited:
+                cited.append(pid)
+        if passages_out is None:
+            return
+        passages_out.extend(pool[pid] for pid in cited)
 
     # ---------- Challenge ----------
 
