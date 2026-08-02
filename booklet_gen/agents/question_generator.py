@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
-from pydantic import ValidationError
+from typing import List
+from uuid import uuid4
+
+from pydantic import Field, ValidationError
 
 from ..llm import LLMClient
-from ..schemas import QuestionSet, Subtopic, SubtopicTeaching
+from ..schemas import Passage, QuestionSet, Subtopic, SubtopicTeaching
 from ._shared import load_prompt, extract_json
 
 log = logging.getLogger(__name__)
@@ -27,6 +30,130 @@ def _prompt_file_for(subject: str) -> str:
     if key not in _SUBJECT_PROMPT_FILES:
         raise ValueError(f"No question generator prompt configured for subject {subject!r}")
     return _SUBJECT_PROMPT_FILES[key]
+
+
+# Subjects whose questions hang off a shared block of reading. Maths and
+# reasoning questions carry their own stimulus, so asking those engines for
+# passages would only invite them to pad the question with prose.
+_PASSAGE_SUBJECTS = {"english"}
+
+
+def wants_passages(subject: str) -> bool:
+    return subject.strip().lower() in _PASSAGE_SUBJECTS
+
+
+class PassageQuestionSet(QuestionSet):
+    """A question set that may carry the reading its questions ask about.
+
+    This lives here rather than in schemas.py because it is the wire shape of
+    one agent's reply, not part of the booklet contract. Once the pipeline has
+    bound the ids, passages live on `SubtopicOutput.passages`.
+
+    It subclasses QuestionSet so every existing caller that only reads
+    `.questions` keeps working, including the maths and reasoning paths where
+    `passages` is always empty.
+    """
+    passages: List[Passage] = Field(default_factory=list)
+
+
+def passage_block(subject: str, total: int, classwork_count: int | None) -> str:
+    """Instruct an English generation call to write real passages.
+
+    English booklets used to smuggle comprehension into the question string,
+    which capped a "passage" at the sentence or two you can reasonably put in a
+    question field, and gave every question its own scrap of text. The product
+    wants the opposite: a few substantial readings, each carrying several
+    questions.
+
+    `classwork_count` is the split point the pipeline will cut at. Telling the
+    model where the cut falls is what lets it group its questions so a passage
+    is not left half in Class Work and half in Homework. The pipeline does not
+    trust it to comply (see `_passage_safe_split`), but a model that knows the
+    boundary lands on it most of the time, and that produces a better booklet
+    than any amount of downstream repair.
+    """
+    if not wants_passages(subject):
+        return ""
+
+    lines = [
+        "",
+        "",
+        "READING PASSAGES. Alongside `questions`, return a top-level "
+        "`passages` array. Each entry is:",
+        '  {"id": "p1", "title": "short title", "paragraphs": ["...", "..."]}',
+        "A question that asks about a passage sets `\"passage_id\": \"p1\"` and "
+        "does NOT repeat the passage text inside the question field.",
+        "",
+        "Rules for this set:",
+        "- Write 2 passages, and hang at least 3 questions off each. A passage "
+        "with one question is a sentence with extra steps, which is exactly "
+        "the problem this replaces.",
+        "- Make them substantial: 3 to 5 paragraphs for Year 5 and above, 2 to "
+        "3 short paragraphs for the early years. A reader should have to "
+        "search the text to answer, not glance at it.",
+        "- Vary what the questions ask of one passage: a locate-the-fact "
+        "question, an inference, a vocabulary-in-context question, and one "
+        "about tone, purpose or the writer's choices.",
+        "- The passage is printed immediately above the questions that cite "
+        "it, so refer to it as \"the passage\". Never write \"the passage "
+        "below\", and never write \"the passage above\" in a question that "
+        "sets no passage_id.",
+        "- Questions that need no reading (grammar, punctuation, spelling "
+        "conventions) simply omit passage_id. Do not invent a passage for them.",
+        "- Every passage you list must be cited by at least one question, and "
+        "every passage_id a question uses must exist in `passages`.",
+    ]
+    if classwork_count and 0 < classwork_count < total:
+        lines.append(
+            f"- The first {classwork_count} questions print in Class Work and "
+            f"the remaining {total - classwork_count} print in Homework. Order "
+            "your questions so that all of a passage's questions sit on the "
+            "same side of that boundary: one passage for Class Work, one for "
+            "Homework."
+        )
+    return "\n".join(lines)
+
+
+def bind_passages(qs: PassageQuestionSet) -> PassageQuestionSet:
+    """Make this call's passage ids unique, and clear references that dangle.
+
+    Every call labels its first passage "p1". The pipeline pools passages from
+    several calls into one subtopic (a retry regenerates a failed question and
+    brings its own reading with it), and two subtopics of the same booklet pool
+    into one PDF, so raw ids collide and a question would resolve to somebody
+    else's reading. Rewriting them per call is the cheapest way to make the ids
+    mean something.
+
+    A passage_id with nothing behind it is cleared rather than kept: the
+    question then renders as an ordinary self-contained item, which is a
+    smaller defect than a reference the formatter cannot resolve.
+    """
+    prefix = uuid4().hex[:8]
+    remap: dict[str, str] = {}
+    kept: list[Passage] = []
+    for i, p in enumerate(qs.passages or [], 1):
+        text = [para.strip() for para in (p.paragraphs or []) if para and para.strip()]
+        if not p.id or not text:
+            continue
+        new_id = f"{prefix}-{i}"
+        remap[p.id] = new_id
+        kept.append(Passage(id=new_id, title=p.title, paragraphs=text))
+
+    cited: set[str] = set()
+    for q in qs.questions:
+        if not q.passage_id:
+            continue
+        new_id = remap.get(q.passage_id)
+        if new_id is None:
+            log.info("question_generator.dangling_passage_id",
+                     extra={"passage_id": q.passage_id[:40]})
+            q.passage_id = None
+            continue
+        q.passage_id = new_id
+        cited.add(new_id)
+
+    qs.passages = [p for p in kept if p.id in cited]
+    return qs
 
 
 def teaching_block(teaching) -> str:
@@ -117,7 +244,9 @@ class QuestionGeneratorAgent:
         subtopic: Subtopic,
         reference_chunks: list[str] | None = None,
         teaching: SubtopicTeaching | None = None,
-    ) -> QuestionSet:
+        classwork_count: int | None = None,
+        allow_passages: bool = True,
+    ) -> PassageQuestionSet:
         """Generate a question set for one subtopic.
 
         `teaching` is the mini-lesson that will be printed above these
@@ -126,7 +255,16 @@ class QuestionGeneratorAgent:
         It stays optional because the intro writer is allowed to fail (the
         pipeline logs `intro_failed` and carries on), and a booklet of
         questions with no lesson is still a booklet.
+
+        `classwork_count` is where the pipeline will split this set into Class
+        Work and Homework, passed through so an English set can group its
+        passage questions on one side of the cut.
+
+        `allow_passages` is False for parts of the booklet that have nowhere to
+        print a passage: the warm-up recap is a handful of loose questions with
+        no section around it, so a passage generated there could never be read.
         """
+        passages_wanted = allow_passages and wants_passages(subject)
         system = self._system_prompt(subject)
         base_user = (
             f"Subject: {subject}\n"
@@ -138,6 +276,8 @@ class QuestionGeneratorAgent:
             f"Generate exactly {self._n} questions."
         )
         base_user += teaching_block(teaching)
+        if passages_wanted:
+            base_user += passage_block(subject, self._n, classwork_count)
         if reference_chunks:
             joined = "\n\n---\n\n".join(reference_chunks)
             base_user += (
@@ -154,18 +294,28 @@ class QuestionGeneratorAgent:
             log.info(
                 "question_generator.attempt",
                 extra={"attempt": attempt, "subject": subject, "subtopic": subtopic.name,
-                       "has_teaching": teaching is not None},
+                       "has_teaching": teaching is not None,
+                       "passages": passages_wanted},
             )
             raw = self._client.complete(system, user, tier="strong", temperature=0.6)
             try:
                 data = extract_json(raw)
-                qs = QuestionSet.model_validate(data)
+                qs = PassageQuestionSet.model_validate(data)
                 if not qs.questions:
                     raise ValueError("empty questions array")
+                if passages_wanted:
+                    qs = bind_passages(qs)
+                else:
+                    # Nowhere to print reading here, so a passage_id could only
+                    # ever dangle.
+                    qs.passages = []
+                    for q in qs.questions:
+                        q.passage_id = None
                 log.info(
                     "question_generator.success",
                     extra={"attempt": attempt, "subject": subject,
-                           "subtopic": subtopic.name, "count": len(qs.questions)},
+                           "subtopic": subtopic.name, "count": len(qs.questions),
+                           "passages": len(qs.passages)},
                 )
                 return qs
             except (ValueError, ValidationError) as e:
