@@ -269,10 +269,20 @@ def passages() -> None:
     check("passage below" in passage_block("English", 6, 3),
           "it forbids 'the passage below', which is what shipped when the "
           "formatter could not control the order")
-    check("five paragraphs" in block.lower() or "FIVE paragraphs" in block,
-          "it asks for a whole five-paragraph story, not an extract")
-    for want in ("opening", "resolves"):
-        check(want in block, f"the narrative shape names its {want}")
+    check("FIVE paragraphs" in block,
+          "it asks for a whole five-paragraph text, not an extract")
+    for want in ("opening", "three paragraphs that develop", "concludes"):
+        check(want in block, f"the five-paragraph shape names its {want!r} part")
+    # Structure and variety are not in tension, and the booklet wants both: a
+    # student who only ever reads narrative is unprepared for the comprehension
+    # they actually sit. Each type is spelled out in the same five-part shape.
+    for kind in ("narrative", "information report", "diary", "news report",
+                 "persuasive"):
+        check(kind in block, f"{kind!r} is offered as a text type")
+        check(f"* {kind}" in block or f"* {kind.split()[0]}" in block,
+              f"and {kind!r} is given its own five-paragraph shape")
+    check("DIFFERENT TEXT TYPE" in block,
+          "the set must span types rather than reusing one")
 
     print("\n== four passages per booklet, two per half, however the "
           "outline is shaped ==")

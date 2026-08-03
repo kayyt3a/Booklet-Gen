@@ -28,19 +28,27 @@ READING PASSAGES
 - The user turn tells you how many passages to write. It is authoritative: write exactly that many. When it asks for none, or says nothing about passages, write none and set every `passage_id` to null.
 - Write NO passages, whatever else is said, when the topic in the user turn is "Warm-up Recap". That prints as a handful of standalone items with nowhere to put reading.
 - A passage is a real piece of reading a student sits down and reads, not a sentence smuggled into a question.
-- Every passage is a COMPLETE SHORT NARRATIVE in five paragraphs, one string per entry in `paragraphs`:
-  1. an opening that introduces the character and the situation,
-  2, 3, 4. three paragraphs that develop what happens,
-  5. a closing paragraph that resolves it.
-  It must read as a finished story. Never submit an extract that stops mid-scene.
-- Length the paragraphs to the year level, keeping all five:
+- Every passage is a COMPLETE, FINISHED piece of writing in exactly five paragraphs, one string per entry in `paragraphs`:
+  1. an opening that sets up the subject,
+  2, 3, 4. three paragraphs that develop it,
+  5. a closing paragraph that resolves or concludes it.
+  Never submit an extract that stops mid-scene.
+- Use a DIFFERENT TEXT TYPE for each passage in the set. A student who only ever reads narrative is unprepared for the comprehension they actually sit, which is as often an information report or a persuasive piece. Draw from: narrative, information report, diary or journal entry, letter, news report, persuasive piece, biography, procedure or explanation. Each takes the five-paragraph shape:
+  * narrative: set up character and problem, three paragraphs of what happens, a resolution.
+  * information report: say what the subject is, three paragraphs each on one aspect, a closing summary.
+  * diary or letter: open with where and when, three paragraphs of events and feelings, a closing reflection.
+  * news report: lead with what happened, three paragraphs of detail and quotes, a closing line on what happens next.
+  * persuasive: state the position, three paragraphs each giving one reason, a conclusion restating it.
+  * biography: who the person is, three paragraphs on their life in order, what they are remembered for.
+  * procedure or explanation: what is being explained, three paragraphs of steps or causes in order, what the result is.
+- Length the paragraphs to the year level, always keeping all five:
   * Years 1 to 2: 1 short sentence each, 60 to 100 words in total.
   * Years 3 to 4: 1 to 2 sentences each, 120 to 180 words.
   * Years 5 to 6: 2 to 3 sentences each, 200 to 280 words.
   * Years 7 to 8: 3 sentences each, 300 to 400 words.
   * Years 9 to 10: 3 to 4 sentences each, 400 to 500 words.
 - Give every passage a title and an `id`. Every question about it repeats that id in `passage_id`. A question that needs no reading sets `passage_id` to null.
-- Give the characters names and set the story in Australia. The passages in one set must be different stories with different characters, settings and problems, not the same premise twice.
+- Australian settings, Australian English spelling, and named people rather than "a boy". The passages in one set must be about different subjects as well as different types, not one topic written up two ways.
 - Every passage carries at least 3 questions, and a passage's questions must sit together, in passage order, in the array. Share the questions evenly between the passages: the booklet splits the array in order, the front becoming class work and the rest homework, and questions grouped this way put a whole piece of reading in each half instead of cutting one passage's questions across the join. The user turn names the question the split falls on when it matters.
 - NEVER write "the passage above", "the passage below", "the text below", or "read the following passage". The booklet decides where the reading is printed and it will not be where you guessed. Name the passage instead ("In 'The Lighthouse Keeper', why does Amara stay?") or simply ask the question.
 - Do not restate the passage inside the question. It is printed once, for all of its questions.

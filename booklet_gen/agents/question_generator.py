@@ -97,23 +97,43 @@ def passage_block(subject: str, total: int, classwork_count: int | None,
         "questions off each. A passage with one question is a sentence with "
         "extra steps, which is exactly the problem this replaces.",
         # The shape is prescribed because "write a passage" reliably produces a
-        # paragraph and a half. Naming the five parts is what makes the model
-        # write a whole piece of reading with something to infer from.
-        "- Each passage is a complete short narrative in FIVE paragraphs, one "
-        "string per paragraph: an opening that introduces the character and "
-        "the situation, three paragraphs that develop what happens, and a "
-        "closing paragraph that resolves it. It must read as a finished story, "
-        "not an extract that stops mid-scene.",
+        # paragraph and a half of something that stops mid-scene. Naming the
+        # five parts is what makes the model write a whole piece of reading
+        # with enough in it to infer from.
+        "- Every passage is a COMPLETE, FINISHED piece of writing in FIVE "
+        "paragraphs, one string per paragraph: an opening that sets up the "
+        "subject, three paragraphs that develop it, and a closing paragraph "
+        "that resolves or concludes it. Never an extract that stops mid-scene.",
+        # Text type is varied deliberately. A child who only ever reads
+        # narrative is unprepared for the comprehension they actually sit,
+        # which is as often an information report or a persuasive piece.
+        f"- Use a DIFFERENT TEXT TYPE for each of the {quota} passages, drawn "
+        "from: narrative, information report, diary or journal entry, letter, "
+        "news report, persuasive piece, biography, procedure or explanation. "
+        "Each one still takes the five-paragraph shape:",
+        "  * narrative: set up character and problem, three paragraphs of "
+        "what happens, a resolution.",
+        "  * information report: say what the subject is, three paragraphs "
+        "each on one aspect of it, a closing paragraph that sums up.",
+        "  * diary or letter: open with where and when, three paragraphs of "
+        "events and feelings, a closing reflection.",
+        "  * news report: lead with what happened, three paragraphs of detail "
+        "and quotes, a closing line on what happens next.",
+        "  * persuasive: state the position, three paragraphs each giving one "
+        "reason, a conclusion that restates it.",
         "- Length the paragraphs to the year level: 1 to 2 sentences each for "
         "Years 1 to 3, 2 to 3 for Years 4 to 6, 3 to 4 for Year 7 and above. "
         "A reader should have to search the text to answer, not glance at it.",
-        "- Give it a real title and characters with names. Australian settings "
-        "and Australian English spelling.",
-        f"- The {quota} passages must be different stories with different "
-        "characters and settings, not the same premise twice.",
+        "- Give every passage a real title. Australian settings, Australian "
+        "English spelling, and named people rather than 'a boy'.",
+        f"- The {quota} passages must be about different subjects as well as "
+        "different types, not one topic written up two ways.",
         "- Vary what the questions ask of one passage: a locate-the-fact "
-        "question, an inference the story supports, a vocabulary-in-context "
-        "question, and one about how a character feels or why they act.",
+        "question, an inference the text supports, a vocabulary-in-context "
+        "question, and one about why the writer chose to put it this way "
+        "(a character's feelings in a narrative, the writer's purpose in a "
+        "persuasive piece, the difference between fact and opinion in a news "
+        "report).",
         "- The passage is printed immediately above the questions that cite "
         "it, so refer to it as \"the passage\". Never write \"the passage "
         "below\", and never write \"the passage above\" in a question that "
