@@ -588,17 +588,29 @@ check(_escape("2/12 = 1/6") in key_text and _escape("10/12 = 5/6") in key_text,
       "a fraction answer is shown both ways")
 
 # Page references: every one must be the page the question is really on.
-refs = {int(n): int(p) for n, p in
-        re.findall(r"^(\d+)\. Answer:.*?\(p(\d+)\)", key_text, re.MULTILINE)}
+# Read in order, not into a dict keyed by the printed number: numbering now
+# restarts at each reading and each subtopic, so several answers print as "3"
+# and keying by the number would silently collapse them.
+refs = [(int(n), int(p)) for n, p in
+        re.findall(r"^(\d+)\. Answer:.*?\(p(\d+)\)", key_text, re.MULTILINE)]
 check(len(refs) == n_questions, "every answer carries a page reference",
       f"{len(refs)} of {n_questions}")
 wrong = []
-for qnum, marker in enumerate(markers, 1):
-    page = next((i + 1 for i, p in enumerate(question_pages) if marker in p), None)
-    if refs.get(qnum) != page:
-        wrong.append((qnum, marker, refs.get(qnum), page))
+for i, marker in enumerate(markers):
+    page = next((j + 1 for j, p in enumerate(question_pages) if marker in p), None)
+    got = refs[i][1] if i < len(refs) else None
+    if got != page:
+        wrong.append((marker, got, page))
 check(not wrong, "each page reference points at the question's real page",
       str(wrong[:3]))
+# The numbering the child sees: restarts, and never runs to the booklet total.
+printed = [n for n, _ in refs]
+check(printed and max(printed) < n_questions,
+      "questions are numbered per section, not 1 to N across the booklet",
+      f"highest printed number {max(printed) if printed else None} "
+      f"of {n_questions} questions")
+check(printed.count(1) > 1, "the numbering restarts more than once",
+      f"{printed.count(1)} sections start at 1")
 check(f"(p{key_start})" not in key_text and "(p1)" not in key_text,
       "no reference points into the key itself or the cover")
 

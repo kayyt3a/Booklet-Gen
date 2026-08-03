@@ -1074,9 +1074,57 @@ class PageMarker(Flowable):
         self._page_map[self._key] = self.canv.getPageNumber()
 
 
+def question_numbering(data: BookletData) -> dict:
+    """{running index: the number actually printed beside the question}.
+
+    Questions are numbered from 1 again at each reading and at each subtopic,
+    so "question 3" means the third question about the story in front of you
+    rather than the sixty-third thing in the booklet. A booklet-wide running
+    number is easier to implement and worse to sit in front of.
+
+    The running index does not go away: it stays as the identity of a question,
+    because two questions can now both print as "3" and the page-reference map
+    and the answer key both need to tell them apart. Computed once, here, and
+    read by the body and the key alike, so the two cannot drift apart.
+    """
+    out: dict = {}
+    n = 0
+
+    def run(questions, passages=None, reset_per_passage=False):
+        nonlocal n
+        d = 0
+        if not reset_per_passage:
+            for vq in questions:
+                n += 1
+                d += 1
+                out[n] = d
+            return
+        for passage, group in passage_groups(questions, passages or {}):
+            if passage is not None:
+                d = 0          # a new reading starts its questions at 1
+            for vq in group:
+                n += 1
+                d += 1
+                out[n] = d
+
+    if data.recap_questions:
+        run(data.recap_questions)
+    for s in data.sections:
+        if s.questions:
+            run(s.questions, section_passages(s), reset_per_passage=True)
+    for s in data.sections:
+        if s.homework_questions:
+            run(s.homework_questions, section_passages(s),
+                reset_per_passage=True)
+    if data.challenge_questions:
+        run(data.challenge_questions)
+    return out
+
+
 def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
                         page_map: dict | None = None,
-                        space_floor_cm: float = 0.0) -> list:
+                        space_floor_cm: float = 0.0,
+                        display_num: int | None = None) -> list:
     """The flowables of one numbered question, before they are bound together.
 
     Returned as a flat list rather than a KeepTogether because a passage binds
@@ -1097,9 +1145,10 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
     # instruction, the same way the worked examples do it: a question and the
     # material it is about should not read as one paragraph.
     instruction, specimen = split_instruction_and_specimen(vq.question.question)
+    shown = q_num if display_num is None else display_num
     block.append(
         Paragraph(
-            f"<b>{q_num}.</b> {_escape(instruction)}",
+            f"<b>{shown}.</b> {_escape(instruction)}",
             styles["question"],
         ),
     )
@@ -1121,10 +1170,11 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
 
 
 def _question_block(styles, q_num: int, vq: ValidatedQuestion,
-                    page_map: dict | None = None, space_floor_cm: float = 0.0):
+                    page_map: dict | None = None, space_floor_cm: float = 0.0,
+                    display_num: int | None = None):
     """One numbered question and its working space, kept on one page."""
     return KeepTogether(_question_flowables(styles, q_num, vq, page_map,
-                                            space_floor_cm))
+                                            space_floor_cm, display_num))
 
 
 def _passage_question_block(styles, passage, q_flowables: list):
@@ -1494,9 +1544,14 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
 
     multi_subject = len({(s.subject or "") for s in data.sections if s.subject}) > 1
 
-    # A single running question number across the whole booklet, so the answer
-    # key lines up no matter which part a question is in.
+    # `n` is the running index, the identity of a question, used for the page
+    # map and to line the key up with the body. `nums` turns it into the number
+    # actually printed, which restarts at each reading and each subtopic.
     counter = {"n": 0}
+    nums = question_numbering(data)
+
+    def shown(n: int) -> int:
+        return nums.get(n, n)
 
     # A clear line between one question and the next. It goes between the
     # blocks rather than inside them: a spaceBefore on the question paragraph
@@ -1510,7 +1565,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             if i:
                 story.append(Spacer(1, Q_GAP))
             story.append(_question_block(styles, counter["n"], vq, page_map,
-                                         space_floor_cm))
+                                         space_floor_cm, shown(counter["n"])))
 
     def render_passage_questions(section, qs, space_floor_cm: float = 0.0):
         """Questions grouped under their reading, passage first.
@@ -1533,10 +1588,12 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                     block = _passage_question_block(
                         styles, passage,
                         _question_flowables(styles, counter["n"], vq, page_map,
-                                            space_floor_cm))
+                                            space_floor_cm,
+                                            shown(counter["n"])))
                 else:
                     block = _question_block(styles, counter["n"], vq, page_map,
-                                            space_floor_cm)
+                                            space_floor_cm,
+                                            shown(counter["n"]))
                 story.append(block)
 
     def subject_topic_headers(section, state):
@@ -1728,7 +1785,9 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         for vq in qs:
             acount["n"] += 1
             page = (page_refs or {}).get(acount["n"])
-            story.append(_answer_block(styles, acount["n"], vq, page))
+            # Numbered as the body numbered it. The running index still drives
+            # the page lookup, because several questions now print as "3".
+            story.append(_answer_block(styles, shown(acount["n"]), vq, page))
 
     if data.recap_questions:
         story.append(Paragraph("Warm-up Recap", styles["topic"]))
