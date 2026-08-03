@@ -195,7 +195,8 @@ check(part_labels("A box 4 cm long.") == [], "no false part markers")
 print("\nLesson: specimens quoted")
 QUOTE_CASES = [
     ("Match the verb to the subject, like saying the dog runs instead of the dog run.",
-     'like saying "the dog runs" instead of "the dog run".'),
+     'Match the verb to the subject, like saying "the dog runs" instead of '
+     '"the dog run".'),
     ("Try writing enormous rather than big.",
      'Try writing "enormous" rather than "big".'),
     # Nothing to anchor on: left exactly as written.
@@ -535,7 +536,11 @@ for q in ("Homework 0.0", "Question 0.0", "Subtopic 4"):
     check(q in question_text, f"the questions come first ({q})")
 
 print("\nVerification marks")
-check(TICK not in question_text and "verified" not in question_text,
+# The cover is exempt: it carries the legend explaining what the mark in the
+# key means, and saying the word there is the point. What must not happen is a
+# mark appearing beside a question the child has not answered yet.
+work_text = "\n".join(question_pages[1:])
+check(TICK not in work_text and "verified" not in work_text,
       "no verification mark beside an unattempted question")
 check(key_text.count(TICK) == n_questions,
       "one mark per answer in the key", f"{key_text.count(TICK)} of {n_questions}")
@@ -872,10 +877,18 @@ def page_of(pages_, needle):
 check(len(e_pages) > 3, "the English booklet renders", f"{len(e_pages)} pages")
 
 print("\nPassages on the page")
+# Class work only. A passage set in both parts is deliberately printed twice,
+# once per part (see below), so counting across the whole booklet would
+# contradict that: what must not happen is the same reading printed once per
+# question inside a single part.
+e_hw_start = next(i for i, p in enumerate(e_question_pages)
+                  if "Homework" in p)
+e_classwork_text = "\n".join(e_question_pages[:e_hw_start + 1]).split("Homework")[0]
+e_homework_text = "\n".join(e_question_pages[e_hw_start:])
 for title in ("The Lost Kitten", "Storm at Sea"):
-    check(e_question_text.count(title) == 1,
+    check(e_classwork_text.count(title) == 1,
           f"{title!r} is printed once in the class work",
-          f"{e_question_text.count(title)} times")
+          f"{e_classwork_text.count(title)} times")
 check("READ THIS" in e_question_text, "the passage is marked as something to read")
 # The passage must be above every question that refers to it, and on the same
 # page as the first of them.
@@ -899,10 +912,11 @@ order = [m for m in re.findall(r"KITTENA|LOOSEB|KITTENC|STORMD|KITTENE",
                                e_question_text)]
 check(order == ["KITTENA", "KITTENC", "KITTENE", "LOOSEB", "STORMD"],
       "questions are reordered to sit under their passage", str(order))
-check(e_question_text.count("The Lost Kitten") == 1
-      and e_text.count("The Lost Kitten") >= 2,
+check(e_classwork_text.count("The Lost Kitten") == 1
+      and e_homework_text.count("The Lost Kitten") == 1,
       "a passage used again in homework is reprinted there, not referred back to",
-      f"{e_text.count('The Lost Kitten')} in the booklet")
+      f"{e_classwork_text.count('The Lost Kitten')} in class work, "
+      f"{e_homework_text.count('The Lost Kitten')} in homework")
 
 print("\nThe key follows the printed order")
 mis = []
@@ -930,9 +944,20 @@ check(list_page is not None and list_page < e_key_start,
       f"list p{list_page}, key p{e_key_start}")
 check(list_page > page_of(e_pages, "VERB1"),
       "the list comes after the last question")
-leaked = [w for w in SPELL_TEST if w in e_question_text.lower()]
-check(not leaked, "not one test word is printed on the pages worked on",
-      str(leaked))
+# The child must not be able to read the answers off the page. Two different
+# things are being asserted, and only the first can be an exact match: a test
+# word may occur incidentally in a story ("Mia heard a tiny sound") or in a
+# heading ("Grammar"), and no formatter can prevent that. What it can prevent
+# is the words appearing on the test page itself, or a run of the list leaking
+# onto a page the child works on.
+on_test_page = [w for w in SPELL_TEST if w in e_pages[test_page].lower()]
+check(not on_test_page, "not one test word is printed on the test page",
+      str(on_test_page))
+worst_page = max(
+    (sum(w in p.lower() for w in SPELL_TEST), i)
+    for i, p in enumerate(e_question_pages))
+check(worst_page[0] < 3, "no run of the test list leaks onto a page worked on",
+      f"page {worst_page[1] + 1} shows {worst_page[0]}")
 check(all(w in e_key_text.lower() for w in SPELL_TEST),
       "the key carries the words to call out")
 check("read them out one at a time" in e_key_text.lower(),
@@ -940,8 +965,12 @@ check("read them out one at a time" in e_key_text.lower(),
 missing_list = [w for w in SPELL_LIST if w not in e_question_text]
 check(not missing_list, "all twenty words to learn are printed", str(missing_list))
 numbers_on_test = [t for t, _ in e_runs[test_page] if re.fullmatch(r"\d{1,2}\.", t)]
-check(numbers_on_test == [f"{i}." for i in range(1, 13)],
-      "the test lines are numbered 1 to 12", str(numbers_on_test))
+# The grid is two columns, so reading order interleaves them (1, 7, 2, 8, ...),
+# and the page carries on into the class work below, which starts numbering
+# again. Both are fine. What matters is that the twelve lines the child writes
+# on are numbered 1 to 12 with none missing and none repeated.
+check(sorted(int(t[:-1]) for t in numbers_on_test[:12]) == list(range(1, 13)),
+      "the test lines are numbered 1 to 12", str(numbers_on_test[:12]))
 check(e_rules[test_page] >= 12, "there is a rule to write each word on",
       f"{e_rules[test_page]} rules drawn")
 rows = dict(part_counts(english))

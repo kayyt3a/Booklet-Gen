@@ -1567,13 +1567,23 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                     if j == 0:
                         story.extend(headings)
                     counter["n"] += 1
-                    block = _question_block(styles, counter["n"], vq, page_map)
                     if passage is not None and i == 0:
                         # Homework is worked days later and pages away from the
                         # class work, so a passage used in both parts is printed
                         # again here rather than referred back to.
-                        block = KeepTogether([_passage_flowable(styles, passage),
-                                              Spacer(1, 0.35 * cm), block])
+                        #
+                        # Built from the loose flowables, never by wrapping the
+                        # finished question block: a KeepTogether inside a
+                        # KeepTogether reports 0xffffff for its height, so the
+                        # outer one believes it can never fit and breaks the
+                        # page every time, stranding the band above it.
+                        block = _passage_question_block(
+                            styles, passage,
+                            _question_flowables(styles, counter["n"], vq,
+                                                page_map))
+                    else:
+                        block = _question_block(styles, counter["n"], vq,
+                                                page_map)
                     story.append(block)
                     flat += 1
                     j += 1
