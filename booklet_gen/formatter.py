@@ -712,17 +712,36 @@ WE_IMG_WIDTH = 6 * cm
 WE_IMG_HEIGHT = 4 * cm
 
 
-def _make_image(path: str | None, max_w=MAX_IMG_WIDTH, max_h=MAX_IMG_HEIGHT):
+def _image_reader(path: str | None):
+    """An ImageReader for a path that resolves to a readable picture, else None.
+
+    Shared so the page layout and the credits page cannot disagree about which
+    pictures the booklet contains.
+    """
     if not path:
         return None
     p = Path(path)
     if not p.exists():
         return None
     try:
-        reader = ImageReader(str(p))
+        return ImageReader(str(p))
+    except Exception:
+        return None
+
+
+def image_is_usable(path: str | None) -> bool:
+    """Whether this path will actually print."""
+    return _image_reader(path) is not None
+
+
+def _make_image(path: str | None, max_w=MAX_IMG_WIDTH, max_h=MAX_IMG_HEIGHT):
+    reader = _image_reader(path)
+    if reader is None:
+        return None
+    try:
         iw, ih = reader.getSize()
         scale = min(max_w / iw, max_h / ih, 1.0)
-        return Image(str(p), width=iw * scale, height=ih * scale)
+        return Image(str(path), width=iw * scale, height=ih * scale)
     except Exception:
         return None
 
@@ -1839,12 +1858,14 @@ def image_credits(data: BookletData) -> list[str]:
 
     Only images that made it onto a page: a question can carry an attribution
     from a lookup whose file never resolved, and crediting a picture the
-    booklet does not contain is worse than crediting nothing.
+    booklet does not contain is worse than crediting nothing. So this asks the
+    same question the layout asks, rather than trusting `image_path` to be set,
+    which a failed download leaves behind anyway.
     """
     seen, out = set(), []
     for vq in all_questions(data):
         credit = (getattr(vq, "image_attribution", None) or "").strip()
-        if not vq.image_path or not credit or credit in seen:
+        if not image_is_usable(vq.image_path) or not credit or credit in seen:
             continue
         seen.add(credit)
         out.append(credit)

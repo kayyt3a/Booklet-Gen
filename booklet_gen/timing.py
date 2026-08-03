@@ -1,24 +1,30 @@
 """Time estimates for a booklet.
 
-Two different jobs live in this module and they must not be confused.
+`classwork_section_minutes` is the estimate that matters. It charges for
+everything a student actually has to do in the session: reading the
+mini-lesson, following the worked example, working through each guided
+example, any reading passage, and each practice question sized by its own
+difficulty, length and number of parts.
 
-1. `section_minutes` is a **capacity heuristic**. The pipeline uses it to decide
-   how many questions fit in a tutoring hour before the surplus is pushed into
-   homework. It is coarse on purpose: it counts questions and allows a nominal
-   amount for a mini-lesson.
+Both the pipeline and the formatter measure with it, and that is deliberate.
+The pipeline trims Class Work against it (`CLASSWORK_CAP_MINUTES`) and the
+formatter prints it, so the hour the booklet is trimmed to is the hour it
+claims on the page. They used to disagree: the pipeline capped an hour of
+*question* time while the printed number also counted the teaching, which is
+how a booklet sold as a one hour lesson came to say "about 100 min".
 
-2. `booklet_timing` is the **printed estimate**. It walks the actual booklet and
-   charges for every thing a student has to do: reading the mini-lesson,
-   following the worked example, working through each guided example, and each
-   practice question sized by its own difficulty, length and number of parts.
-   The formatter calls this at render time so the number on the page describes
-   the page, not the plan that produced it.
+Two consequences worth knowing before changing anything here:
 
-These two disagree, and that disagreement is real rather than a bug: a booklet
-whose Class Work half is capped at an hour of *question* time contains closer to
-an hour and a half of work once the teaching is counted. Printing the smaller
-number would not make the session shorter, so the printed number is the honest
-one, and how much content belongs in an hour is a decision for the owner.
+* Teaching dominates. A mini-lesson with its worked and guided examples runs
+  about twelve minutes before a single practice question, so trimming practice
+  alone cannot always reach the cap and whole subtopics sometimes have to move
+  to Homework.
+* A subtopic that moves takes its mini-lesson with it, and its teaching time
+  goes to Homework with it. `booklet_timing` charges a section to Class Work
+  only when it still has classwork questions.
+
+`section_minutes` is the older coarse heuristic, now used only for the warm-up
+recap, which has no teaching to charge for.
 """
 from __future__ import annotations
 
@@ -35,8 +41,11 @@ _LESSON_MINUTES = 2.0
 
 
 def section_minutes(n_questions: int, has_lesson: bool, difficulty: str | None) -> float:
-    """Coarse question-capacity estimate. See the module docstring: this is what
-    the pipeline caps against, not what the booklet prints."""
+    """Coarse question-capacity estimate, for the warm-up recap only.
+
+    See the module docstring: Class Work is measured with
+    `classwork_section_minutes`, which is what the booklet prints.
+    """
     per_q = _PER_QUESTION.get((difficulty or "medium").strip().lower(), 2.5)
     return (_LESSON_MINUTES if has_lesson else 0.0) + n_questions * per_q
 
@@ -255,10 +264,18 @@ def booklet_timing(data) -> dict:
     same keys the BookletData carries, plus `section_minutes` keyed by the
     index of each section.
     """
-    section_raw = [classwork_section_minutes(s) for s in data.sections]
+    # A section the hour could not fit has had its practice moved to Homework
+    # and its mini-lesson goes with it, so it is not part of the session and
+    # its teaching time is not charged to Class Work. Charging it there is what
+    # made a booklet the pipeline had trimmed to 58 minutes print "about 67".
+    section_raw = [classwork_section_minutes(s) if s.questions else 0.0
+                   for s in data.sections]
     classwork_raw = sum(section_raw)
     homework_raw = sum(
-        questions_minutes(s.homework_questions, "homework") for s in data.sections)
+        questions_minutes(s.homework_questions, "homework")
+        # The lesson the student has to read before they can do that homework.
+        + (teaching_minutes(s.teaching) if not s.questions else 0.0)
+        for s in data.sections)
     recap_raw = questions_minutes(data.recap_questions, "recap")
     challenge_raw = questions_minutes(data.challenge_questions, "challenge")
     # The Final Challenge is printed inside the Homework half, so its time
