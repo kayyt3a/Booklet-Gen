@@ -33,7 +33,7 @@ Return a single JSON object matching this schema exactly:
 }
 
 CONTENT RULES
-- Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Say what the concept is and when it is used. Do NOT write to a fixed recipe. A booklet whose lessons all close on "A common mistake is..." reads as machine-made rather than written by a teacher, which is the first thing a parent notices. Name a pitfall only where it is the specific thing that trips students on THIS subtopic, and vary where it sits and how you word it. Do NOT solve the practice questions in advance.
+- Intro paragraphs: the LENGTH LIMITS in the user turn are a ceiling, not a target, and you should usually come in under. This is a page a tutor TEACHES FROM, saying the rest aloud, so write only what has to be on paper and let `key_points` carry the teaching as short dot points. Say what the concept is and when it is used. Do NOT write to a fixed recipe. A booklet whose lessons all close on "A common mistake is..." reads as machine-made rather than written by a teacher, which is the first thing a parent notices. Name a pitfall only where it is the specific thing that trips students on THIS subtopic, and vary where it sits and how you word it. Do NOT solve the practice questions in advance.
 - Key points: the number and length are set by the LENGTH LIMITS. Short, punchy, like flashcard bullets.
 - mnemonic: give a short, catchy name for the method when there is a natural one (like "Keep-Change-Flip" for dividing fractions). If nothing fits naturally, set it to null. Do not force a bad one.
 - worked_example is the "I do" example the tutor works through. Exactly ONE. It must be the plainest, most direct form of the subtopic, the one a teacher would put on the board first, because the practice questions that follow start there and the student has nothing else to copy from. Steps must show the actual arithmetic, not just describe it. Write like: "Step 2: Multiply 4 x 6 = 24", not "Step 2: Multiply the numbers."
@@ -41,7 +41,7 @@ CONTENT RULES
 - Keep language calibrated to the year level.
 
 DIAGRAMS (optional)
-If the concept benefits from a visual, populate `worked_example.diagram_spec` with one of the supported types below. Otherwise leave it as null.
+Where the concept can be pictured at all, picture it: populate `worked_example.diagram_spec` with one of the supported types below. A figure the tutor can point at teaches more than another sentence of prose, and it is what stops the booklet reading as a wall of text. Leave it null only when nothing on the list fits the concept.
 
 Supported spec types:
 - {"type":"circle_slices","slices":4,"shaded":1}

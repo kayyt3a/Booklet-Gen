@@ -47,7 +47,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 logging.disable(logging.CRITICAL)
 
 from booklet_gen.agents.question_generator import (              # noqa: E402
-    PassageQuestionSet, QuestionGeneratorAgent, bind_passages, passage_block)
+    PassageQuestionSet, QuestionGeneratorAgent, bind_passages, passage_block,
+    passage_quotas)
 from booklet_gen.agents.spelling import (                        # noqa: E402
     LIST_SIZE, TEST_SIZE, SpellingAgent, _bank_for)
 from booklet_gen.agents.term_planner import (                    # noqa: E402
@@ -268,6 +269,34 @@ def passages() -> None:
     check("passage below" in passage_block("English", 6, 3),
           "it forbids 'the passage below', which is what shipped when the "
           "formatter could not control the order")
+    check("five paragraphs" in block.lower() or "FIVE paragraphs" in block,
+          "it asks for a whole five-paragraph story, not an extract")
+    for want in ("opening", "resolves"):
+        check(want in block, f"the narrative shape names its {want}")
+
+    print("\n== four passages per booklet, two per half, however the "
+          "outline is shaped ==")
+    # The count is a booklet-level target, so it cannot be decided inside a
+    # subtopic: four English subtopics each deciding "2 for me" is eight.
+    for n in range(1, 7):
+        q = passage_quotas(n)
+        check(len(q) == n and sum(q) == 4,
+              f"{n} subtopic{'' if n == 1 else 's'} still share four passages",
+              str(q))
+    check(passage_quotas(0) == [], "an empty outline asks for nothing")
+    check(passage_quotas(4) == [2, 2, 0, 0],
+          "the budget concentrates rather than spreading: a subtopic holding "
+          "two puts one either side of the classwork cut by itself",
+          str(passage_quotas(4)))
+    check(sum(passage_quotas(3, wanted=5)) == 5,
+          "an odd budget is still spent in full", str(passage_quotas(3, wanted=5)))
+    check(passage_block("English", 6, 3, 0) == "",
+          "a subtopic with no quota is told nothing about passages, rather "
+          "than being told to write some and then ignored")
+    check("exactly 1 passage," in passage_block("English", 6, 3, 1),
+          "the count is stated, and it agrees in number")
+    check("exactly 4 passages," in passage_block("English", 6, 3, 4),
+          "a single-subtopic English booklet carries the whole budget")
 
     print("\n== ids are made unique per call, and dangling ones are cleared ==")
     first = bind_passages(PassageQuestionSet.model_validate(json.loads(english_payload())))

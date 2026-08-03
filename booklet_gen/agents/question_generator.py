@@ -56,7 +56,8 @@ class PassageQuestionSet(QuestionSet):
     passages: List[Passage] = Field(default_factory=list)
 
 
-def passage_block(subject: str, total: int, classwork_count: int | None) -> str:
+def passage_block(subject: str, total: int, classwork_count: int | None,
+                  quota: int = 2) -> str:
     """Instruct an English generation call to write real passages.
 
     English booklets used to smuggle comprehension into the question string,
@@ -65,6 +66,12 @@ def passage_block(subject: str, total: int, classwork_count: int | None) -> str:
     wants the opposite: a few substantial readings, each carrying several
     questions.
 
+    `quota` is how many passages THIS subtopic is to write, handed down by the
+    pipeline rather than decided here. The target is a fixed four per booklet,
+    two in Class Work and two in Homework, so the count cannot be a per-subtopic
+    rule: an English booklet with four subtopics deciding "2 each" locally ends
+    up with eight. A quota of 0 means this subtopic writes none.
+
     `classwork_count` is the split point the pipeline will cut at. Telling the
     model where the cut falls is what lets it group its questions so a passage
     is not left half in Class Work and half in Homework. The pipeline does not
@@ -72,7 +79,7 @@ def passage_block(subject: str, total: int, classwork_count: int | None) -> str:
     boundary lands on it most of the time, and that produces a better booklet
     than any amount of downstream repair.
     """
-    if not wants_passages(subject):
+    if not wants_passages(subject) or quota <= 0:
         return ""
 
     lines = [
@@ -85,15 +92,28 @@ def passage_block(subject: str, total: int, classwork_count: int | None) -> str:
         "does NOT repeat the passage text inside the question field.",
         "",
         "Rules for this set:",
-        "- Write 2 passages, and hang at least 3 questions off each. A passage "
-        "with one question is a sentence with extra steps, which is exactly "
-        "the problem this replaces.",
-        "- Make them substantial: 3 to 5 paragraphs for Year 5 and above, 2 to "
-        "3 short paragraphs for the early years. A reader should have to "
-        "search the text to answer, not glance at it.",
+        f"- Write exactly {quota} "
+        f"{'passage' if quota == 1 else 'passages'}, and hang at least 3 "
+        "questions off each. A passage with one question is a sentence with "
+        "extra steps, which is exactly the problem this replaces.",
+        # The shape is prescribed because "write a passage" reliably produces a
+        # paragraph and a half. Naming the five parts is what makes the model
+        # write a whole piece of reading with something to infer from.
+        "- Each passage is a complete short narrative in FIVE paragraphs, one "
+        "string per paragraph: an opening that introduces the character and "
+        "the situation, three paragraphs that develop what happens, and a "
+        "closing paragraph that resolves it. It must read as a finished story, "
+        "not an extract that stops mid-scene.",
+        "- Length the paragraphs to the year level: 1 to 2 sentences each for "
+        "Years 1 to 3, 2 to 3 for Years 4 to 6, 3 to 4 for Year 7 and above. "
+        "A reader should have to search the text to answer, not glance at it.",
+        "- Give it a real title and characters with names. Australian settings "
+        "and Australian English spelling.",
+        f"- The {quota} passages must be different stories with different "
+        "characters and settings, not the same premise twice.",
         "- Vary what the questions ask of one passage: a locate-the-fact "
-        "question, an inference, a vocabulary-in-context question, and one "
-        "about tone, purpose or the writer's choices.",
+        "question, an inference the story supports, a vocabulary-in-context "
+        "question, and one about how a character feels or why they act.",
         "- The passage is printed immediately above the questions that cite "
         "it, so refer to it as \"the passage\". Never write \"the passage "
         "below\", and never write \"the passage above\" in a question that "
@@ -104,14 +124,46 @@ def passage_block(subject: str, total: int, classwork_count: int | None) -> str:
         "every passage_id a question uses must exist in `passages`.",
     ]
     if classwork_count and 0 < classwork_count < total:
+        side = ("one passage for Class Work, one for Homework" if quota == 2
+                else "all of a passage's questions on one side of it")
         lines.append(
             f"- The first {classwork_count} questions print in Class Work and "
             f"the remaining {total - classwork_count} print in Homework. Order "
             "your questions so that all of a passage's questions sit on the "
-            "same side of that boundary: one passage for Class Work, one for "
-            "Homework."
+            f"same side of that boundary: {side}."
         )
     return "\n".join(lines)
+
+
+# Four readings per booklet: two the tutor works through in the session, two
+# the child meets again in homework. Fixed per booklet rather than per subtopic,
+# because the number of English subtopics varies with the outline and a
+# per-subtopic rule makes the booklet's total a side effect of that.
+PASSAGES_PER_BOOKLET = 4
+
+
+def passage_quotas(n_subtopics: int, wanted: int = PASSAGES_PER_BOOKLET) -> list[int]:
+    """How many passages each subtopic of an English outline should write.
+
+    Concentrated rather than spread: two subtopics writing two passages each
+    beats four writing one, because a passage carrying a single question is the
+    thing this feature exists to replace, and because the Class Work / Homework
+    cut runs through each subtopic, so a subtopic holding two passages puts one
+    on each side of it by itself.
+    """
+    if n_subtopics <= 0:
+        return []
+    if n_subtopics == 1:
+        return [wanted]
+    quotas = [0] * n_subtopics
+    for i in range(min(n_subtopics, wanted // 2)):
+        quotas[i] = 2
+    # An odd budget leaves one over; give it to the first subtopic that has room.
+    for i in range(n_subtopics):
+        if sum(quotas) >= wanted:
+            break
+        quotas[i] += 1
+    return quotas
 
 
 def bind_passages(qs: PassageQuestionSet) -> PassageQuestionSet:
@@ -246,6 +298,7 @@ class QuestionGeneratorAgent:
         teaching: SubtopicTeaching | None = None,
         classwork_count: int | None = None,
         allow_passages: bool = True,
+        passage_quota: int = 2,
     ) -> PassageQuestionSet:
         """Generate a question set for one subtopic.
 
@@ -263,8 +316,12 @@ class QuestionGeneratorAgent:
         `allow_passages` is False for parts of the booklet that have nowhere to
         print a passage: the warm-up recap is a handful of loose questions with
         no section around it, so a passage generated there could never be read.
+        `passage_quota` is this subtopic's share of the booklet's four passages;
+        0 means write none, and is how the subtopics past the first two are told
+        to leave the reading to those.
         """
-        passages_wanted = allow_passages and wants_passages(subject)
+        passages_wanted = (allow_passages and wants_passages(subject)
+                           and passage_quota > 0)
         system = self._system_prompt(subject)
         base_user = (
             f"Subject: {subject}\n"
@@ -277,7 +334,8 @@ class QuestionGeneratorAgent:
         )
         base_user += teaching_block(teaching)
         if passages_wanted:
-            base_user += passage_block(subject, self._n, classwork_count)
+            base_user += passage_block(subject, self._n, classwork_count,
+                                       passage_quota)
         if reference_chunks:
             joined = "\n\n---\n\n".join(reference_chunks)
             base_user += (

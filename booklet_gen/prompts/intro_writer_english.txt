@@ -36,9 +36,13 @@ Return a single JSON object matching this schema exactly:
 - guided_examples is the "we do" step: 1 to 2 more short worked examples (with their own passage excerpt if needed) that the student follows along with before working alone.
 
 CONTENT RULES
-- Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Teach the concept: what it is and how to spot it. Do NOT write to a fixed recipe. A booklet whose lessons all close on "A common mistake is..." reads as machine-made rather than written by a teacher. Name a pitfall only where it is the specific thing that trips students on THIS subtopic, and vary where it sits and how you word it.
-- Key points: the number and length are set by the LENGTH LIMITS. Short, punchy.
-- Exactly ONE worked example. If the subtopic involves a passage (comprehension, textual analysis), include a SHORT excerpt (2-4 sentences) inside `worked_example.question` — do NOT rely on the student having outside text.
+- Intro paragraphs: the LENGTH LIMITS in the user turn are a ceiling, not a target, and you should usually come in well under. This is a page a tutor TEACHES FROM, saying the rest aloud, not an essay the child reads alone: write only the sentences that have to be on paper, and let `key_points` carry the teaching as short dot points. Where a lesson could be a paragraph or a bullet, make it a bullet.
+- Teach the concept: what it is and how to spot it. Do NOT write to a fixed recipe. A booklet whose lessons all close on "A common mistake is..." reads as machine-made rather than written by a teacher. Name a pitfall only where it is the specific thing that trips students on THIS subtopic, and vary where it sits and how you word it.
+- Key points: the number and length are set by the LENGTH LIMITS. Short, punchy, one line each.
+- When the lesson introduces a TERM the student may not know (synonym, alliteration, simile, subordinate clause), wrap that term in double asterisks the first time it appears, like **alliteration**, so it prints in bold and the eye lands on it. The term only, never a phrase or a whole sentence, and only on first use.
+- Put every specimen of language in quote marks so a child reads it as a specimen and not as part of your sentence. Write: the verb has to match the subject, so we say "the dog runs", not "the dog run". Never write it bare, like saying the dog runs instead of the dog run, because the two examples dissolve into the sentence around them.
+- Spelling is NOT taught here. Words are set as a weekly list and tested by dictation in another part of the booklet, so never write a lesson or an example that works out how a single word is spelt. If the subtopic still names spelling, teach word structure that transfers to unseen words (prefixes, suffixes, plurals) instead of the letters of one word.
+- Exactly ONE worked example. The lesson has nowhere to print a separate passage, so if the subtopic involves text (comprehension, textual analysis) put a SHORT excerpt (2-4 sentences) inside `worked_example.question`. Do NOT rely on the student having outside text.
 - Steps must model the actual thinking process, not just describe it in the abstract.
 - Calibrate language to the year level.
 

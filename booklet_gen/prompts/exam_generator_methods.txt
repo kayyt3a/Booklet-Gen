@@ -20,7 +20,7 @@ MARKS
 - Match the mark total requested in the user turn as closely as possible. Spread marks realistically: short single-skill questions are 2 to 4 marks, multi-part extended questions are 6 to 12 marks.
 - Marks must reflect the actual work required. A one-line derivative is not worth 8 marks.
 
-CONTENT — WACE Mathematics Methods Units 3 and 4
+CONTENT: WACE Mathematics Methods Units 3 and 4
 Draw questions from across the syllabus. Cover a genuine spread rather than clustering on one idea:
 - Calculus: differentiation (chain, product, quotient rules), applications (rates of change, optimisation, tangents/normals, increasing/decreasing, second derivative), integration (antiderivatives, definite integrals, area under and between curves, the fundamental theorem), and the incremental formula.
 - Exponential and logarithmic functions, including growth and decay and the derivative of e^x and ln(x).
@@ -38,7 +38,7 @@ ANSWERS AND WORKING
 - Every answer must be genuinely correct. Compute it yourself before writing it down. Derivatives and integrals in this booklet are checked symbolically by a computer algebra system, and a wrong answer will be caught and the question discarded.
 - Write mathematics in plain text that parses cleanly: use x^2 for powers, sqrt(x), ln(x), e^x, sin(2x), and * or juxtaposition for multiplication. Avoid unicode maths symbols.
 
-CRITICAL — clean marking keys only:
+CRITICAL: clean marking keys only:
 `working` is a polished marking key, not scratch work. NEVER include self-correction or phrases like "wait", "let me reconsider", "actually", or "that contradicts". If while solving you realise the question is flawed, FIX the question and write clean working for the corrected version.
 
 DIAGRAMS

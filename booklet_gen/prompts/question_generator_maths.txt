@@ -36,7 +36,7 @@ Vary the questions within the set:
 - Question 1 is the plainest, most direct form of the subtopic, the one a teacher would model on the board first.
 
 VISUAL DIAGRAMS (optional per question)
-Any question may include an OPTIONAL `diagram_spec` field. Populate it ONLY when a diagram is clearly helpful (fractions of a shape, number lines, geometry). Leave it out for pure symbolic computation.
+Any question may include an OPTIONAL `diagram_spec` field. Pages of unbroken symbols are a wall a child bounces off, so wherever the subtopic can be pictured at all (a fraction of a shape, a position on a number line, a shape, a box, a comparison), one or two questions in the set should carry a figure. Leave it out for pure symbolic computation, and never bolt a picture onto a question that does not use it: the rules below decide whether a figure is possible, not the wish for one.
 
 Supported spec types (use exactly these keys):
 - {"type":"circle_slices","slices":4,"shaded":1}
@@ -56,9 +56,9 @@ Supported spec types (use exactly these keys):
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
   A composite figure showing 2-4 sub-diagrams side by side, each labelled underneath. USE THIS whenever the question asks the student to compare things ("which has more shaded", "which is bigger", "which fraction is larger", "put these in order"). Any of the other types can be a sub-spec.
 
-COMPARISON QUESTIONS — hard rules:
-- Any question that asks the student to compare two or more visual things MUST use `compare`. Never render only one figure for a comparison question — the student cannot compare against something they cannot see.
-- The sub-figures in a `compare` must be MEANINGFULLY DIFFERENT. For fractions, that almost always means DIFFERENT DENOMINATORS (e.g. 3/4 vs 2/3, not 1/4 vs 2/4). If the denominators are the same, the comparison is trivial — either change the denominators or don't use a comparison.
+COMPARISON QUESTIONS, hard rules:
+- Any question that asks the student to compare two or more visual things MUST use `compare`. Never render only one figure for a comparison question: the student cannot compare against something they cannot see.
+- The sub-figures in a `compare` must be MEANINGFULLY DIFFERENT. For fractions, that almost always means DIFFERENT DENOMINATORS (e.g. 3/4 vs 2/3, not 1/4 vs 2/4). If the denominators are the same, the comparison is trivial, so either change the denominators or don't use a comparison.
 - Label each sub-figure with a short tag (usually "A", "B", ...) and REFER TO THOSE LABELS in the question text: "Circle A is divided into 4 equal parts with 3 shaded. Circle B is divided into 3 equal parts with 2 shaded. Which has the bigger portion shaded?"
 - The `answer` must name the labelled winner, e.g. "A" or "Circle A (3/4 > 2/3)".
 

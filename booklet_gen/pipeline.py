@@ -11,7 +11,8 @@ from .agents.exam_generator import ExamGeneratorAgent
 from .agents.intro_writer import IntroWriterAgent
 from .agents.llm_judge import LLMJudgeValidator
 from .agents.outline_parser import OutlineParserAgent
-from .agents.question_generator import QuestionGeneratorAgent
+from .agents.question_generator import (QuestionGeneratorAgent, passage_quotas,
+                                        wants_passages)
 from .agents.reasoning_validator import ReasoningValidator
 from .agents.spelling import SpellingAgent
 from .agents.term_planner import TermPlannerAgent
@@ -608,7 +609,8 @@ class BookletPipeline:
                 image_path=str(img) if img else None, image_attribution=attr))
         return out
 
-    def _process_subtopic(self, subject, year_level, topic_name, subtopic, seen=None):
+    def _process_subtopic(self, subject, year_level, topic_name, subtopic,
+                          seen=None, passage_quota=2):
         """Generate one subtopic: lesson + validated questions. Returns
         (SubtopicOutput, rag_chunks). Self-contained so it can run in a thread.
 
@@ -626,7 +628,7 @@ class BookletPipeline:
         passages: list[Passage] = []
         validated = self._generate_and_validate(
             subject, year_level, topic_name, subtopic, chunks, teaching, seen,
-            passages,
+            passages, passage_quota=passage_quota,
         )
         total = len(validated)
         failed = sum(1 for v in validated if not v.verified)
@@ -741,13 +743,20 @@ class BookletPipeline:
             seen = _SeenQuestions()
         tasks = [(t.name, st) for t in outline.topics for st in t.subtopics]
         results: list = [None] * len(tasks)
+        # Decided here, for the outline as a whole, because the target is four
+        # readings per booklet and only this level knows how many subtopics
+        # there are to share them between. Each subject's outline gets its own
+        # budget, so a NAPLAN booklet's English half gets the same four as an
+        # Academic Accelerate English booklet, and its maths half gets none.
+        quotas = passage_quotas(len(tasks)) if wants_passages(outline.subject) \
+            else [0] * len(tasks)
 
         if self._max_workers > 1 and len(tasks) > 1:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             with ThreadPoolExecutor(max_workers=self._max_workers) as ex:
                 futures = {
                     ex.submit(self._process_subtopic, outline.subject,
-                              outline.year_level, tn, st, seen): i
+                              outline.year_level, tn, st, seen, quotas[i]): i
                     for i, (tn, st) in enumerate(tasks)
                 }
                 for fut in as_completed(futures):
@@ -755,7 +764,7 @@ class BookletPipeline:
         else:
             for i, (tn, st) in enumerate(tasks):
                 results[i] = self._process_subtopic(
-                    outline.subject, outline.year_level, tn, st, seen)
+                    outline.subject, outline.year_level, tn, st, seen, quotas[i])
 
         sections: list[SubtopicOutput] = []
         covered: list[tuple[str, str]] = []
@@ -967,7 +976,7 @@ class BookletPipeline:
 
     def _generate_and_validate(
         self, subject, year_level, topic_name, subtopic, reference_chunks,
-        teaching=None, seen=None, passages_out=None,
+        teaching=None, seen=None, passages_out=None, passage_quota=2,
     ) -> list[ValidatedQuestion]:
         """Generate, validate and dedupe one subtopic's question set.
 
@@ -1003,7 +1012,7 @@ class BookletPipeline:
 
         qs = pooled(self._generator.generate(
             subject, year_level, topic_name, subtopic, reference_chunks, teaching,
-            classwork_count=cut_at))
+            classwork_count=cut_at, passage_quota=passage_quota))
         # Validate the whole set in one batched judge call up front; per-question
         # regeneration below still uses the single-question path.
         initial = self._validate_many(subject, year_level, qs.questions, reference_chunks)
@@ -1026,6 +1035,7 @@ class BookletPipeline:
                 fresh = pooled(self._generator.generate(
                     subject, year_level, topic_name, subtopic, reference_chunks,
                     teaching, classwork_count=cut_at,
+                    passage_quota=passage_quota,
                 ))
                 best_q, best_result = None, None
                 for cand in fresh.questions:
