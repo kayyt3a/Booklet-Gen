@@ -93,7 +93,7 @@ def passage_block(subject: str, total: int, classwork_count: int | None,
         "",
         "Rules for this set:",
         f"- Write exactly {quota} "
-        f"{'passage' if quota == 1 else 'passages'}, and hang at least 3 "
+        f"{'passage' if quota == 1 else 'passages'}, and hang exactly 5 "
         "questions off each. A passage with one question is a sentence with "
         "extra steps, which is exactly the problem this replaces.",
         # The shape is prescribed because "write a passage" reliably produces a
@@ -124,6 +124,12 @@ def passage_block(subject: str, total: int, classwork_count: int | None,
         "- Length the paragraphs to the year level: 1 to 2 sentences each for "
         "Years 1 to 3, 2 to 3 for Years 4 to 6, 3 to 4 for Year 7 and above. "
         "A reader should have to search the text to answer, not glance at it.",
+        # A booklet where every reading is the same size reads as a form to
+        # fill in. Different lengths also make the two halves feel different.
+        "- VARY THE LENGTH between passages. Make one noticeably shorter and "
+        "one noticeably longer than the guide above, rather than writing every "
+        "passage to the same size. The five-paragraph shape holds either way: "
+        "a short one has short paragraphs, not fewer of them.",
         "- Give every passage a real title. Australian settings, Australian "
         "English spelling, and named people rather than 'a boy'.",
         f"- The {quota} passages must be about different subjects as well as "

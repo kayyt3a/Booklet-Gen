@@ -152,6 +152,19 @@ def _make_styles():
             "we_question", parent=base["Normal"], fontName=FONT_REGULAR,
             fontSize=10, leading=14, spaceAfter=6,
         ),
+        # The thing the task is about, set apart from the task itself: indented
+        # both sides and italic, so a child can see at a glance where the
+        # instruction stops and the material starts.
+        "we_specimen": ParagraphStyle(
+            "we_specimen", parent=base["Normal"], fontName=FONT_ITALIC,
+            fontSize=10, leading=15, leftIndent=14, rightIndent=10,
+            textColor=colors.HexColor("#1F3A5F"), spaceAfter=2,
+        ),
+        "question_specimen": ParagraphStyle(
+            "question_specimen", parent=base["Normal"], fontName=FONT_ITALIC,
+            fontSize=10.5, leading=15, leftIndent=16, rightIndent=10,
+            textColor=colors.HexColor("#1F3A5F"), spaceBefore=3, spaceAfter=3,
+        ),
         "we_step": ParagraphStyle(
             "we_step", parent=base["Normal"], fontName=FONT_REGULAR,
             fontSize=9.5, leading=13, leftIndent=12, spaceAfter=3,
@@ -714,16 +727,76 @@ def _make_image(path: str | None, max_w=MAX_IMG_WIDTH, max_h=MAX_IMG_HEIGHT):
         return None
 
 
+def _lesson_flowables(styles, t) -> list:
+    """The mini-lesson body: prose, mnemonic, key points, worked examples.
+
+    Extracted so a subtopic the hour could not fit can carry its lesson down
+    into Homework, where its practice went. Without that the booklet asks for
+    work on a skill it never explains.
+    """
+    out = []
+    for para in t.intro_paragraphs:
+        out.append(Paragraph(_lesson_html(para), styles["intro_para"]))
+    if t.mnemonic:
+        out.append(Paragraph(f"Remember: {_lesson_html(t.mnemonic)}",
+                             styles["mnemonic"]))
+    if t.key_points:
+        out.append(Spacer(1, 0.15 * cm))
+        for kp in t.key_points:
+            out.append(Paragraph(f"• {_lesson_html(kp)}", styles["key_point"]))
+    out.append(Spacer(1, 0.3 * cm))
+    out.append(_worked_example_flowable(styles, t.worked_example,
+                                        "Watch first (worked example)"))
+    for ge in t.guided_examples:
+        out.append(Spacer(1, 0.2 * cm))
+        out.append(_worked_example_flowable(styles, ge,
+                                            "Let's do this one together"))
+    return out
+
+
+# A worked example arrives as one string carrying both the instruction and the
+# thing to work on: 'Read the story below. Who are the main characters? "Leo
+# and his sister Mia loved to visit their grandma's farm."' Printed as one
+# paragraph that reads as a wall, and the child cannot see where the task ends
+# and the material begins. Split on the quoted specimen and set it apart.
+_SPECIMEN_RE = re.compile(r'["“]([^"”]{12,})["”]\s*\.?\s*$')
+
+
+def split_instruction_and_specimen(text: str) -> tuple[str, str | None]:
+    """Separate a trailing quoted specimen from the instruction before it.
+
+    Returns (instruction, specimen or None). Only splits when the quoted run is
+    long enough to be material rather than a single quoted word, and when
+    something is left in front of it: '"the dog run" is wrong' is a sentence
+    about a specimen, not an instruction followed by one.
+    """
+    m = _SPECIMEN_RE.search(text or "")
+    if not m:
+        return (text or "").strip(), None
+    instruction = text[:m.start()].strip()
+    specimen = m.group(1).strip()
+    if not instruction or len(specimen.split()) < 3:
+        return (text or "").strip(), None
+    return instruction, specimen
+
+
 def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked example"):
     """Return a bordered box containing a worked example. `label` distinguishes
     the "I do" worked example from the "we do" guided ones."""
     # Worked examples are lesson content, so they get the same treatment: a
     # **term** the model marked up there becomes bold rather than printing its
     # asterisks, and a stray run of asterisks is dropped.
+    instruction, specimen = split_instruction_and_specimen(we.question)
     inner = [
         Paragraph(label, styles["we_label"]),
-        Paragraph(apply_bold_markup(_escape(we.question)), styles["we_question"]),
+        Paragraph(apply_bold_markup(_escape(instruction)), styles["we_question"]),
     ]
+    if specimen:
+        # Set apart, indented and quoted, so the task and the thing the task is
+        # about are not one run-on paragraph.
+        inner.append(Spacer(1, 0.2 * cm))
+        inner.append(Paragraph(f'"{_escape(specimen)}"', styles["we_specimen"]))
+        inner.append(Spacer(1, 0.2 * cm))
     img = _make_image(we.image_path, max_w=WE_IMG_WIDTH, max_h=WE_IMG_HEIGHT)
     if img is not None:
         inner.append(Spacer(1, 0.15 * cm))
@@ -1020,21 +1093,26 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
     block = []
     if page_map is not None:
         block.append(PageMarker(page_map, q_num))
+    # The sentence or passage a question works on is set apart from the
+    # instruction, the same way the worked examples do it: a question and the
+    # material it is about should not read as one paragraph.
+    instruction, specimen = split_instruction_and_specimen(vq.question.question)
     block.append(
         Paragraph(
-            f"<b>{q_num}.</b> {_escape(vq.question.question)}",
+            f"<b>{q_num}.</b> {_escape(instruction)}",
             styles["question"],
         ),
     )
+    if specimen:
+        block.append(Paragraph(f'"{_escape(specimen)}"',
+                               styles["question_specimen"]))
     img = _make_image(vq.image_path)
     if img is not None:
         block.append(Spacer(1, 0.3 * cm))
         block.append(img)
-        if vq.image_attribution:
-            block.append(Paragraph(
-                f"<i>Image: {_escape(vq.image_attribution)}</i>",
-                styles["footer_note"],
-            ))
+        # No credit line under the picture. A licence string under every image
+        # reads as clutter on a child's worksheet; the attributions are still
+        # printed, gathered on a references page at the very back.
     block.append(WorkingSpace(
         _working_space_cm(vq.question, space_floor_cm) * cm,
         answer_line_labels(vq.question),
@@ -1420,9 +1498,17 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # key lines up no matter which part a question is in.
     counter = {"n": 0}
 
+    # A clear line between one question and the next. It goes between the
+    # blocks rather than inside them: a spaceBefore on the question paragraph
+    # lets ReportLab split the KeepTogether, which separates a question from
+    # the working space that belongs to it.
+    Q_GAP = 0.3 * cm
+
     def render_questions(qs, space_floor_cm: float = 0.0):
-        for vq in qs:
+        for i, vq in enumerate(qs):
             counter["n"] += 1
+            if i:
+                story.append(Spacer(1, Q_GAP))
             story.append(_question_block(styles, counter["n"], vq, page_map,
                                          space_floor_cm))
 
@@ -1433,14 +1519,24 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         KeepTogether, so "Referring to the passage above" can never point at a
         passage on the following page.
         """
+        first = True
         for passage, group in passage_groups(qs, section_passages(section)):
             for i, vq in enumerate(group):
                 counter["n"] += 1
-                block = _question_block(styles, counter["n"], vq, page_map,
-                                        space_floor_cm)
+                if not first:
+                    story.append(Spacer(1, Q_GAP))
+                first = False
                 if passage is not None and i == 0:
-                    block = KeepTogether([_passage_flowable(styles, passage),
-                                          Spacer(1, 0.35 * cm), block])
+                    # Built from loose flowables, never by wrapping the
+                    # finished block: a KeepTogether inside a KeepTogether
+                    # measures as 0xffffff and breaks the page every time.
+                    block = _passage_question_block(
+                        styles, passage,
+                        _question_flowables(styles, counter["n"], vq, page_map,
+                                            space_floor_cm))
+                else:
+                    block = _question_block(styles, counter["n"], vq, page_map,
+                                            space_floor_cm)
                 story.append(block)
 
     def subject_topic_headers(section, state):
@@ -1471,6 +1567,13 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     story.append(Spacer(1, 0.3 * cm))
     state = {"subject": None, "topic": None}
     for si, section in enumerate(data.sections):
+        # A subtopic the hour could not fit has had its practice moved to
+        # Homework, and its lesson goes with it. Printing the lesson here and
+        # counting it as free is what put an hour's session at "about 100 min":
+        # a mini-lesson with its worked and guided examples is about twelve
+        # minutes of teaching whether or not practice follows it.
+        if not section.questions:
+            continue
         subject_topic_headers(section, state)
         time_badge = (
             f'  <font size=9 color="#1B8A3A">'
@@ -1480,23 +1583,14 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
 
         t = section.teaching
         if t is not None:
-            for para in t.intro_paragraphs:
-                story.append(Paragraph(_lesson_html(para), styles["intro_para"]))
-            if t.mnemonic:
-                story.append(Paragraph(f"Remember: {_lesson_html(t.mnemonic)}",
-                                       styles["mnemonic"]))
-            if t.key_points:
-                story.append(Spacer(1, 0.15 * cm))
-                for kp in t.key_points:
-                    story.append(Paragraph(f"• {_lesson_html(kp)}",
-                                           styles["key_point"]))
-            story.append(Spacer(1, 0.3 * cm))
-            story.append(_worked_example_flowable(styles, t.worked_example, "Watch first (worked example)"))
-            for i, ge in enumerate(t.guided_examples, 1):
-                story.append(Spacer(1, 0.2 * cm))
-                story.append(_worked_example_flowable(styles, ge, "Let's do this one together"))
-            story.append(Spacer(1, 0.35 * cm))
-            story.append(Paragraph("Now you try:", styles["practice_label"]))
+            story.extend(_lesson_flowables(styles, t))
+            if section.questions:
+                # Only when something follows it. A subtopic the hour could not
+                # fit keeps its lesson but has had its practice moved to
+                # Homework, and "Now you try:" over an empty space, immediately
+                # under the next heading, is what that used to print.
+                story.append(Spacer(1, 0.35 * cm))
+                story.append(Paragraph("Now you try:", styles["practice_label"]))
 
         render_passage_questions(section, section.questions)
 
@@ -1548,6 +1642,12 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             mark = len(story)
             subject_topic_headers(section, state)
             story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+            # A subtopic that did not fit the session brings its mini-lesson
+            # down here, so the teaching is not lost: nothing else in the
+            # booklet explains the skill its homework asks for. Subtopics that
+            # were taught in the session do not repeat their lesson.
+            if not section.questions and section.teaching is not None:
+                story.extend(_lesson_flowables(styles, section.teaching))
             headings = story[mark:]
             del story[mark:]
 
@@ -1660,7 +1760,57 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         story.append(Paragraph("Final Challenge", styles["topic"]))
         render_answers(data.challenge_questions)
 
+    story.extend(_image_credits_block(styles, data))
     return story
+
+
+def all_questions(data: BookletData) -> list:
+    """Every ValidatedQuestion in the booklet, in printed order."""
+    out = list(data.recap_questions)
+    for s in data.sections:
+        out.extend(s.questions)
+    for s in data.sections:
+        out.extend(s.homework_questions)
+    out.extend(data.challenge_questions)
+    return out
+
+
+def image_credits(data: BookletData) -> list[str]:
+    """Attributions for the pictures actually printed, deduplicated, in order.
+
+    Only images that made it onto a page: a question can carry an attribution
+    from a lookup whose file never resolved, and crediting a picture the
+    booklet does not contain is worse than crediting nothing.
+    """
+    seen, out = set(), []
+    for vq in all_questions(data):
+        credit = (getattr(vq, "image_attribution", None) or "").strip()
+        if not vq.image_path or not credit or credit in seen:
+            continue
+        seen.add(credit)
+        out.append(credit)
+    return out
+
+
+def _image_credits_block(styles, data: BookletData) -> list:
+    """The picture credits, gathered on their own page at the very back.
+
+    They used to sit under each image, where a licence string on a Year 3
+    worksheet reads as clutter. They still have to be printed: these are
+    Wikimedia Commons photographs and the licences require attribution.
+    """
+    credits = image_credits(data)
+    if not credits:
+        return []
+    out = [PageBreak(),
+           Paragraph("Picture Credits", styles["answers_heading"]),
+           Paragraph(
+               "The photographs in this booklet come from Wikimedia Commons "
+               "and are used under their respective licences.",
+               styles["challenge_blurb"])]
+    for c in credits:
+        out.append(Paragraph(f"• {_escape(c)}", styles["key_point"]))
+    return out
 
 
 def _booklet_doc(target, data: BookletData):

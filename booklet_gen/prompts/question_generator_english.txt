@@ -47,9 +47,10 @@ READING PASSAGES
   * Years 5 to 6: 2 to 3 sentences each, 200 to 280 words.
   * Years 7 to 8: 3 sentences each, 300 to 400 words.
   * Years 9 to 10: 3 to 4 sentences each, 400 to 500 words.
+- VARY THE LENGTH between passages in a set. Make one noticeably shorter and one noticeably longer than the guide above; a booklet where every reading is the same size reads as a form to fill in. A short passage has shorter paragraphs, never fewer than five.
 - Give every passage a title and an `id`. Every question about it repeats that id in `passage_id`. A question that needs no reading sets `passage_id` to null.
 - Australian settings, Australian English spelling, and named people rather than "a boy". The passages in one set must be about different subjects as well as different types, not one topic written up two ways.
-- Every passage carries at least 3 questions, and a passage's questions must sit together, in passage order, in the array. Share the questions evenly between the passages: the booklet splits the array in order, the front becoming class work and the rest homework, and questions grouped this way put a whole piece of reading in each half instead of cutting one passage's questions across the join. The user turn names the question the split falls on when it matters.
+- Every passage carries exactly 5 questions, and a passage's questions must sit together, in passage order, in the array. Share the questions evenly between the passages: the booklet splits the array in order, the front becoming class work and the rest homework, and questions grouped this way put a whole piece of reading in each half instead of cutting one passage's questions across the join. The user turn names the question the split falls on when it matters.
 - NEVER write "the passage above", "the passage below", "the text below", or "read the following passage". The booklet decides where the reading is printed and it will not be where you guessed. Name the passage instead ("In 'The Lighthouse Keeper', why does Amara stay?") or simply ask the question.
 - Do not restate the passage inside the question. It is printed once, for all of its questions.
 

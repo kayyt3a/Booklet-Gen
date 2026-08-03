@@ -258,8 +258,10 @@ def passages() -> None:
     block = passage_block("English", 6, 3)
     check("passages" in block and "passage_id" in block,
           "the English request names the passages array and passage_id")
-    check("3 questions off each" in block,
-          "it asks for several questions per passage, which is the whole point")
+    check("exactly 5 questions off each" in block,
+          "it asks for five questions per passage, which is the whole point")
+    check("VARY THE LENGTH" in block,
+          "the readings differ in length rather than all being one size")
     check("first 3 questions print in Class Work" in block,
           "it tells the model where the classwork/homework cut falls", block)
     check(passage_block("Mathematics", 6, 3) == "",

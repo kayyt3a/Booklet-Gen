@@ -542,9 +542,15 @@ class BookletPipeline:
     def _timing(sections, challenge, recap) -> dict:
         """Return per-part minutes: recap, classwork, homework (incl. the final
         challenge as its capstone), challenge, and the grand total."""
+        # Only subtopics the session actually covers. A subtopic the cap fitter
+        # moved out has no classwork questions left, and counting its lesson
+        # here was why a booklet the fitter had trimmed to the hour printed
+        # "about 100 min": the fitter measured the sections still in the
+        # session, this measured every section that existed, and the two
+        # disagreed by one mini-lesson per moved subtopic.
         classwork_raw = sum(
             section_minutes(len(s.questions), s.teaching is not None, None)
-            for s in sections
+            for s in sections if s.questions
         )
         homework_raw = sum(
             section_minutes(len(s.homework_questions), False, None) for s in sections
