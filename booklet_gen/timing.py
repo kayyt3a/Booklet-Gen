@@ -118,6 +118,40 @@ def _part_count(text: str) -> int:
     return len(part_labels(text))
 
 
+def printed_order(questions, section) -> list:
+    """The questions in the order the page prints them.
+
+    Grouping comprehension questions under their passage reorders them, and the
+    session plan below numbers questions, so it has to see the printed order
+    rather than the order the generator happened to emit.
+    """
+    from .formatter import ordered_questions, section_passages
+    return ordered_questions(questions, section_passages(section))
+
+
+# Reading a passage costs time the questions do not: the first question under a
+# passage is charged for reading it, at a primary reader's pace on unfamiliar
+# text, and the rest are not, because by then it has been read.
+_PASSAGE_WORDS_PER_MINUTE = 110.0
+_PASSAGE_FLOOR_MINUTES = 0.5
+
+
+def passage_minutes(passage) -> float:
+    words = sum(_words(p) for p in (getattr(passage, "paragraphs", None) or ()))
+    words += _words(getattr(passage, "title", None))
+    if not words:
+        return 0.0
+    return max(_PASSAGE_FLOOR_MINUTES, words / _PASSAGE_WORDS_PER_MINUTE)
+
+
+def section_passage_minutes(section, questions) -> float:
+    """Reading time for every passage the given questions actually use."""
+    from .formatter import passage_groups, section_passages
+    return sum(passage_minutes(p)
+               for p, group in passage_groups(questions, section_passages(section))
+               if p is not None and group)
+
+
 def questions_minutes(vqs, context: str = "classwork") -> float:
     return sum(question_minutes(vq.question, context) for vq in vqs)
 
@@ -145,8 +179,9 @@ def teaching_minutes(teaching) -> float:
 
 
 def classwork_section_minutes(section) -> float:
-    """Minutes for one Class Work section: lesson plus its "now you try" set."""
+    """Minutes for one Class Work section: lesson, reading, "now you try" set."""
     return (teaching_minutes(section.teaching)
+            + section_passage_minutes(section, section.questions)
             + questions_minutes(section.questions, "classwork")
             + (_SECTION_CHANGEOVER if section.teaching is not None else 0.0))
 
@@ -167,7 +202,8 @@ def homework_session_plan(data) -> list[dict]:
     homework to be worth splitting.
     """
     mins = [question_minutes(vq.question, "homework")
-            for s in data.sections for vq in s.homework_questions]
+            for s in data.sections
+            for vq in printed_order(s.homework_questions, s)]
     n = len(mins)
     if n < _MIN_QUESTIONS_TO_SPLIT:
         return []
@@ -199,6 +235,19 @@ def homework_session_plan(data) -> list[dict]:
             for s, e in zip(starts, ends) if e > s]
 
 
+# A dictated spelling test: the adult says the word, the child writes it, both
+# pause. Half a minute a word is what that costs in a real sitting, and a test
+# that appears on the first page has to be in the number on the cover or the
+# cover is wrong before the child starts.
+_SPELLING_MINUTES_PER_WORD = 0.5
+
+
+def spelling_test_minutes(data) -> float:
+    from .formatter import spelling_test_spaces
+    return spelling_test_spaces(getattr(data, "spelling_test", None)) \
+        * _SPELLING_MINUTES_PER_WORD
+
+
 def booklet_timing(data) -> dict:
     """Recompute every printed time from the booklet itself.
 
@@ -215,7 +264,10 @@ def booklet_timing(data) -> dict:
     # The Final Challenge is printed inside the Homework half, so its time
     # belongs to that heading.
     homework_total_raw = homework_raw + challenge_raw
+    spelling_raw = spelling_test_minutes(data)
     return {
+        "spelling_raw": spelling_raw,
+        "spelling_minutes": round_display(spelling_raw) if spelling_raw else None,
         "section_raw": section_raw,
         "section_minutes": [round_display(m) for m in section_raw],
         "recap_raw": recap_raw,
@@ -226,5 +278,6 @@ def booklet_timing(data) -> dict:
         "classwork_minutes": round_display(classwork_raw) if data.sections else None,
         "homework_minutes": round_display(homework_total_raw) if homework_total_raw else None,
         "challenge_minutes": round_display(challenge_raw) if data.challenge_questions else None,
-        "total_minutes": round_total(recap_raw + classwork_raw + homework_total_raw),
+        "total_minutes": round_total(spelling_raw + recap_raw + classwork_raw
+                                     + homework_total_raw),
     }

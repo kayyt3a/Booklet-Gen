@@ -3,16 +3,23 @@
 
 Every case here comes from a real generated booklet. The renderer is run for
 real, the PDF is read back with pypdf, and the assertions are made against the
-text layer and the geometry, not against the code that produced them.
+text layer, the fonts and the geometry, not against the code that produced them.
 
 Covers:
-  * the student copy: same booklet, no answer key, no verification marks
+  * one booklet with the key at the back: no verification mark beside a
+    question, and nothing from the key leaking into the pages worked on
+  * reading passages: laid out before the questions that refer to them, printed
+    once, and never split from their first question by a page break
+  * spelling: a wordless dictation test at the front, the list at the back, and
+    the words to call out printed only in the key
+  * the mini-lesson: the term taught set in bold, specimens quoted
   * notation: one symbol per operation, and unknowns left alone
   * an "Answer:" rule under every question that wants a short answer
   * page fill: no page abandoned two thirds empty
   * the closing note and the score line
   * the answer key: fractions in lowest terms, units restored, one step per
-    line everywhere, and a page reference back to the question
+    line everywhere, a page reference back to the question, and numbering that
+    follows the printed order
   * homework split into sittings, and room to work in the warm-up
   * render_exam_pdf still renders (it shares these styles)
 
@@ -24,21 +31,24 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pypdf                                                    # noqa: E402
+from pydantic import BaseModel, Field                           # noqa: E402
 from reportlab.lib.pagesizes import A4                          # noqa: E402
 from reportlab.lib.units import cm                              # noqa: E402
 
+from booklet_gen import schemas as S                            # noqa: E402
 from booklet_gen.formatter import (                             # noqa: E402
-    HOMEWORK_MIN_START_CM, PAGE_MARGIN, _escape, _register_fonts,
-    answer_line_labels, answer_unit, key_answer, part_labels,
-    render_booklet_pair, render_exam_pdf, simplify_fractions_in_answer,
-    solution_lines, student_copy_path)
+    HOMEWORK_MIN_START_CM, PAGE_MARGIN, SPELLING_TEST_SPACES, _escape,
+    _lesson_html, _register_fonts, answer_line_labels, answer_unit,
+    apply_bold_markup, key_answer, ordered_questions, part_counts, part_labels,
+    passage_groups, quote_inline_examples, render_exam_pdf, render_pdf,
+    simplify_fractions_in_answer, solution_lines, spelling_test_spaces)
 from booklet_gen.schemas import (                               # noqa: E402
-    BookletData, ExamPaper, ExamSection, Question, SubtopicOutput,
-    SubtopicTeaching, ValidatedQuestion, WorkedExample)
+    ExamPaper, ExamSection, SubtopicTeaching, ValidatedQuestion, WorkedExample)
 from booklet_gen.timing import (                                # noqa: E402
     booklet_timing, homework_session_plan)
 
@@ -55,6 +65,56 @@ def check(ok: bool, label: str, detail: str = "") -> None:
     print(("  PASS  " if ok else "  FAIL  ") + label + (f"   {detail}" if detail else ""))
     if not ok:
         failures.append(label)
+
+
+# ---------------------------------------------------------------------------
+# 0. Schema shims
+#
+# Passage, Question.passage_id, SubtopicOutput.passages and the spelling models
+# are a contract another agent is landing in schemas.py. The formatter reads
+# every one of them through getattr and does nothing when they are missing, so
+# it works either way; this check has to be able to build the objects either
+# way too. When the real fields exist these shims collapse to the real classes.
+# ---------------------------------------------------------------------------
+
+if hasattr(S, "Passage"):
+    Passage = S.Passage
+else:
+    class Passage(BaseModel):                                   # type: ignore[no-redef]
+        id: str
+        title: Optional[str] = None
+        paragraphs: List[str] = Field(default_factory=list)
+
+if hasattr(S, "SpellingList"):
+    SpellingList, SpellingTest = S.SpellingList, S.SpellingTest
+else:
+    class SpellingList(BaseModel):                              # type: ignore[no-redef]
+        words: List[str] = Field(default_factory=list)
+
+    class SpellingTest(BaseModel):                              # type: ignore[no-redef]
+        words: List[str] = Field(default_factory=list)
+        from_week: Optional[int] = None
+
+if "passage_id" in S.Question.model_fields:
+    Question = S.Question
+else:
+    class Question(S.Question):                                 # type: ignore[no-redef]
+        passage_id: Optional[str] = None
+
+if "passages" in S.SubtopicOutput.model_fields:
+    SubtopicOutput = S.SubtopicOutput
+else:
+    class SubtopicOutput(S.SubtopicOutput):                     # type: ignore[no-redef]
+        passages: List[Passage] = Field(default_factory=list)
+
+if "spelling_list" in S.BookletData.model_fields:
+    BookletData = S.BookletData
+else:
+    class BookletData(S.BookletData):                           # type: ignore[no-redef]
+        spelling_list: Optional[SpellingList] = None
+        spelling_test: Optional[SpellingTest] = None
+
+print(f"Schema contract: {'live' if Question is S.Question else 'shimmed locally'}")
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +156,7 @@ NOTATION_CASES = [
 # Fraction glyphs need the Unicode font, which is registered on first render.
 _register_fonts()
 
-print("Notation")
+print("\nNotation")
 for text, expect, forbid in NOTATION_CASES:
     out = _escape(text)
     check(expect in out and forbid not in out,
@@ -125,7 +185,118 @@ check(part_labels("a) one b) two c) three") == ["a", "b", "c"], "part markers fo
 check(part_labels("A box 4 cm long.") == [], "no false part markers")
 
 # ---------------------------------------------------------------------------
-# 3. The answer key: what a parent marks from
+# 3. Mini-lesson prose
+#
+# Both cases are the owner reading a Year 3 English booklet: the term being
+# taught set in the same weight as everything else, and two specimens run into
+# a sentence so they do not read as specimens.
+# ---------------------------------------------------------------------------
+
+print("\nLesson: specimens quoted")
+QUOTE_CASES = [
+    ("Match the verb to the subject, like saying the dog runs instead of the dog run.",
+     'like saying "the dog runs" instead of "the dog run".'),
+    ("Try writing enormous rather than big.",
+     'Try writing "enormous" rather than "big".'),
+    # Nothing to anchor on: left exactly as written.
+    ("Use a comma instead of a full stop.", "Use a comma instead of a full stop."),
+    ("You could say it in your own words instead.",
+     "You could say it in your own words instead."),
+    # Already quoted, so not quoted twice.
+    ('Like saying "the dog runs" instead of "the dog run".',
+     'Like saying "the dog runs" instead of "the dog run".'),
+    # Too long to be a specimen: the boundaries would be guesswork.
+    ("Try writing a sentence that describes the whole scene in detail rather "
+     "than a short one.",
+     "Try writing a sentence that describes the whole scene in detail rather "
+     "than a short one."),
+]
+for text, want in QUOTE_CASES:
+    got = quote_inline_examples(text)
+    check(got == want, text[:52], f"-> {got}")
+
+print("\nLesson: the term taught")
+# The lesson writer wraps a newly introduced term in double asterisks. The
+# formatter turns that into a bold run, and must never turn it into a broken
+# tag or a multiplication sign.
+BOLD_CASES = [
+    # The happy path.
+    ("**Alliteration** is when words start with the same sound.",
+     "<b>Alliteration</b> is when words start with the same sound."),
+    ("A **synonym** and an **antonym** are opposites in job.",
+     "A <b>synonym</b> and an <b>antonym</b> are opposites in job."),
+    ("**two words** here", "<b>two words</b> here"),
+    # Malformed markup. None of these may produce a tag, and none may leave an
+    # asterisk on the page: ReportLab raises on broken markup.
+    ("An **unclosed term is still readable.",
+     "An unclosed term is still readable."),
+    ("A stray ** in the middle.", "A stray  in the middle."),
+    ("****", ""),
+    ("**", ""),
+    ("***overdone***", "<b>overdone</b>"),
+    ("**a **b** c", "<b>a b</b> c"),
+    ("** spaced out **", " spaced out "),
+    # Nothing to do.
+    ("Plain prose with no markup.", "Plain prose with no markup."),
+]
+for text, want in BOLD_CASES:
+    got = apply_bold_markup(text)
+    ok = got == want and got.count("<b>") == got.count("</b>") and "*" not in got
+    check(ok, repr(text[:44]), f"-> {got!r}")
+
+# The collision: the multiplication normaliser rewrites a single asterisk
+# between operands, and must leave the emphasis markers alone.
+check(_lesson_html("Work out 4 * 5 before you read on.")
+      == f"Work out 4 {MULT} 5 before you read on.",
+      "a lone asterisk between numbers is still multiplication")
+check(_lesson_html("**Volume** is 4 * 5 * 2 for this prism.")
+      == f"<b>Volume</b> is 4 {MULT} 5 {MULT} 2 for this prism.",
+      "bold markup and multiplication in the same sentence")
+check(_lesson_html("A **synonym** is a word.") == "A <b>synonym</b> is a word.",
+      "double asterisks are never read as a multiplication sign")
+check("<b>" in _lesson_html("**terms** &amp; more <angles>"),
+      "escaping runs first, so the tags inserted here are the only markup")
+check(_escape("**word**").count("*") == 4,
+      "the escape step on its own leaves the markers for this pass")
+
+# ---------------------------------------------------------------------------
+# 4. Passage grouping
+# ---------------------------------------------------------------------------
+
+print("\nPassage grouping")
+
+
+def pq(text, passage_id=None, answer="42", working="42", difficulty="medium",
+       verified=True):
+    return ValidatedQuestion(
+        question=Question(question=text, answer=answer, working=working,
+                          difficulty=difficulty, passage_id=passage_id),
+        verified=verified)
+
+
+P1 = Passage(id="p1", title="The Lost Kitten", paragraphs=["One.", "Two."])
+P2 = Passage(id="p2", title="Storm at Sea", paragraphs=["Three."])
+GROUP_QS = [pq("A", "p1"), pq("B"), pq("C", "p1"), pq("D", "p2"), pq("E", "p1"),
+            pq("F", "nope")]
+groups = passage_groups(GROUP_QS, {"p1": P1, "p2": P2})
+shape = [(g[0].id if g[0] else None, [q.question.question for q in g[1]])
+         for g in groups]
+check(shape == [("p1", ["A", "C", "E"]), (None, ["B"]), ("p2", ["D"]),
+                (None, ["F"])],
+      "questions gather under their passage, at its first mention", str(shape))
+check(sum(1 for g, _ in shape if g == "p1") == 1,
+      "a passage is grouped once, not once per question")
+check([q.question.question for q in
+       ordered_questions(GROUP_QS, {"p1": P1, "p2": P2})]
+      == ["A", "C", "E", "B", "D", "F"],
+      "the flat order the key must follow")
+check(passage_groups(GROUP_QS, {}) == [(None, GROUP_QS)],
+      "no passages defined means no regrouping at all")
+check([q.question.question for q in ordered_questions([pq("A"), pq("B")], {})]
+      == ["A", "B"], "a maths section is untouched")
+
+# ---------------------------------------------------------------------------
+# 5. The answer key: what a parent marks from
 #
 # Every question/answer pair below is copied out of
 # output/lleyton-accelerate-year-5-20260731-004316.pdf.
@@ -223,15 +394,12 @@ check(_escape("Volume = length x width x height.") ==
       "x between dimension words is multiplication")
 
 # ---------------------------------------------------------------------------
-# 4. Render a booklet and read it back
+# 6. Render a booklet and read it back
 # ---------------------------------------------------------------------------
 
 
 def vq(text, answer="42", working="42", difficulty="medium", verified=True):
-    return ValidatedQuestion(
-        question=Question(question=text, answer=answer, working=working,
-                          difficulty=difficulty),
-        verified=verified)
+    return pq(text, None, answer, working, difficulty, verified)
 
 
 def teaching(n_guided=2):
@@ -310,69 +478,78 @@ n_questions = (len(data.recap_questions) + len(data.challenge_questions)
 assert len(markers) == n_questions, (len(markers), n_questions)
 
 tmp = Path(tempfile.mkdtemp(prefix="folio-check-"))
-tutor, student = render_booklet_pair(data, tmp / "booklet.pdf")
+booklet = render_pdf(data, tmp / "booklet.pdf")
 
 BODY_TOP = A4[1] - PAGE_MARGIN
 BODY_BOTTOM = PAGE_MARGIN
 
 
 def read(path):
-    """Return (page texts, lowest body text y per page, (text, y) runs per page)."""
+    """(page texts, lowest body y per page, (text, y) runs, bold runs, rules)."""
     reader = pypdf.PdfReader(str(path))
-    texts, lows, runs = [], [], []
-    for page in reader.pages:
-        ys, seen = [], []
+    texts, lows, runs, bolds, rules = [], [], [], [], []
 
-        def visit(text, cm_, tm, font_dict, font_size, ys=ys, seen=seen):
-            if text.strip():
-                y = cm_[5] + tm[5]
-                if BODY_BOTTOM < y < BODY_TOP:      # skip header/footer chrome
-                    ys.append(y)
-                    seen.append((text.strip(), y))
+    for page in reader.pages:
+        ys, seen, bold = [], [], []
+
+        def visit(text, cm_, tm, font_dict, font_size, ys=ys, seen=seen, bold=bold):
+            if not text.strip():
+                return
+            y = cm_[5] + tm[5]
+            if BODY_BOTTOM < y < BODY_TOP:      # skip header/footer chrome
+                ys.append(y)
+                seen.append((text.strip(), y))
+                if "Bold" in str((font_dict or {}).get("/BaseFont", "")):
+                    bold.append((text.strip(), y))
 
         texts.append(page.extract_text(visitor_text=visit) or "")
         lows.append(min(ys) if ys else BODY_TOP)
         runs.append(seen)
-    return texts, lows, runs
+        bolds.append(bold)
+        try:
+            data_ = page.get_contents().get_data()
+        except Exception:
+            data_ = b""
+        # Every horizontal rule the tables draw is a "moveto lineto stroke".
+        rules.append(len(re.findall(rb"\bl\s+S\b", data_)))
+    return texts, lows, runs, bolds, rules
 
 
-tutor_pages, tutor_lows, tutor_runs = read(tutor)
-student_pages, student_lows, student_runs = read(student)
-tutor_text = "\n".join(tutor_pages)
-student_text = "\n".join(student_pages)
+def key_page(pages) -> int:
+    return next(i for i, p in enumerate(pages) if "Worked Solutions" in p)
 
-print("\nStudent copy")
-check(student_copy_path(tmp / "booklet.pdf").name == "booklet-student.pdf",
-      "student copy is a sibling file", student.name)
-check("Answers" not in student_text and "Worked Solutions" not in student_text,
-      "no answer key in the student copy")
-check(TICK not in student_text and "verified" not in student_text,
-      "no verification marks in the student copy")
-check("Answers &" in tutor_text or "Worked Solutions" in tutor_text,
-      "tutor copy still has the answer key")
-check(len(student_pages) < len(tutor_pages), "student copy is shorter",
-      f"{len(student_pages)} vs {len(tutor_pages)} pages")
+
+pages, lows, runs, bolds, rules = read(booklet)
+text = "\n".join(pages)
+key_start = key_page(pages)
+question_pages = pages[:key_start]
+question_text = "\n".join(question_pages)
+key_text = "\n".join(pages[key_start:])
+
+print("\nOne booklet, key at the back")
+check(not (tmp / "booklet-student.pdf").exists(),
+      "render_pdf writes one file and no second copy")
+check("Answers &" in text or "Worked Solutions" in text, "the key is present")
+check(key_start > 0, "the key is at the back", f"key starts on page {key_start + 1}")
 for q in ("Homework 0.0", "Question 0.0", "Subtopic 4"):
-    check(q in student_text, f"student copy keeps the questions ({q})")
+    check(q in question_text, f"the questions come first ({q})")
 
 print("\nVerification marks")
-check(tutor_text.count(TICK) == n_questions,
-      "one mark per answer in the key, none beside a question",
-      f"{tutor_text.count(TICK)} marks, {n_questions} questions")
+check(TICK not in question_text and "verified" not in question_text,
+      "no verification mark beside an unattempted question")
+check(key_text.count(TICK) == n_questions,
+      "one mark per answer in the key", f"{key_text.count(TICK)} of {n_questions}")
 
 print("\nNotation in the rendered PDF")
-for pages, label in ((tutor_pages, "tutor"), (student_pages, "student")):
-    body = "\n".join(pages)
-    check("*" not in body, f"no asterisk in the {label} copy")
-    # A letter x used as a times sign: between two numbers, or between two
-    # dimension words. "x = 9" and "5x = 45" are unknowns and must survive.
-    stray_x = re.search(
-        r"\d\s*[xX]\s*\d|(?:length|width|height|depth)\s+[xX]\s+", body)
-    check(stray_x is None, f"no letter-x multiplication in the {label} copy",
-          stray_x.group(0) if stray_x else "")
-    check("cubic centimetres" not in body and "cubic cm" not in body,
-          f"one spelling of volume units in the {label} copy")
-    check("5x = 45" in body, f"unknowns survive in the {label} copy")
+check("*" not in text, "no asterisk anywhere in the booklet")
+# A letter x used as a times sign: between two numbers, or between two
+# dimension words. "x = 9" and "5x = 45" are unknowns and must survive.
+stray_x = re.search(r"\d\s*[xX]\s*\d|(?:length|width|height|depth)\s+[xX]\s+", text)
+check(stray_x is None, "no letter-x multiplication",
+      stray_x.group(0) if stray_x else "")
+check("cubic centimetres" not in text and "cubic cm" not in text,
+      "one spelling of volume units")
+check("5x = 45" in text, "unknowns survive")
 
 print("\nAnswer lines")
 # One rule per question that wants a short answer, plus one for each worked and
@@ -383,9 +560,9 @@ all_questions = ([q.question for q in data.recap_questions]
                  + [q.question for q in data.challenge_questions])
 n_examples = sum(1 + len(s.teaching.guided_examples) for s in sections)
 expected = sum(len(answer_line_labels(q)) for q in all_questions) + n_examples
-check(student_text.count("Answer:") == expected, "an answer rule under every "
-      "short-answer question", f"{student_text.count('Answer:')} vs {expected}")
-check("a) Answer:" in student_text and "b) Answer:" in student_text,
+check(question_text.count("Answer:") == expected, "an answer rule under every "
+      "short-answer question", f"{question_text.count('Answer:')} vs {expected}")
+check("a) Answer:" in question_text and "b) Answer:" in question_text,
       "multi-part question gets a rule per part")
 
 # ---------------------------------------------------------------------------
@@ -393,9 +570,6 @@ check("a) Answer:" in student_text and "b) Answer:" in student_text,
 # ---------------------------------------------------------------------------
 
 print("\nAnswer key in the rendered PDF")
-key_start = next(i for i, p in enumerate(tutor_pages) if "Worked Solutions" in p)
-key_text = "\n".join(tutor_pages[key_start:])
-question_text = "\n".join(tutor_pages[:key_start])
 
 # Units the lesson insists on, restored on bare numeric answers.
 check("12 cm³" in key_text and "18 cm³" in key_text and "24 cm³" in key_text,
@@ -415,8 +589,7 @@ check(len(refs) == n_questions, "every answer carries a page reference",
       f"{len(refs)} of {n_questions}")
 wrong = []
 for qnum, marker in enumerate(markers, 1):
-    page = next((i + 1 for i, p in enumerate(tutor_pages[:key_start])
-                 if marker in p), None)
+    page = next((i + 1 for i, p in enumerate(question_pages) if marker in p), None)
     if refs.get(qnum) != page:
         wrong.append((qnum, marker, refs.get(qnum), page))
 check(not wrong, "each page reference points at the question's real page",
@@ -425,12 +598,10 @@ check(f"(p{key_start})" not in key_text and "(p1)" not in key_text,
       "no reference points into the key itself or the cover")
 
 print("\nScore line")
-for text, label in ((student_text, "student"), (tutor_text, "tutor")):
-    check(f"______ / {n_questions}" in text.replace("\n", " "),
-          f"the {label} copy has a total to mark out of", str(n_questions))
-    check("Marked by:" in text and "Date:" in text,
-          f"the {label} copy names who marked it and when")
-check("Warm-up Recap" in student_text and "Final Challenge" in student_text,
+check(f"______ / {n_questions}" in text.replace("\n", " "),
+      "there is a total to mark out of", str(n_questions))
+check("Marked by:" in text and "Date:" in text, "the score line names who and when")
+check("Warm-up Recap" in question_text and "Final Challenge" in question_text,
       "the score line breaks down by part")
 
 print("\nHomework sessions")
@@ -440,21 +611,21 @@ check(len(plan) >= 2, "homework is split into sittings", f"{len(plan)} sessions"
 check(sum(p["count"] for p in plan) == n_hw,
       "every homework question belongs to exactly one session",
       f"{sum(p['count'] for p in plan)} of {n_hw}")
-bands = re.findall(r"Session (\d+) of (\d+)", student_text)
+bands = re.findall(r"Session (\d+) of (\d+)", question_text)
 check(len(bands) == len(plan), "one band printed per session",
       f"{len(bands)} bands, {len(plan)} planned")
 check([int(a) for a, _ in bands] == list(range(1, len(plan) + 1)),
       "sessions are numbered in order", str(bands))
 check(all(b == str(len(plan)) for _, b in bands), "each band says the total")
 first_hw = n_questions - n_hw - len(data.challenge_questions) + 1
-check(f"questions {first_hw} to" in student_text.replace("\n", " "),
+check(f"questions {first_hw} to" in question_text.replace("\n", " "),
       "the first session names the questions it covers", f"from {first_hw}")
 check(homework_session_plan(BookletData(
     subject="Maths", year_level="Year 5", student_name="A",
     sections=[SubtopicOutput(topic="T", subtopic="S", questions=[],
                              homework_questions=[vq("One.")])])) == [],
       "a handful of homework questions is not split")
-stranded = [i + 1 for i, page in enumerate(student_pages)
+stranded = [i + 1 for i, page in enumerate(question_pages)
             if [ln for ln in page.splitlines() if ln.strip()][-1].startswith("Session ")]
 check(not stranded, "no session band left at the foot of a page", str(stranded))
 
@@ -469,8 +640,8 @@ aligned = BookletData(
                "and 4 cm high. What is its volume in cubic centimetres?",
                difficulty="easy") for j in range(5)]) for k in range(4)])
 aligned_plan = homework_session_plan(aligned)
-_, aligned_student = render_booklet_pair(aligned, tmp / "aligned.pdf")
-aligned_text = "\n".join(read(aligned_student)[0])
+aligned_pages = read(render_pdf(aligned, tmp / "aligned.pdf"))[0]
+aligned_text = "\n".join(aligned_pages[:key_page(aligned_pages)])
 boundary_section = None
 for n, p in enumerate(aligned_plan[1:], 2):
     if p["start"] % 5 == 0:
@@ -490,18 +661,18 @@ if boundary_section:
 print("\nWarm-up working space")
 
 
-def gap_below(runs, needle):
+def gap_below(runs_, needle):
     """Vertical distance from a question's line to the next line under it."""
-    for page in runs:
-        for i, (text, y) in enumerate(page):
-            if needle in text:
+    for page in runs_:
+        for i, (t, y) in enumerate(page):
+            if needle in t:
                 below = [yy for _, yy in page[i + 1:] if yy < y]
                 return (y - max(below)) / cm if below else None
     return None
 
 
-warm = gap_below(student_runs, "Calculate 15")
-classwork = gap_below(student_runs, "Question 0.0")
+warm = gap_below(runs, "Calculate 15")
+classwork = gap_below(runs, "Question 0.0")
 check(warm is not None and warm > 2.0,
       "a warm-up question gets more than one line to work in",
       f"{warm:.1f}cm" if warm else "not found")
@@ -510,29 +681,31 @@ check(warm is not None and classwork is not None and warm >= classwork * 0.8,
       f"warm-up {warm:.1f}cm vs class work {classwork:.1f}cm")
 
 print("\nPage fill")
-tails = [(low - BODY_BOTTOM) / cm for low in student_lows]
-# Page 1 is the cover and the last page ends the booklet. A page that runs into
-# a deliberate part break may stop up to the break threshold early; any other
-# page stopping more than 6cm short means a page was abandoned.
-boundary = {i for i in range(len(student_pages) - 1)
-            if "Homework" in "\n".join(student_pages[i + 1].splitlines()[:4])}
-worst_boundary = (0, 0.0)
-worst_plain = (0, 0.0)
-for i, tail in list(enumerate(tails))[1:-1]:
-    slot = worst_boundary if i in boundary else worst_plain
-    if tail > slot[1]:
+
+
+def page_fill(pages_, lows_, label):
+    """Worst tail of blank space on the question pages, ignoring part breaks."""
+    stop = key_page(pages_)
+    tails = [(low - BODY_BOTTOM) / cm for low in lows_[:stop]]
+    boundary = {i for i in range(stop - 1)
+                if "Homework" in "\n".join(pages_[i + 1].splitlines()[:4])}
+    worst_b, worst_p = (0, 0.0), (0, 0.0)
+    for i, tail in list(enumerate(tails))[1:-1]:
         if i in boundary:
-            worst_boundary = (i + 1, tail)
+            worst_b = max(worst_b, (i + 1, tail), key=lambda t: t[1])
         else:
-            worst_plain = (i + 1, tail)
-check(worst_plain[1] < 6.0, "no page abandoned more than 6cm early",
-      f"worst is page {worst_plain[0]} at {worst_plain[1]:.1f}cm")
-check(worst_boundary[1] <= HOMEWORK_MIN_START_CM,
-      "a part break never throws away more than its threshold",
-      f"worst is page {worst_boundary[0]} at {worst_boundary[1]:.1f}cm")
-check(sum(tails[1:-1]) / max(1, len(tails) - 2) < 4.0,
-      "pages are worked down the page on average",
-      f"mean tail {sum(tails[1:-1]) / max(1, len(tails) - 2):.1f}cm")
+            worst_p = max(worst_p, (i + 1, tail), key=lambda t: t[1])
+    mean = sum(tails[1:-1]) / max(1, len(tails) - 2)
+    check(worst_p[1] < 6.0, f"no {label} page abandoned more than 6cm early",
+          f"worst is page {worst_p[0]} at {worst_p[1]:.1f}cm")
+    check(worst_b[1] <= HOMEWORK_MIN_START_CM,
+          f"a {label} part break never throws away more than its threshold",
+          f"worst is page {worst_b[0]} at {worst_b[1]:.1f}cm")
+    check(mean < 4.0, f"{label} pages are worked down the page on average",
+          f"mean tail {mean:.1f}cm")
+
+
+page_fill(pages, lows, "booklet")
 
 print("\nPage fill under stress (200 questions of varied length)")
 import random                                                   # noqa: E402
@@ -547,30 +720,28 @@ for i in range(200):
 stress = BookletData(
     subject="Mathematics", year_level="Year 5", student_name="Stress",
     sections=[SubtopicOutput(topic="T", subtopic="S", questions=stress_qs)])
-stress_path, _ = render_booklet_pair(stress, tmp / "stress.pdf")
-stress_pages, stress_lows, _ = read(stress_path)
+stress_pages, stress_lows, _, _, _ = read(render_pdf(stress, tmp / "stress.pdf"))
+stress_stop = key_page(stress_pages)
 orphans = []
-for i, page in enumerate(stress_pages):
+for i, page in enumerate(stress_pages[:stress_stop]):
     body = [ln for ln in page.splitlines()
             if ln.strip() and not ln.startswith("Page ") and "Mathematics  |" not in ln]
     if body and body[0].strip().endswith("Answer:") and "Question" not in body[0]:
         orphans.append(i + 1)
 check(not orphans, "no working space separated from its question", str(orphans))
-stress_tails = [(low - BODY_BOTTOM) / cm for low in stress_lows][1:-1]
+stress_tails = [(low - BODY_BOTTOM) / cm for low in stress_lows[:stress_stop]][1:-1]
 check(max(stress_tails) < 6.0, "no page abandoned early under stress",
       f"worst {max(stress_tails):.1f}cm")
 
 print("\nClosing")
-check("That is the end of the booklet, Lleyton." in student_text.replace("\n", " "),
-      "student copy closes by name")
-check("That is the end of the booklet, Lleyton." in tutor_text.replace("\n", " "),
-      "tutor copy closes by name")
-closing_page = next(i for i, p in enumerate(student_pages)
+check("That is the end of the booklet, Lleyton." in question_text.replace("\n", " "),
+      "the booklet closes by name")
+closing_page = next(i for i, p in enumerate(question_pages)
                     if "end of the booklet" in p.replace("\n", " "))
-check(closing_page >= len(student_pages) - 2,
+check(closing_page >= key_start - 2,
       "the closing note is the last thing before the score line",
-      f"page {closing_page + 1} of {len(student_pages)}")
-check("Answers" not in student_pages[closing_page],
+      f"page {closing_page + 1} of {key_start}")
+check("Answers" not in question_pages[closing_page],
       "nothing follows the closing note but the score line")
 
 print("\nTiming")
@@ -581,8 +752,223 @@ check(t["classwork_minutes"] > sum(len(s.questions) for s in sections) * 2.5,
 check(t["homework_minutes"] < t["classwork_minutes"],
       "repetition homework is not charged the classwork rate",
       f"{t['homework_minutes']} min")
-check(f"About {t['classwork_minutes']} min" in tutor_text,
+check(f"About {t['classwork_minutes']} min" in text,
       "the printed class work estimate is the recomputed one")
+check(t["spelling_minutes"] is None, "no spelling time when there is no test")
+
+# ---------------------------------------------------------------------------
+# 7. A Year 3 English booklet: passages, spelling, a term to teach
+# ---------------------------------------------------------------------------
+
+print("\nEnglish booklet: render")
+
+KITTEN = Passage(
+    id="kitten", title="The Lost Kitten",
+    paragraphs=[
+        "Mia heard a tiny sound behind the shed. She pushed back the long grass "
+        "and found a kitten curled up in an old cardboard box.",
+        "The kitten was small and grey, and it shivered when Mia lifted it. She "
+        "carried it inside and wrapped it in a warm towel.",
+        "By the evening the kitten was purring on the couch, and Mia had already "
+        "decided on a name for it.",
+    ])
+# Deliberately long: the passage and its first question must still land on the
+# same page, which is the case a short passage never tests.
+STORM = Passage(
+    id="storm", title="Storm at Sea",
+    paragraphs=[" ".join(
+        ["The wind rose steadily through the afternoon and the small boat "
+         "climbed each grey wave before sliding down the far side."] * 6),
+        " ".join(["The captain tied everything down and watched the horizon for "
+                  "the first break in the cloud."] * 6)])
+
+english_sections = [
+    SubtopicOutput(
+        topic="Vocabulary", subtopic="Synonyms and Antonyms",
+        passages=[KITTEN, STORM],
+        teaching=SubtopicTeaching(
+            intro_paragraphs=[
+                "A **synonym** is a word that means nearly the same thing as "
+                "another word. Writers choose a sharper synonym when the first "
+                "word they think of is a dull one.",
+                "An **antonym** is the opposite. Knowing both gives you two "
+                "ways to make a sentence say exactly what you mean.",
+                # Markup the model got wrong: it must degrade, not explode.
+                "You can **always look for a shorter word too.",
+            ],
+            key_points=["Swap a dull word for a sharp one, like writing "
+                        "enormous rather than big."],
+            worked_example=WorkedExample(
+                question="Find a synonym for the word cold.",
+                steps=["Think about what the word means.",
+                       "Choose a word that means nearly the same."],
+                answer="freezing"),
+            guided_examples=[]),
+        questions=[
+            pq("KITTENA. Referring to the passage above, where did Mia find the "
+               "kitten?", "kitten", answer="Behind the shed"),
+            pq("LOOSEB. Write a synonym for the word happy.", None,
+               answer="cheerful"),
+            pq("KITTENC. Referring to the passage above, write an antonym for "
+               "the word tiny.", "kitten", answer="enormous"),
+            pq("STORMD. Referring to the passage above, what did the captain "
+               "watch for?", "storm", answer="A break in the cloud"),
+            pq("KITTENE. Referring to the passage above, which word tells you "
+               "the kitten was cold?", "kitten", answer="shivered"),
+        ],
+        homework_questions=[
+            pq("HWKITTEN1. Referring to the passage above, who found the "
+               "kitten?", "kitten", answer="Mia"),
+            pq("HWLOOSE2. Write an antonym for the word early.", None,
+               answer="late"),
+            pq("HWKITTEN3. Referring to the passage above, what was the kitten "
+               "wrapped in?", "kitten", answer="A warm towel"),
+        ]),
+    SubtopicOutput(
+        topic="Grammar", subtopic="Verb Agreement",
+        teaching=SubtopicTeaching(
+            intro_paragraphs=[
+                "Verb agreement means the verb matches the person doing it. "
+                "Match the verb to the subject, like saying the dog runs "
+                "instead of the dog run.",
+            ],
+            key_points=["One dog runs. Two dogs run."],
+            worked_example=WorkedExample(
+                question="Choose the correct verb: The birds (sing / sings).",
+                steps=["Ask how many birds there are."], answer="sing"),
+            guided_examples=[]),
+        questions=[pq("VERB1. Choose the correct verb: The cat (sleep / "
+                      "sleeps) on the mat.", None, answer="sleeps")],
+        homework_questions=[]),
+]
+
+SPELL_LIST = ["accident", "against", "answer", "believe", "breath", "build",
+              "certain", "circle", "complete", "consider", "decide", "describe",
+              "different", "difficult", "disappear", "early", "earth", "eight",
+              "enough", "exercise"]
+SPELL_TEST = ["famous", "favourite", "february", "forward", "fruit", "grammar",
+              "group", "guard", "guide", "heard", "heart", "height"]
+
+english = BookletData(
+    subject="English", year_level="Year 3", student_name="Ivy",
+    program_label="Academic Accelerate", sections=english_sections,
+    spelling_list=SpellingList(words=SPELL_LIST),
+    spelling_test=SpellingTest(words=SPELL_TEST, from_week=2))
+
+e_pages, e_lows, e_runs, e_bolds, e_rules = read(
+    render_pdf(english, tmp / "english.pdf"))
+e_key_start = key_page(e_pages)
+e_question_pages = e_pages[:e_key_start]
+e_question_text = "\n".join(e_question_pages)
+e_key_text = "\n".join(e_pages[e_key_start:])
+e_text = "\n".join(e_pages)
+
+
+def page_of(pages_, needle):
+    return next((i for i, p in enumerate(pages_) if needle in p.replace("\n", " ")),
+                None)
+
+
+check(len(e_pages) > 3, "the English booklet renders", f"{len(e_pages)} pages")
+
+print("\nPassages on the page")
+for title in ("The Lost Kitten", "Storm at Sea"):
+    check(e_question_text.count(title) == 1,
+          f"{title!r} is printed once in the class work",
+          f"{e_question_text.count(title)} times")
+check("READ THIS" in e_question_text, "the passage is marked as something to read")
+# The passage must be above every question that refers to it, and on the same
+# page as the first of them.
+for title, first, rest in (("The Lost Kitten", "KITTENA", ["KITTENC", "KITTENE"]),
+                           ("Storm at Sea", "STORMD", [])):
+    p_title = page_of(e_question_pages, title)
+    p_first = page_of(e_question_pages, first)
+    check(p_title is not None and p_title == p_first,
+          f"{title!r} shares a page with its first question",
+          f"passage p{p_title}, question p{p_first}")
+    ys = {t: y for page in e_runs for t, y in page}
+    check(all(page_of(e_question_pages, r) >= p_title for r in rest),
+          f"every question about {title!r} follows it")
+# The passage sits above its first question on that page.
+title_y = next(y for page in e_runs for t, y in page if "The Lost Kitten" in t)
+q_y = next(y for page in e_runs for t, y in page if "KITTENA" in t)
+check(title_y > q_y, "the reading is laid out above the question, not below",
+      f"passage y={title_y:.0f}, question y={q_y:.0f}")
+# Regrouping happened: C is printed before B even though B was emitted first.
+order = [m for m in re.findall(r"KITTENA|LOOSEB|KITTENC|STORMD|KITTENE",
+                               e_question_text)]
+check(order == ["KITTENA", "KITTENC", "KITTENE", "LOOSEB", "STORMD"],
+      "questions are reordered to sit under their passage", str(order))
+check(e_question_text.count("The Lost Kitten") == 1
+      and e_text.count("The Lost Kitten") >= 2,
+      "a passage used again in homework is reprinted there, not referred back to",
+      f"{e_text.count('The Lost Kitten')} in the booklet")
+
+print("\nThe key follows the printed order")
+mis = []
+for marker, answer in (("KITTENA", "Behind the shed"), ("LOOSEB", "cheerful"),
+                       ("KITTENC", "enormous"), ("STORMD", "A break in the cloud"),
+                       ("KITTENE", "shivered"), ("VERB1", "sleeps")):
+    body_n = re.search(r"(\d+)\.\s*" + marker, e_question_text)
+    key_n = re.search(r"(\d+)\. Answer: " + re.escape(answer), e_key_text)
+    if not body_n or not key_n or body_n.group(1) != key_n.group(1):
+        mis.append((marker, body_n and body_n.group(1), key_n and key_n.group(1)))
+check(not mis, "every answer is numbered as the question was printed", str(mis))
+
+print("\nSpelling")
+check(spelling_test_spaces(english.spelling_test) == 12,
+      "the test page has twelve spaces")
+check(spelling_test_spaces(None) == 0, "no test object means no test page")
+check(spelling_test_spaces(SpellingTest()) == SPELLING_TEST_SPACES,
+      "a test with no words chosen still prints its spaces")
+test_page = page_of(e_pages, "Spelling Test")
+list_page = page_of(e_pages, "Spelling List")
+check(test_page == 1, "the test is the first thing after the cover",
+      f"page {test_page + 1 if test_page is not None else None}")
+check(list_page is not None and list_page < e_key_start,
+      "the list is at the back of the booklet, before the key",
+      f"list p{list_page}, key p{e_key_start}")
+check(list_page > page_of(e_pages, "VERB1"),
+      "the list comes after the last question")
+leaked = [w for w in SPELL_TEST if w in e_question_text.lower()]
+check(not leaked, "not one test word is printed on the pages worked on",
+      str(leaked))
+check(all(w in e_key_text.lower() for w in SPELL_TEST),
+      "the key carries the words to call out")
+check("read them out one at a time" in e_key_text.lower(),
+      "the key says what to do with them")
+missing_list = [w for w in SPELL_LIST if w not in e_question_text]
+check(not missing_list, "all twenty words to learn are printed", str(missing_list))
+numbers_on_test = [t for t, _ in e_runs[test_page] if re.fullmatch(r"\d{1,2}\.", t)]
+check(numbers_on_test == [f"{i}." for i in range(1, 13)],
+      "the test lines are numbered 1 to 12", str(numbers_on_test))
+check(e_rules[test_page] >= 12, "there is a rule to write each word on",
+      f"{e_rules[test_page]} rules drawn")
+rows = dict(part_counts(english))
+check(rows.get("Spelling Test") == 12, "the score line counts the spelling test",
+      str(rows))
+check("______ / 12" in e_text.replace("\n", " "), "and it can be marked out of 12")
+et = booklet_timing(english)
+check(et["spelling_minutes"] == 6, "the dictation is charged for",
+      f"{et['spelling_minutes']} min")
+
+print("\nMini-lesson presentation")
+bold_runs = {t.strip() for page in e_bolds for t, _ in page}
+check("synonym" in bold_runs, "the marked-up term is bold on the page",
+      str(sorted(b for b in bold_runs if "nym" in b)))
+check("antonym" in bold_runs, "a second marked-up term as well")
+check(e_question_text.count("synonym") >= 2 and
+      sum(1 for page in e_bolds for t, _ in page if t.strip() == "synonym") == 1,
+      "and only where the lesson marked it")
+check("*" not in e_text, "no asterisk survives to the page, not even a broken one")
+check("always look for a shorter word" in e_question_text.replace("\n", " "),
+      "an unclosed marker degrades to plain text rather than losing the words")
+check('"the dog runs"' in e_question_text and '"the dog run"' in e_question_text,
+      "the two specimens in a sentence read as specimens")
+check('"enormous"' in e_question_text and '"big"' in e_question_text,
+      "and so do the ones in a key point")
+
+page_fill(e_pages, e_lows, "English")
 
 print("\nExam paper (shares these styles)")
 exam = ExamPaper(
@@ -614,8 +1000,7 @@ exam = ExamPaper(
                         verified=False)]),
     ],
     materials=["To be provided by the supervisor: this Question/Answer booklet."])
-exam_path = render_exam_pdf(exam, tmp / "exam.pdf")
-exam_pages, _, _ = read(exam_path)
+exam_pages = read(render_exam_pdf(exam, tmp / "exam.pdf"))[0]
 exam_text = "\n".join(exam_pages)
 check(len(exam_pages) >= 3, "exam paper renders", f"{len(exam_pages)} pages")
 check("Marking Key" in exam_text, "marking key present")

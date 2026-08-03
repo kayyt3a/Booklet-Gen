@@ -214,6 +214,32 @@ def _make_styles():
             fontSize=10.5, leading=15, alignment=TA_CENTER,
             textColor=colors.HexColor("#1F3A5F"),
         ),
+        # Reading passages. Deliberately unlike the worked-example box (blue)
+        # and the session band (pink) so a child can tell at a glance that this
+        # block is something to read rather than something to do.
+        "passage_label": ParagraphStyle(
+            "passage_label", parent=base["Normal"], fontName=FONT_BOLD,
+            fontSize=9, leading=12, textColor=colors.HexColor("#A9793F"),
+            spaceAfter=4,
+        ),
+        "passage_title": ParagraphStyle(
+            "passage_title", parent=base["Normal"], fontName=FONT_BOLD,
+            fontSize=12.5, leading=16, textColor=colors.HexColor("#6B4A1F"),
+            spaceAfter=5,
+        ),
+        "passage_para": ParagraphStyle(
+            "passage_para", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=10.5, leading=15.5, alignment=TA_LEFT, spaceAfter=6,
+        ),
+        "spelling_word": ParagraphStyle(
+            "spelling_word", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=11, leading=16,
+        ),
+        "spelling_num": ParagraphStyle(
+            "spelling_num", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=11, leading=16, alignment=TA_RIGHT,
+            textColor=colors.HexColor("#666666"),
+        ),
     }
 
 
@@ -575,6 +601,98 @@ def _escape(text: str) -> str:
     )))
 
 
+# ---------------------------------------------------------------------------
+# Mini-lesson prose
+#
+# Two presentation defects the owner found in a Year 3 English booklet.
+#
+# 1. A lesson wrote: "like saying the dog runs instead of the dog run". The two
+#    specimens run straight into the sentence, so a seven year old reads eleven
+#    words of grammar rather than two examples. Quoting them makes them look
+#    like the objects they are.
+#
+# 2. The term being taught was set in the same weight as everything around it.
+#    A child skimming back for "what was a synonym again?" has nothing to find.
+#
+# Both are done here rather than in the prompt because the prompt cannot be
+# made to comply reliably, and because the fix has to hold for text that was
+# generated before the prompt changed. Both are also deliberately narrow: they
+# fire on shapes where the boundaries are unambiguous and do nothing at all
+# otherwise. See `quote_inline_examples` and `lesson_terms` for the limits.
+# ---------------------------------------------------------------------------
+
+# "saying the dog runs instead of the dog run", "writing cm3 rather than cm".
+# The trigger verb and the separator are both required: "instead of" on its own
+# appears in ordinary sentences ("use a comma instead of a full stop") where the
+# left operand has no clear start, and quoting half a clause is worse than
+# quoting nothing.
+_INLINE_EXAMPLE_RE = re.compile(
+    r"\b(saying|writing|say|write)\s+"
+    r"([^,.;:!?\"()]{2,60}?)\s+"
+    r"(instead of|rather than)\s+"
+    r"([^,.;:!?\"()]{2,60}?)"
+    r"(?=\s*[,.;:!?]|\s*$)",
+    re.IGNORECASE,
+)
+
+_MAX_EXAMPLE_WORDS = 6
+
+
+def quote_inline_examples(text: str) -> str:
+    """Put quotation marks round two specimens compared inside a sentence.
+
+    "like saying the dog runs instead of the dog run"
+      -> like saying "the dog runs" instead of "the dog run"
+
+    Leaves the sentence alone when either specimen is longer than six words, is
+    empty, or already carries quotation marks: those are the cases where the
+    boundaries are guesswork.
+    """
+    def repl(m: re.Match) -> str:
+        left, sep, right = m.group(2).strip(), m.group(3), m.group(4).strip()
+        for part in (left, right):
+            if not part or len(part.split()) > _MAX_EXAMPLE_WORDS:
+                return m.group(0)
+        return f'{m.group(1)} "{left}" {sep} "{right}"'
+
+    return _INLINE_EXAMPLE_RE.sub(repl, text or "")
+
+
+# The lesson writer marks a newly introduced term as **alliteration** on first
+# use, and that is the only inline markup in the system. It has to be asterisks
+# rather than tags: `_escape` turns a model-emitted <b> into a literal &lt;b&gt;,
+# whereas asterisks survive escaping, because the multiplication normaliser
+# above deliberately spares emphasis markers.
+#
+# Two runs of two or more asterisks, wrapped round something that is not just
+# whitespace. Written to tolerate the model's mistakes (***term***, **a **b**)
+# rather than to reject them: this text goes straight into a ReportLab
+# Paragraph, and malformed markup there raises and takes the booklet down with
+# it, so every input has to leave valid output.
+_BOLD_MARKUP_RE = re.compile(r"\*{2,}(\S(?:.*?\S)?)\*{2,}", re.DOTALL)
+_STRAY_STARS_RE = re.compile(r"\*{2,}")
+
+
+def apply_bold_markup(escaped: str) -> str:
+    """Turn **term** into a bold run, in text that has already been escaped.
+
+    Must run after escaping, or the tags it inserts are escaped in turn. Any
+    asterisk run left over is dropped rather than printed: unmatched markup is
+    the model's typo, and a stray ** on a Year 3 page is noise. Single
+    asterisks are left alone, because by this point a lone * is either an
+    emphasis marker or part of an expression the normaliser chose not to touch.
+    """
+    text = _BOLD_MARKUP_RE.sub(lambda m: f"<b>{m.group(1)}</b>", escaped or "")
+    # A group can still contain an odd inner run ("**a **b**"): strip those too,
+    # so no asterisk reaches the page and no tag is left half open.
+    return _STRAY_STARS_RE.sub("", text)
+
+
+def _lesson_html(text: str) -> str:
+    """Escape a line of mini-lesson prose and apply the lesson treatments."""
+    return apply_bold_markup(_escape(quote_inline_examples(text)))
+
+
 MAX_IMG_WIDTH = 7.5 * cm
 MAX_IMG_HEIGHT = 4.8 * cm
 WE_IMG_WIDTH = 6 * cm
@@ -599,9 +717,12 @@ def _make_image(path: str | None, max_w=MAX_IMG_WIDTH, max_h=MAX_IMG_HEIGHT):
 def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked example"):
     """Return a bordered box containing a worked example. `label` distinguishes
     the "I do" worked example from the "we do" guided ones."""
+    # Worked examples are lesson content, so they get the same treatment: a
+    # **term** the model marked up there becomes bold rather than printing its
+    # asterisks, and a stray run of asterisks is dropped.
     inner = [
         Paragraph(label, styles["we_label"]),
-        Paragraph(_escape(we.question), styles["we_question"]),
+        Paragraph(apply_bold_markup(_escape(we.question)), styles["we_question"]),
     ]
     img = _make_image(we.image_path, max_w=WE_IMG_WIDTH, max_h=WE_IMG_HEIGHT)
     if img is not None:
@@ -609,8 +730,9 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
         inner.append(img)
         inner.append(Spacer(1, 0.15 * cm))
     for i, step in enumerate(we.steps, 1):
-        inner.append(Paragraph(f"<b>{i}.</b> {_escape(_strip_step_prefix(step))}",
-                               styles["we_step"]))
+        inner.append(Paragraph(
+            f"<b>{i}.</b> {apply_bold_markup(_escape(_strip_step_prefix(step)))}",
+            styles["we_step"]))
     inner.append(Paragraph(f"Answer: {_escape(we.answer)}", styles["we_answer"]))
 
     tbl = Table([[inner]], colWidths=[A4[0] - 2 * PAGE_MARGIN - 0.4 * cm])
@@ -621,6 +743,86 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
         ("TOPPADDING", (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return tbl
+
+
+# ---------------------------------------------------------------------------
+# Reading passages
+#
+# A shipped Year 3 English booklet asked "Referring to the passage above..."
+# with the passage printed below the question, and printed the same passage
+# again for the next question. The generator now hands the reading over as its
+# own object, and everything about where it lands is decided here: the passage
+# is laid out once, before the first question that refers to it, and it cannot
+# be separated from that question by a page break.
+# ---------------------------------------------------------------------------
+
+
+def section_passages(section) -> dict:
+    """{passage id: Passage} for a section. Empty when the field is absent."""
+    return {p.id: p for p in (getattr(section, "passages", None) or []) if p.id}
+
+
+def passage_groups(questions, passages: dict) -> list[tuple[object, list]]:
+    """Questions in printing order as [(Passage or None, [question, ...])].
+
+    Every question that names a passage is moved into that passage's group, at
+    the point the passage is first referred to, so the passage is printed once
+    and every question about it follows it. Questions with no passage, or with
+    a passage id the section does not define, keep their place and their group
+    is keyed None.
+    """
+    order: list[str | None] = []
+    buckets: dict[str | None, list] = {}
+    for vq in questions:
+        pid = getattr(getattr(vq, "question", None), "passage_id", None)
+        key = pid if pid in passages else None
+        if key is None:
+            # Ungrouped questions must not be merged with each other across a
+            # passage boundary, or a question written after the reading would
+            # jump above it. Each run of them is its own group.
+            if not order or order[-1] is not None:
+                order.append(None)
+                buckets[len(order) - 1] = []
+            buckets[len(order) - 1].append(vq)
+        else:
+            if key not in buckets:
+                order.append(key)
+                buckets[key] = []
+            buckets[key].append(vq)
+    out = []
+    for i, key in enumerate(order):
+        bucket = buckets[i] if key is None else buckets[key]
+        out.append((passages[key] if key is not None else None, bucket))
+    return out
+
+
+def ordered_questions(questions, passages: dict) -> list:
+    """The flat question order the booklet prints, after passage grouping.
+
+    The answer key and the homework session plan both number questions, so both
+    have to walk the same order the page does.
+    """
+    return [vq for _, group in passage_groups(questions, passages) for vq in group]
+
+
+def _passage_flowable(styles, passage):
+    """The reading itself: a tinted, ruled box holding a title and paragraphs."""
+    inner = [Paragraph("READ THIS", styles["passage_label"])]
+    if getattr(passage, "title", None):
+        inner.append(Paragraph(_escape(passage.title), styles["passage_title"]))
+    for para in (getattr(passage, "paragraphs", None) or []):
+        inner.append(Paragraph(_escape(para), styles["passage_para"]))
+    tbl = Table([[inner]], colWidths=[A4[0] - 2 * PAGE_MARGIN])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FDF8EF")),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#D9C9A8")),
+        ("LINEBEFORE", (0, 0), (0, -1), 3, colors.HexColor("#A9793F")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
     ]))
     return tbl
 
@@ -799,9 +1001,16 @@ class PageMarker(Flowable):
         self._page_map[self._key] = self.canv.getPageNumber()
 
 
-def _question_block(styles, q_num: int, vq: ValidatedQuestion,
-                    page_map: dict | None = None, space_floor_cm: float = 0.0):
-    """One numbered question plus its working space.
+def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
+                        page_map: dict | None = None,
+                        space_floor_cm: float = 0.0) -> list:
+    """The flowables of one numbered question, before they are bound together.
+
+    Returned as a flat list rather than a KeepTogether because a passage binds
+    its first question to itself, and a KeepTogether inside a KeepTogether does
+    not measure: the inner one reports 0xffffff by design, so the outer one
+    concludes it is five kilometres tall and moves to a new page every time.
+    That is what pushed a reading, and the page it should have shared, apart.
 
     No verification mark here. Every question in a generated booklet carried a
     green tick, which to a child reading an unattempted page says "correct", and
@@ -830,7 +1039,20 @@ def _question_block(styles, q_num: int, vq: ValidatedQuestion,
         _working_space_cm(vq.question, space_floor_cm) * cm,
         answer_line_labels(vq.question),
     ))
-    return KeepTogether(block)
+    return block
+
+
+def _question_block(styles, q_num: int, vq: ValidatedQuestion,
+                    page_map: dict | None = None, space_floor_cm: float = 0.0):
+    """One numbered question and its working space, kept on one page."""
+    return KeepTogether(_question_flowables(styles, q_num, vq, page_map,
+                                            space_floor_cm))
+
+
+def _passage_question_block(styles, passage, q_flowables: list):
+    """A reading and the first question about it, bound onto one page."""
+    return KeepTogether([_passage_flowable(styles, passage),
+                         Spacer(1, 0.35 * cm)] + q_flowables)
 
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
@@ -886,15 +1108,14 @@ def _draw_page_chrome(canvas, doc):
     canvas.restoreState()
 
 
-def _closing_note(styles, data: BookletData, include_answers: bool):
+def _closing_note(styles, data: BookletData):
     """A short sign-off after the last question, addressed to the student."""
     name = _escape(data.student_name or "").strip()
     opening = f"That is the end of the booklet, {name}." if name \
         else "That is the end of the booklet."
-    tail = ("Check your answers against the key at the back, and mark anything "
-            "you want to go over again." if include_answers else
-            "Bring it to your next session so you can go through it with your "
-            "tutor, and mark anything you want to go over again.")
+    tail = ("Go through it with whoever is working with you, check your answers "
+            "against the key at the back, and mark anything you want to go over "
+            "again.")
     tbl = Table([[Paragraph(f"{opening} Well done for getting through it. {tail}",
                             styles["closing"])]],
                 colWidths=[A4[0] - 2 * PAGE_MARGIN])
@@ -912,6 +1133,9 @@ def _closing_note(styles, data: BookletData, include_answers: bool):
 def part_counts(data: BookletData) -> list[tuple[str, int]]:
     """(part name, question count) for every part that has questions."""
     rows = []
+    spelling = spelling_words(getattr(data, "spelling_test", None))
+    if spelling:
+        rows.append(("Spelling Test", len(spelling)))
     if data.recap_questions:
         rows.append(("Warm-up Recap", len(data.recap_questions)))
     cw = sum(len(s.questions) for s in data.sections)
@@ -984,33 +1208,159 @@ def _session_band(styles, index: int, of: int, minutes: int,
     return tbl
 
 
-def student_copy_path(out_path: Path) -> Path:
-    """Sibling path for the answer-free copy: booklet.pdf -> booklet-student.pdf."""
-    out_path = Path(out_path)
-    return out_path.with_name(f"{out_path.stem}-student{out_path.suffix or '.pdf'}")
+# ---------------------------------------------------------------------------
+# Spelling
+#
+# Spelling runs across a term, so it appears twice in a booklet and the two
+# appearances are not the same thing.
+#
+#   The LIST is at the back: twenty words to learn for next week, printed in
+#   full, because learning them is the point.
+#
+#   The TEST is at the front and is a dictation on the previous week's list:
+#   twelve numbered ruled spaces and not one word printed anywhere on the page.
+#   The adult calls the words out; printing them beside the lines would be a
+#   spelling test you can copy from.
+#
+# The booklet is worked through by a parent or tutor sitting with the child, so
+# there is no second document to hide anything in. The twelve words the adult
+# calls out are therefore printed in the answer key at the very back: it is the
+# furthest page in the booklet from the test page at the front, so the adult can
+# hold the back open while the child works on the front. The alternative, a
+# footer on the test page naming which words to use, sits directly under the
+# child's pencil, and the alternative of relying on last week's booklet fails
+# the moment last week's booklet is not on the table.
+# ---------------------------------------------------------------------------
+
+SPELLING_COLUMNS = 2
+_SPELLING_ROW_CM = 1.3
+
+# Blank spaces on the test page when nothing says otherwise. Twelve of the
+# previous week's twenty words is the product's shape, and the page has to be
+# printable before the generator has chosen which twelve.
+SPELLING_TEST_SPACES = 12
 
 
-def render_booklet_pair(data: BookletData, out_path: Path) -> tuple[Path, Path]:
-    """Render both copies of a booklet.
+def spelling_words(obj) -> list[str]:
+    """The words on a SpellingList or SpellingTest, or [] when absent."""
+    return [w for w in (getattr(obj, "words", None) or []) if str(w).strip()]
 
-    Returns (tutor_copy, student_copy). The tutor copy keeps the given path and
-    the full answer key; the student copy is the same booklet with the key
-    removed, which is the copy you can actually hand to a child.
+
+def spelling_test_spaces(test) -> int:
+    """How many ruled spaces the test page prints, 0 when there is no test."""
+    if test is None:
+        return 0
+    return len(spelling_words(test)) or SPELLING_TEST_SPACES
+
+
+def _spelling_grid(styles, cells: list, ruled: bool):
+    """A numbered grid, filled down each column: 1 to 10 left, 11 to 20 right.
+
+    `cells` are the flowables to sit beside each number. When `ruled` is set a
+    rule is drawn under each numbered cell, which is what turns the grid into
+    something a child writes on.
     """
-    tutor = render_pdf(data, out_path, include_answers=True)
-    student = render_pdf(data, student_copy_path(out_path), include_answers=False)
-    return tutor, student
+    count = len(cells)
+    columns = SPELLING_COLUMNS if count > 6 else 1
+    rows = (count + columns - 1) // columns
+    body_w = A4[0] - 2 * PAGE_MARGIN
+    num_w = 1.0 * cm
+    line_w = body_w / columns - num_w
+    data, style = [], [
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]
+    for r in range(rows):
+        row = []
+        for c in range(columns):
+            i = c * rows + r
+            if i < count:
+                row.append(Paragraph(f"{i + 1}.", styles["spelling_num"]))
+                row.append(cells[i])
+                if ruled:
+                    style.append(("LINEBELOW", (2 * c + 1, r), (2 * c + 1, r),
+                                  0.6, colors.HexColor("#9AA6B8")))
+            else:
+                row.extend(["", ""])
+        data.append(row)
+    tbl = Table(data, colWidths=[num_w, line_w] * columns,
+                rowHeights=[_SPELLING_ROW_CM * cm] * rows)
+    tbl.setStyle(TableStyle(style))
+    return tbl
+
+
+def _spelling_test_block(styles, test, minutes: int | None = None):
+    """The dictation page: numbered ruled spaces and no words at all.
+
+    Nothing here names the words or where they came from. The page a child sits
+    over during a spelling test is the one place in the booklet that has to be
+    free of clues.
+    """
+    spaces = spelling_test_spaces(test)
+    if not spaces:
+        return []
+    band = _part_band(
+        styles, "Spelling Test", "#3F6B5E",
+        f"{spaces} words. Someone will read each word out loud. "
+        "Write it on the line beside its number."
+        + (f" About {minutes} min." if minutes else ""))
+    grid = _spelling_grid(styles, [Paragraph("", styles["spelling_word"])
+                                   for _ in range(spaces)], ruled=True)
+    return [band, Spacer(1, 0.45 * cm), grid, Spacer(1, 0.5 * cm)]
+
+
+def _spelling_list_block(styles, spelling_list):
+    """The words to learn for next week, printed in full."""
+    words = spelling_words(spelling_list)
+    if not words:
+        return []
+    band = _part_band(
+        styles, "Spelling List", "#3F6B5E",
+        f"{len(words)} words to learn for next week. "
+        "You will be tested on these in your next booklet.")
+    grid = _spelling_grid(
+        styles,
+        [Paragraph(_escape(str(w)), styles["spelling_word"]) for w in words],
+        ruled=False)
+    return [KeepTogether([band, Spacer(1, 0.45 * cm), grid])]
+
+
+def _spelling_key_block(styles, test):
+    """The words to call out, printed in the key at the back.
+
+    The furthest page in the booklet from the test page at the front, which is
+    the point: the adult reads from here while the child works up the front.
+    """
+    words = spelling_words(test)
+    if not words:
+        return []
+    from_week = getattr(test, "from_week", None)
+    source = (f"These are {len(words)} of the twenty words set in week "
+              f"{from_week}. " if from_week else
+              f"These are {len(words)} of the twenty words set last week. ")
+    numbered = ", ".join(f"{i}. {_escape(str(w))}" for i, w in enumerate(words, 1))
+    return [KeepTogether([
+        Paragraph("Spelling Test", styles["topic"]),
+        Paragraph(source + "Read them out one at a time, in this order. They "
+                  "are deliberately not printed on the test page.",
+                  styles["challenge_blurb"]),
+        Paragraph(numbered, styles["answer"]),
+        Spacer(1, 0.4 * cm),
+    ])]
 
 
 def _booklet_story(styles, data: BookletData, times: dict, *,
-                   include_answers: bool, cover_bg: str | None,
+                   cover_bg: str | None,
                    page_map: dict | None, page_refs: dict | None) -> list:
-    """Build the whole story for one booklet.
+    """Build the whole story for the booklet.
 
-    Called twice per tutor copy. On the first call `page_map` is an empty dict
-    that the PageMarkers fill in as the throwaway build lays the questions out;
-    on the second it is `page_refs`, and the answer key can say which page each
-    question is on. The student copy needs neither and is built once.
+    Called twice. On the first call `page_map` is an empty dict that the
+    PageMarkers fill in as the throwaway build lays the questions out; on the
+    second it is `page_refs`, and the answer key can say which page each
+    question is on.
     """
     # Always present, even when nobody reads it: the markers are zero-height,
     # and keeping them in both builds means the two builds lay out from an
@@ -1050,23 +1400,18 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             styles["meta"],
         ))
     story.append(Spacer(1, 4 * cm))
-    if include_answers:
-        # Only the tutor copy has a key to point at, and the mark now lives
-        # beside the answers rather than beside the unattempted questions.
-        section_subjects = {(s.subject or data.subject).strip().lower()
-                            for s in data.sections}
-        only_maths = section_subjects == {"mathematics"}
-        story.append(Paragraph(
-            "Tutor copy. The answer key at the back marks each answer that has "
-            + ("been symbolically verified." if only_maths
-               else "been checked for accuracy."),
-            styles["footer_note"],
-        ))
-    else:
-        story.append(Paragraph(
-            "Student copy. Work through it in order and show your working.",
-            styles["footer_note"],
-        ))
+    # One booklet, worked through together. The verification mark now lives
+    # beside the answers in the key rather than beside unattempted questions.
+    section_subjects = {(s.subject or data.subject).strip().lower()
+                        for s in data.sections}
+    only_maths = section_subjects == {"mathematics"}
+    story.append(Paragraph(
+        "Work through it in order and show your working. The answer key at the "
+        "back marks each answer that has "
+        + ("been symbolically verified." if only_maths
+           else "been checked for accuracy."),
+        styles["footer_note"],
+    ))
     story.append(PageBreak())
 
     multi_subject = len({(s.subject or "") for s in data.sections if s.subject}) > 1
@@ -1081,6 +1426,23 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             story.append(_question_block(styles, counter["n"], vq, page_map,
                                          space_floor_cm))
 
+    def render_passage_questions(section, qs, space_floor_cm: float = 0.0):
+        """Questions grouped under their reading, passage first.
+
+        The passage and the first question that refers to it are bound into one
+        KeepTogether, so "Referring to the passage above" can never point at a
+        passage on the following page.
+        """
+        for passage, group in passage_groups(qs, section_passages(section)):
+            for i, vq in enumerate(group):
+                counter["n"] += 1
+                block = _question_block(styles, counter["n"], vq, page_map,
+                                        space_floor_cm)
+                if passage is not None and i == 0:
+                    block = KeepTogether([_passage_flowable(styles, passage),
+                                          Spacer(1, 0.35 * cm), block])
+                story.append(block)
+
     def subject_topic_headers(section, state):
         if multi_subject and section.subject and section.subject != state["subject"]:
             story.append(Paragraph(_escape(section.subject), styles["subject_band"]))
@@ -1089,6 +1451,10 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         if section.topic != state["topic"]:
             story.append(Paragraph(_escape(section.topic), styles["topic"]))
             state["topic"] = section.topic
+
+    # ---- Spelling Test (dictation on last week's list, before anything else) ----
+    story.extend(_spelling_test_block(styles, getattr(data, "spelling_test", None),
+                                      times.get("spelling_minutes")))
 
     # ---- Warm-up Recap ----
     if data.recap_questions:
@@ -1115,13 +1481,15 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         t = section.teaching
         if t is not None:
             for para in t.intro_paragraphs:
-                story.append(Paragraph(_escape(para), styles["intro_para"]))
+                story.append(Paragraph(_lesson_html(para), styles["intro_para"]))
             if t.mnemonic:
-                story.append(Paragraph(f"Remember: {_escape(t.mnemonic)}", styles["mnemonic"]))
+                story.append(Paragraph(f"Remember: {_lesson_html(t.mnemonic)}",
+                                       styles["mnemonic"]))
             if t.key_points:
                 story.append(Spacer(1, 0.15 * cm))
                 for kp in t.key_points:
-                    story.append(Paragraph(f"• {_escape(kp)}", styles["key_point"]))
+                    story.append(Paragraph(f"• {_lesson_html(kp)}",
+                                           styles["key_point"]))
             story.append(Spacer(1, 0.3 * cm))
             story.append(_worked_example_flowable(styles, t.worked_example, "Watch first (worked example)"))
             for i, ge in enumerate(t.guided_examples, 1):
@@ -1130,7 +1498,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             story.append(Spacer(1, 0.35 * cm))
             story.append(Paragraph("Now you try:", styles["practice_label"]))
 
-        render_questions(section.questions)
+        render_passage_questions(section, section.questions)
 
     # ---- Homework (repetition through the week) + Final Challenge ----
     has_homework = any(s.homework_questions for s in data.sections)
@@ -1183,21 +1551,32 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             headings = story[mark:]
             del story[mark:]
 
-            for j, vq in enumerate(section.homework_questions):
-                band = session_band_for(flat)
-                if band is not None:
-                    if flat:
-                        # Do not leave a session band stranded at the foot of a
-                        # page with its first question overleaf.
-                        story.append(Spacer(1, 0.3 * cm))
-                        story.append(CondPageBreak(3.5 * cm))
-                    story.append(band)
-                    story.append(Spacer(1, 0.25 * cm))
-                if j == 0:
-                    story.extend(headings)
-                counter["n"] += 1
-                story.append(_question_block(styles, counter["n"], vq, page_map))
-                flat += 1
+            j = 0
+            for passage, group in passage_groups(section.homework_questions,
+                                                 section_passages(section)):
+                for i, vq in enumerate(group):
+                    band = session_band_for(flat)
+                    if band is not None:
+                        if flat:
+                            # Do not leave a session band stranded at the foot of
+                            # a page with its first question overleaf.
+                            story.append(Spacer(1, 0.3 * cm))
+                            story.append(CondPageBreak(3.5 * cm))
+                        story.append(band)
+                        story.append(Spacer(1, 0.25 * cm))
+                    if j == 0:
+                        story.extend(headings)
+                    counter["n"] += 1
+                    block = _question_block(styles, counter["n"], vq, page_map)
+                    if passage is not None and i == 0:
+                        # Homework is worked days later and pages away from the
+                        # class work, so a passage used in both parts is printed
+                        # again here rather than referred back to.
+                        block = KeepTogether([_passage_flowable(styles, passage),
+                                              Spacer(1, 0.35 * cm), block])
+                    story.append(block)
+                    flat += 1
+                    j += 1
 
         if data.challenge_questions:
             story.append(Spacer(1, 0.4 * cm))
@@ -1211,24 +1590,28 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             ))
             render_questions(data.challenge_questions)
 
+    # ---- Spelling List (words to learn for next week) ----
+    spelling_block = _spelling_list_block(
+        styles, getattr(data, "spelling_list", None))
+    if spelling_block:
+        story.append(Spacer(1, 0.5 * cm))
+        story.extend(spelling_block)
+
     # ---- Closing ----
     # The booklet used to stop dead: the page after the last question was the
     # answer key. Say something to the student first, by name.
     story.append(Spacer(1, 0.6 * cm))
-    story.append(_closing_note(styles, data, include_answers))
+    story.append(_closing_note(styles, data))
     story.append(Spacer(1, 0.35 * cm))
     story.append(_score_card(styles, data))
-
-    if not include_answers:
-        return story
 
     # ---- Answer key (same order: recap, class work, homework, challenge) ----
     story.append(PageBreak())
     story.append(Paragraph("Answers &amp; Worked Solutions", styles["answers_heading"]))
     story.append(Paragraph(
-        "Tutor copy only. The student copy of this booklet ends after the last "
-        "question. Page numbers in brackets point back to the question.",
-        styles["challenge_blurb"]))
+        "For whoever is marking. Page numbers in brackets point back to the "
+        "question.", styles["challenge_blurb"]))
+    story.extend(_spelling_key_block(styles, getattr(data, "spelling_test", None)))
     acount = {"n": 0}
 
     def render_answers(qs):
@@ -1246,7 +1629,11 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     for section in data.sections:
         subject_topic_headers(section, state)
         story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
-        render_answers(section.questions)
+        # Grouping questions under their passage changes the printed order, so
+        # the key has to be walked in the same order or every number after the
+        # first passage points at the wrong question.
+        render_answers(ordered_questions(section.questions,
+                                         section_passages(section)))
 
     if has_homework:
         story.append(Paragraph("Homework", styles["topic"]))
@@ -1256,7 +1643,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                 continue
             subject_topic_headers(section, state)
             story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
-            render_answers(section.homework_questions)
+            render_answers(ordered_questions(section.homework_questions,
+                                             section_passages(section)))
 
     if data.challenge_questions:
         story.append(Paragraph("Final Challenge", styles["topic"]))
@@ -1283,14 +1671,14 @@ def _booklet_doc(target, data: BookletData):
     return doc
 
 
-def render_pdf(data: BookletData, out_path: Path, *,
-               include_answers: bool = True) -> Path:
-    """Render a booklet.
+def render_pdf(data: BookletData, out_path: Path) -> Path:
+    """Render the booklet, answer key included.
 
-    `include_answers=False` produces the student copy: the same booklet with no
-    answer key bound into the back of it. Without this a tutoring firm cannot
-    hand a booklet to a student at all, because the worked solution to every
-    question is a few pages further on in the same document.
+    One document. A Folio booklet is worked through by a parent or tutor sitting
+    with the child, so the key belongs at the back of the same booklet rather
+    than in a second file. What the key must not do is leak into the pages the
+    child works on: the verification marks live beside the answers, and the
+    spelling dictation words are printed only here.
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1303,20 +1691,18 @@ def render_pdf(data: BookletData, out_path: Path, *,
     times = booklet_timing(data)
     cover_bg = cover_background_path()
 
-    page_refs: dict | None = None
-    if include_answers:
-        # Throwaway build purely to find out which page each question landed
-        # on. Everything that affects that pagination sits before the answer
-        # key's PageBreak, so the map is the same in the real build.
-        page_refs = {}
-        probe = _booklet_doc(io.BytesIO(), data)
-        probe.build(_booklet_story(
-            styles, data, times, include_answers=include_answers,
-            cover_bg=cover_bg, page_map=page_refs, page_refs=None))
+    # Throwaway build purely to find out which page each question landed on.
+    # Everything that affects that pagination sits before the answer key's
+    # PageBreak, so the map is the same in the real build.
+    page_refs: dict = {}
+    probe = _booklet_doc(io.BytesIO(), data)
+    probe.build(_booklet_story(
+        styles, data, times,
+        cover_bg=cover_bg, page_map=page_refs, page_refs=None))
 
     doc = _booklet_doc(str(out_path), data)
     doc.build(_booklet_story(
-        styles, data, times, include_answers=include_answers,
+        styles, data, times,
         cover_bg=cover_bg, page_map=None, page_refs=page_refs))
     return out_path
 
