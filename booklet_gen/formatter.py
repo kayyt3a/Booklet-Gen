@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 import os
 from datetime import date
 from pathlib import Path
@@ -265,20 +266,30 @@ import re
 _FRACTION_RE = re.compile(r"(?<![\d./\-])(\d{1,4})/(\d{1,4})(?![\d/]|\.\d)")
 
 _SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
-_SUBSCRIPT = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
 _FRACTION_SLASH = "⁄"
 
 
 def _prettify_fractions(text: str) -> str:
-    """Turn "3/4" into "³⁄₄" using real Unicode glyphs.
+    """Turn "3/4" into "3⁄4", a fraction slash between full size digits.
 
-    These sit on the normal baseline, so unlike ReportLab's <sup>/<sub>
-    markup they cannot collide with the lines above and below. The old
-    approach shifted digits outside the line box, and at the leading these
-    styles use that produced visibly overlapping text in the answer key.
+    The slash does the work. It leans further than an ordinary solidus and
+    reads as a fraction rather than as a division, and being an ordinary
+    character on the normal baseline it cannot collide with the lines above
+    and below. ReportLab's <sup>/<sub> markup shifts digits outside the line
+    box and produced visibly overlapping text in the answer key, which is why
+    that approach was abandoned.
 
-    Requires a Unicode font: Helvetica has no superscript glyphs and would
-    render black boxes, so fall back to plain "3/4" when registration failed.
+    The digits are deliberately NOT superscripted and subscripted. That was
+    tried and it is what a Year 5 reads it at that matters: the Unicode
+    superscript and subscript digits are about 56 percent the height of a
+    normal digit in DejaVu Sans, so at the 9.5pt worked-example size a
+    denominator printed at the visual equivalent of 5.3pt. In a booklet whose
+    first topic is comparing fractions, the two numbers the child has to
+    compare were the smallest thing on the page, and a two digit denominator
+    was a smudge.
+
+    Requires a Unicode font: Helvetica has no fraction slash and would render
+    a black box, so fall back to plain "3/4" when registration failed.
     """
     if not _UNICODE_FONT:
         return text
@@ -287,8 +298,7 @@ def _prettify_fractions(text: str) -> str:
         num, den = m.group(1), m.group(2)
         if int(den) == 0:
             return m.group(0)
-        return (num.translate(_SUPERSCRIPT) + _FRACTION_SLASH
-                + den.translate(_SUBSCRIPT))
+        return num + _FRACTION_SLASH + den
     return _FRACTION_RE.sub(repl, text)
 
 
@@ -990,14 +1000,58 @@ def part_labels(text: str) -> list[str]:
 # explanation onto a single line, so they do not get one.
 _EXTENDED_RESPONSE_RE = re.compile(
     r"\b(explain|describe|justify|discuss|prove|show that|show why|show your working|"
-    r"draw|sketch|shade|colour|color|plot|label|construct|write a (?:short )?"
-    r"(?:paragraph|sentence|story)|in your own words)\b", re.IGNORECASE)
+    r"draw|sketch|shade|colour|color|plot|label|construct|write (?:a|an|one|two|"
+    r"three|four|five|\d+) (?:short |more )?"
+    r"(?:paragraphs?|sentences?|lines?|stor(?:y|ies))|in your own words)\b",
+    re.IGNORECASE)
+
+# Of those, the ones that want a picture. These need clear space: ruling a
+# space someone has to sketch in is worse than leaving it blank. "Show your
+# working" belongs here too, because working is laid out down the page rather
+# than along a line.
+_DRAWN_RESPONSE_RE = re.compile(
+    r"\b(draw|sketch|shade|colour|color|plot|label|construct|show your working)\b",
+    re.IGNORECASE)
+
+# "Write two sentences", "write a short paragraph": the question says how much
+# it wants, so give exactly that much room.
+_WRITTEN_AMOUNT_RE = re.compile(
+    r"\bwrite (a|an|one|two|three|four|five|\d+) (?:short |more )?"
+    r"(paragraphs?|sentences?|lines?|stor(?:y|ies))\b", re.IGNORECASE)
+
+_AMOUNT_WORDS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4,
+                 "five": 5}
+
+# Ruled lines one of each is worth. A sentence from a primary writer runs to
+# more than one line more often than not.
+_RULES_PER = {"line": 1, "sentence": 2, "paragraph": 5, "story": 8}
+
+# What a bare "Explain how you know" gets when the question names no amount.
+_DEFAULT_WRITTEN_RULES = 4
+_MAX_WRITTEN_RULES = 8
+
+# A question whose own model answer runs to a sentence wants a sentence back,
+# whether or not it says "explain". Most comprehension questions are phrased
+# "What can you infer about...", "Why does the writer end it that way", and
+# none of those match a verb list; they were getting a single "Answer:" rule at
+# the foot of a gap sized for arithmetic working.
+#
+# The key is the honest measure of how much writing the question wants, and it
+# separates the two subjects cleanly: across a Year 5 sample every maths answer
+# came in at six words or fewer, every comprehension answer at eight or more.
+_ANSWER_WORDS_FOR_RULES = 8
+_WORDS_PER_RULE = 6.0
 
 
 def answer_line_labels(question) -> list[str]:
-    """Labels for the ruled answer lines under a question, empty for none."""
+    """Labels for the ruled answer lines under a question, empty for none.
+
+    A question that gets writing lines does not also get an "Answer:" rule
+    beneath them. Two kinds of ruling under one question asks the child to
+    write the answer twice, and the lines already say where to write.
+    """
     text = getattr(question, "question", "") or ""
-    if _EXTENDED_RESPONSE_RE.search(text):
+    if _EXTENDED_RESPONSE_RE.search(text) or written_response_rules(question):
         return []
     parts = part_labels(text)
     if len(parts) >= 2:
@@ -1005,7 +1059,45 @@ def answer_line_labels(question) -> list[str]:
     return ["Answer:"]
 
 
+def written_response_rules(question) -> int:
+    """Blank ruled lines for a question that wants prose, 0 for one that does not.
+
+    An extended response used to get no rule of any kind, on the reasoning that
+    an explanation should not be squashed onto a single "Answer:" line. That
+    reasoning is right and the result was wrong: the longest questions in the
+    booklet ended up with the least structure on the page, a silent gap of
+    white that reads as a printing fault, and a child with nothing telling them
+    where to start writing or how much is wanted. Ruled lines say both.
+
+    A drawing question still gets clear space, and so does "show your working".
+    """
+    text = getattr(question, "question", "") or ""
+    if _DRAWN_RESPONSE_RE.search(text):
+        return 0
+    if _EXTENDED_RESPONSE_RE.search(text):
+        m = _WRITTEN_AMOUNT_RE.search(text)
+        if m:
+            amount, unit = m.group(1).lower(), m.group(2).lower().rstrip("s")
+            unit = {"storie": "story"}.get(unit, unit)
+            n = _AMOUNT_WORDS.get(amount) or (int(amount) if amount.isdigit() else 1)
+            rules = n * _RULES_PER.get(unit, 2)
+        else:
+            rules = _DEFAULT_WRITTEN_RULES
+        return max(2, min(rules, _MAX_WRITTEN_RULES))
+    # Not phrased as an extended response, but the key answers it in prose.
+    words = len((getattr(question, "answer", "") or "").split())
+    if words < _ANSWER_WORDS_FOR_RULES:
+        return 0
+    return max(2, min(math.ceil(words / _WORDS_PER_RULE), _MAX_WRITTEN_RULES))
+
+
 def _working_space_cm(question, floor_cm: float = 0.0) -> float:
+    # A prose answer is sized by the lines it is given, not by its difficulty
+    # tag: "Explain how you know" is tagged easy as often as hard, and the
+    # rules are what the child writes on either way.
+    rules = written_response_rules(question)
+    if rules:
+        return min(rules * _ANSWER_LINE_CM + 0.3, _MAX_WORKING_SPACE_CM)
     base = max(floor_cm, _DIFFICULTY_SPACE_CM.get(
         (question.difficulty or "medium").strip().lower(), 2.2))
     parts = len(part_labels(question.question))
@@ -1031,12 +1123,20 @@ class WorkingSpace(Flowable):
     negotiated against the space actually left on the page.
     """
 
-    def __init__(self, height: float, labels=(), min_height: float | None = None):
+    def __init__(self, height: float, labels=(), min_height: float | None = None,
+                 rules: int = 0):
         super().__init__()
         self.labels = list(labels)
+        # Unlabelled ruled lines for a prose answer. Unlike the working space
+        # around them these do not shrink: a question that asks for two
+        # sentences has to still offer two sentences of ruling at the foot of a
+        # page, or the child meets the same question with half the room.
+        self.rules = max(0, int(rules))
         self.answers_height = _ANSWER_LINE_CM * cm * len(self.labels)
         self.height = height + self.answers_height
         floor = _MIN_WORKING_SPACE_CM * cm + self.answers_height
+        if self.rules:
+            floor = self.height
         self.min_height = min(self.height, min_height if min_height is not None else floor)
         self.width = 0
 
@@ -1053,7 +1153,7 @@ class WorkingSpace(Flowable):
         return availWidth, h
 
     def draw(self):
-        if not self.labels:
+        if not self.labels and not self.rules:
             return
         c = self.canv
         c.saveState()
@@ -1068,6 +1168,12 @@ class WorkingSpace(Flowable):
             c.drawString(0, y, label)
             x0 = c.stringWidth(label, FONT_REGULAR, 9.5) + 6
             c.line(x0, y - 2.5, self.width, y - 2.5)
+        # Full-width rules for a written answer, drawn from the top of the
+        # block down, so the child starts writing where the question ends
+        # rather than at the bottom of a gap.
+        for i in range(self.rules):
+            y = self._h - 0.42 * cm - i * line_h
+            c.line(0, y, self.width, y)
         c.restoreState()
 
 
@@ -1187,6 +1293,7 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
     block.append(WorkingSpace(
         _working_space_cm(vq.question, space_floor_cm) * cm,
         answer_line_labels(vq.question),
+        rules=written_response_rules(vq.question),
     ))
     return block
 

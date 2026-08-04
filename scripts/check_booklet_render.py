@@ -43,7 +43,8 @@ from reportlab.lib.units import cm                              # noqa: E402
 from booklet_gen import schemas as S                            # noqa: E402
 from booklet_gen.formatter import (                             # noqa: E402
     HOMEWORK_MIN_START_CM, PAGE_MARGIN, SPELLING_TEST_SPACES, _escape,
-    _lesson_html, _register_fonts, answer_line_labels, answer_unit,
+    _lesson_html, _prettify_fractions, _register_fonts, answer_line_labels,
+    answer_unit, written_response_rules,
     apply_bold_markup, key_answer, ordered_questions, part_counts, part_labels,
     passage_groups, question_numbering, quote_inline_examples, render_exam_pdf,
     render_pdf, simplify_fractions_in_answer, solution_lines,
@@ -189,6 +190,60 @@ for text, expect in ANSWER_LINE_CASES:
 
 check(part_labels("a) one b) two c) three") == ["a", "b", "c"], "part markers found")
 check(part_labels("A box 4 cm long.") == [], "no false part markers")
+
+# An extended response used to get no rule at all: the longest questions in the
+# booklet had the least structure on the page, a silent gap of white that reads
+# as a printing fault and tells a child neither where to start nor how much is
+# wanted. They get ruled lines now, sized to what is asked for.
+# Fractions were set with Unicode superscript and subscript digits, which are
+# about 56 percent the height of a normal digit. At the worked-example size
+# that printed a denominator at the visual equivalent of 5.3pt, in a booklet
+# whose first topic is comparing fractions. The slash still leans; the digits
+# are full size.
+print("\nFractions")
+_register_fonts()
+SUB_SUP_DIGITS = "⁰¹⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉"      # ² and ³ are real exponents, cm², m³
+for text, want in [("Which is larger, 3/4 or 5/8?", "3⁄4"),
+                   ("Rewrite 3/4 with a denominator of 8.", "3⁄4"),
+                   ("Calculate 11/12 - 5/12.", "11⁄12")]:
+    got = _prettify_fractions(text)
+    check(want in got, f"{text[:44]!r} sets a fraction", f"-> {got}")
+    check(not any(ch in got for ch in SUB_SUP_DIGITS),
+          "and does it at full digit size", f"-> {got}")
+check("2/0" in _prettify_fractions("Calculate 2/0."),
+      "a zero denominator is left exactly as written")
+
+print("\nWriting lines for a written answer")
+WRITTEN_RULE_CASES = [
+    # (question, model answer, expected rules)
+    ("Explain how you know 0.7 is larger than 0.68.", "0.7 is larger", 4),
+    ("Write two sentences about the moths. Use a simile.", "The moths...", 4),
+    ("Write a short paragraph about your favourite place.", "Any answer", 5),
+    ("Write a sentence using a simile.", "The train was packed", 2),
+    # A drawing needs clear space, not ruling.
+    ("Draw a rectangle with an area of 12 square units.", "A 3 by 4", 0),
+    ("Shade three quarters of the circle.", "Three parts shaded", 0),
+    # Working is laid out down the page, not along a line.
+    ("Find the volume. Show your working.", "60 cm3", 0),
+    # Arithmetic keeps its single Answer rule.
+    ("Calculate 15 x 4 + 7.", "67", 0),
+    ("A rectangle is 12 cm long and 4 cm wide. Find its perimeter.", "32 cm", 0),
+    # Phrased as neither, but the key answers it in prose: most comprehension
+    # questions look like this, and they were the ones getting one rule at the
+    # foot of a gap sized for arithmetic working.
+    ("What can you infer about the woman with the newspaper?",
+     "She is a regular on this route who knows the timetable better than Tess", 3),
+    ("Why does the writer end the article that way?",
+     "Because animals such as the pygmy possum depend on the moths arriving, "
+     "so the ending points past the moths themselves", 4),
+]
+for text, answer, expect in WRITTEN_RULE_CASES:
+    q = Question(question=text, answer=answer, working="")
+    got = written_response_rules(q)
+    check(got == expect, f"{text[:48]!r}", f"{got} rules, expected {expect}")
+    check(not (got and answer_line_labels(q)),
+          "and it does not also carry an Answer rule",
+          f"rules={got} labels={answer_line_labels(q)}")
 
 # ---------------------------------------------------------------------------
 # 3. Mini-lesson prose
