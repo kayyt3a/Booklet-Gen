@@ -808,6 +808,20 @@ check(f"(p{key_start + 1})" not in key_text and "(p1)" not in key_text,
 # Properties dialog. Every booklet was titled "<program> Practice Booklet",
 # identical for a Year 1 English booklet and a Year 10 maths one, and Subject
 # and Creator carried ReportLab's literal "(unspecified)".
+# Italics are the one typographic feature every dyslexia guideline names to
+# avoid, and the specimen is the text in the booklet needing the most careful
+# character by character reading: the sentence the child has to decode, edit or
+# correct. The indent, the colour and the quote marks separate it already.
+print("\nThe specimen is set upright")
+for name in ("we_specimen", "question_specimen"):
+    font = _styles[name].fontName
+    check("Oblique" not in font and "Italic" not in font,
+          f"{name} is not italic", font)
+    check(_styles[name].leftIndent > 0
+          and _relative_luminance(_styles[name].textColor) < 0.5,
+          f"and {name} is still set apart by indent and colour",
+          f"indent {_styles[name].leftIndent}")
+
 print("\nPDF metadata")
 _meta = pypdf.PdfReader(str(booklet)).metadata
 _root = pypdf.PdfReader(str(booklet)).trailer["/Root"]

@@ -27,6 +27,9 @@ Content rules:
 IMAGES (optional per question)
 You MAY set an OPTIONAL `image_query` field on a question when a real-world photograph would help (e.g. "plant cell photomicrograph", "erosion coastline photograph"). Keep queries short and concrete. We look these up on Wikimedia Commons; if no good match exists, the question renders text-only.
 
+An `image_query` must name an OBJECT, ANIMAL, PLANT, PLACE, BUILDING or MACHINE. Never people: no query naming a person, a group of people, a ceremony, a ritual, anything sacred, or human remains. The search returns whatever Wikimedia has, unreviewed, onto a page a child reads, and for Aboriginal and Torres Strait Islander subjects in particular an image of the deceased or of restricted material is a serious harm and not something a decorative photograph is worth. Write about the moth, the wetland, the pipeline or the train, not about who is standing next to it. Queries naming people are refused before the search runs and the question prints without a picture.
+
+
 Calibrate to the year level, topic, and subtopic provided in the user turn.
 - Calibrate reading level by counting, not by feel. Average about 12 to 15 words a sentence for Years 3 to 6 and no sentence over 22; Years 1 to 2 shorter again, Years 7 and up may run a little longer. At most one subordinate clause in a sentence. A student who cannot read the sentence cannot reach the thinking it is asking for.
 

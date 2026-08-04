@@ -4,13 +4,18 @@ Uses the Commons API (no auth required, no key needed). Returns the local
 path plus a short attribution string. Returns (None, None) on any failure
 so the pipeline never blocks on missing images.
 
-We deliberately filter by license and file type — only permissively-
-licensed real photos, no vectors/SVGs (which pypdf/reportlab handle poorly).
+Two filters, and they do different jobs. Licence and file type decide what we
+are allowed to print: permissively licensed real photos only, no vectors or
+SVGs, which pypdf and reportlab handle poorly. `query_is_refused` decides what
+we are willing to go looking for at all, which copyright has nothing to say
+about and which matters more, because the result is printed for a child.
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
@@ -34,7 +39,6 @@ def _cache_path(query: str, ext: str) -> Path:
 
 
 def _http_json(params: dict) -> dict:
-    import json
     url = f"{API_URL}?{urlencode(params)}"
     req = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(req, timeout=TIMEOUT_S) as resp:
@@ -47,12 +51,47 @@ def _http_download(url: str, out: Path) -> None:
         out.write_bytes(resp.read())
 
 
+# Queries we will not run at all.
+#
+# The licence filter below is the only thing that used to stand between an
+# LLM-written `image_query` and whatever Commons returns first, and it checks
+# copyright, not content. This booklet goes to a child, and the query is
+# written by a model that has just been told to write about Australia, so
+# "Aboriginal ceremony" or "Bogong moth harvest" are queries it could plausibly
+# produce. The top Commons hit for those can be a historical photograph of
+# deceased Aboriginal people or material a community holds as restricted, which
+# in Australia is a serious cultural breach and, for images of the deceased,
+# one some communities regard as harmful to view.
+#
+# A picture in a Folio booklet is decoration for a reading passage. It is never
+# worth that risk, so a query naming people, ceremony, remains or anything
+# sacred is refused and the question simply prints without a picture. The
+# prompts also ask for object, animal, place or machine; this is the backstop
+# for when they are not followed.
+_REFUSED_QUERY_TERMS = frozenset("""
+    aboriginal indigenous torres first nations native tribe tribal
+    ceremony ceremonial ritual sacred spiritual dreaming corroboree initiation
+    burial funeral grave remains skeleton skull deceased dead body corpse
+    people person child children boy girl man woman men women family portrait
+    protest war soldier weapon gun rifle victim refugee patient nude
+""".split())
+
+
+def query_is_refused(query: str) -> bool:
+    """Whether this image query must not be run. See `_REFUSED_QUERY_TERMS`."""
+    words = re.findall(r"[a-z]+", (query or "").lower())
+    return any(w in _REFUSED_QUERY_TERMS for w in words)
+
+
 def fetch_image(query: str) -> tuple[Optional[Path], Optional[str]]:
     """Search Commons for `query`, download the top acceptable result.
 
     Returns (path, attribution) on success, (None, None) otherwise.
     """
     if not query or not query.strip():
+        return None, None
+    if query_is_refused(query):
+        log.info("wikimedia.query_refused", extra={"query": query})
         return None, None
     try:
         data = _http_json({
@@ -90,7 +129,6 @@ def fetch_image(query: str) -> tuple[Optional[Path], Optional[str]]:
             continue
 
         # Very light HTML strip for the artist field (Commons returns markup).
-        import re
         artist_plain = re.sub(r"<[^>]+>", "", artist).strip() or "Unknown"
 
         ext = mime.split("/")[-1] if mime else "jpg"

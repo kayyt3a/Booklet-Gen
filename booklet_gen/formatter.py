@@ -176,13 +176,21 @@ def _make_styles():
         # The thing the task is about, set apart from the task itself: indented
         # both sides and italic, so a child can see at a glance where the
         # instruction stops and the material starts.
+        # The specimen: the sentence the child has to decode, edit or correct.
+        # Set upright, not italic. Italics are the one typographic feature every
+        # dyslexia guideline names to avoid, because the slant degrades letter
+        # shape recognition, and this was the text in the booklet needing the
+        # most careful character by character reading: "She ate a apple for
+        # snack", "its cold outside said Sam", "Let's eat Grandad". The indent,
+        # the colour and the quote marks already separate it from the
+        # instruction three times over.
         "we_specimen": ParagraphStyle(
-            "we_specimen", parent=base["Normal"], fontName=FONT_ITALIC,
+            "we_specimen", parent=base["Normal"], fontName=FONT_REGULAR,
             fontSize=10, leading=15, leftIndent=14, rightIndent=10,
             textColor=colors.HexColor("#1F3A5F"), spaceAfter=2,
         ),
         "question_specimen": ParagraphStyle(
-            "question_specimen", parent=base["Normal"], fontName=FONT_ITALIC,
+            "question_specimen", parent=base["Normal"], fontName=FONT_REGULAR,
             fontSize=10.5, leading=15, leftIndent=16, rightIndent=10,
             textColor=colors.HexColor("#1F3A5F"), spaceBefore=3, spaceAfter=3,
         ),

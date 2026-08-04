@@ -23,4 +23,7 @@ Return a single JSON object:
 
 You MAY set an `image_query` (short concrete photo query) if a real-world photograph would help.
 
+An `image_query` must name an OBJECT, ANIMAL, PLANT, PLACE, BUILDING or MACHINE. Never people: no query naming a person, a group of people, a ceremony, a ritual, anything sacred, or human remains. The search returns whatever Wikimedia has, unreviewed, onto a page a child reads, and for Aboriginal and Torres Strait Islander subjects in particular an image of the deceased or of restricted material is a serious harm and not something a decorative photograph is worth. Write about the moth, the wetland, the pipeline or the train, not about who is standing next to it. Queries naming people are refused before the search runs and the question prints without a picture.
+
+
 Return ONLY the JSON. No prose, no markdown fences.

@@ -123,6 +123,33 @@ for name in INTRO_WRITERS + ["question_generator_english.txt"]:
 
 
 # ---------------------------------------------------------------------------
+print("\nImage queries never go looking for people")
+print("-" * 62)
+# The licence filter checks copyright, which has nothing to say about what is
+# in the picture, and the result prints on a page a child reads. For Aboriginal
+# and Torres Strait Islander subjects in particular, an image of the deceased
+# or of restricted material is a serious harm and not something a decorative
+# photograph is worth.
+from booklet_gen.visuals.wikimedia import query_is_refused   # noqa: E402
+
+for name in [p for p in PROMPTS if "image_query" in
+             (PROMPT_DIR / p).read_text(encoding="utf-8")]:
+    body = (PROMPT_DIR / name).read_text(encoding="utf-8")
+    check(bool(re.search(r"OBJECT, ANIMAL|Never people", body)),
+          f"{name} tells the model to name a thing, not a person")
+
+ALLOWED = ["Bogong moth", "wetland with frogs", "steam locomotive",
+           "Kalgoorlie goldfields pipeline", "skate ramp", "coral reef"]
+REFUSED = ["Aboriginal ceremony", "Torres Strait Islander dancers",
+           "a group of children playing", "Indigenous burial site",
+           "sacred site", "war memorial soldiers", "family portrait"]
+for q in ALLOWED:
+    check(not query_is_refused(q), f"{q!r} is searchable")
+for q in REFUSED:
+    check(query_is_refused(q), f"{q!r} is refused before the search runs")
+check(not query_is_refused(""), "an empty query is handled without blowing up")
+
+
 print("\nWord problems are set in something a child cares about")
 print("-" * 62)
 maths = (PROMPT_DIR / "question_generator_maths.txt").read_text(encoding="utf-8")
