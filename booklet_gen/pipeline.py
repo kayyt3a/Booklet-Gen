@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+from collections import Counter
 from typing import Optional
 
 from .agents.challenge_generator import ChallengeGeneratorAgent
@@ -430,6 +431,46 @@ class BookletPipeline:
         )
 
     @staticmethod
+    def _floor_questions(section) -> int:
+        """The fewest classwork questions this subtopic can be left with.
+
+        One, normally. All of them when the section is a single reading, since
+        a reading and its questions are never separated: such a section keeps
+        every question or leaves the session entirely.
+        """
+        n = BookletPipeline._tail_group_size(section)
+        return len(section.questions) if n >= len(section.questions) else 1
+
+    @staticmethod
+    def _leaves_the_session(in_session):
+        """Which subtopic gives up its place in the hour.
+
+        It used to be whichever came last, which is not a choice at all, and
+        for English it was the same choice every time. `outline_parser` emits
+        Reading, Writing, Language Conventions and Vocabulary in that order, so
+        the last subtopic was always grammar or vocabulary, and a booklet over
+        the hour taught its comprehension in full and its grammar not at all.
+        Measured on a Year 5 sample: two readings held 42 of the 60 minutes and
+        ten of the eleven questions, Similes was left with one, and Commas with
+        none.
+
+        Two rules, in order.
+
+        Breadth first: prefer a subtopic whose topic still has another subtopic
+        in the session. Losing one of two readings costs the child a reading;
+        losing the only grammar subtopic costs them grammar. A booklet that
+        teaches three things is worth more than one that teaches one thing
+        thoroughly and two things nominally, and the subtopic that leaves is
+        not lost, it is worked at home with its mini-lesson attached.
+
+        Then cost: among those, the longest, so one drop frees the most time
+        and fewer subtopics have to go.
+        """
+        per_topic = Counter(s.topic for s in in_session)
+        shared = [s for s in in_session if per_topic[s.topic] > 1]
+        return max(shared or list(in_session), key=classwork_section_minutes)
+
+    @staticmethod
     def _fit_classwork_to_cap(sections) -> None:
         """Move classwork past the time cap into homework, in place.
 
@@ -479,10 +520,22 @@ class BookletPipeline:
             So this is the floor a given set of subtopics can reach, and if
             even that is over the cap then no amount of trimming practice will
             help and a subtopic has to go.
+
+            The floor is not one question everywhere. A reading and its
+            questions move as a unit, so a subtopic that is one reading can
+            keep all of them or none, and costing it at one question was a
+            lie that made step 1 believe a session would fit when it could
+            not. Step 2 then trimmed every other subtopic to a single question
+            trying to reach a cap that was out of reach, and only afterwards
+            dropped the reading, by which point the trimming had been for
+            nothing: a Year 5 English session ended at 39 minutes with two
+            subtopics holding one question each, inside an hour with room for
+            all of them.
             """
             return sum(
                 classwork_section_minutes(
-                    _WithQuestions(s, s.questions[:1])) for s in in_session()
+                    _WithQuestions(s, s.questions[:BookletPipeline._floor_questions(s)]))
+                for s in in_session()
             )
 
         # Step 1: hand whole subtopics to Homework, but only when practice
@@ -493,7 +546,7 @@ class BookletPipeline:
         # goes unread in the session.
         while (leanest() > CLASSWORK_CAP_MINUTES
                and len(in_session()) > MIN_CLASSWORK_SUBTOPICS):
-            dropped = in_session()[-1]
+            dropped = BookletPipeline._leaves_the_session(in_session())
             dropped.homework_questions[:0] = dropped.questions
             dropped.questions = []
             log.info("pipeline.subtopic_to_homework",
@@ -526,13 +579,13 @@ class BookletPipeline:
                     extra={"minutes": round(total(), 1),
                            "cap": CLASSWORK_CAP_MINUTES,
                            "subtopics": len(droppable),
-                           "reason": "every remaining subtopic is one reading, "
-                                     "and a reading is not split"})
+                           "reason": "nothing left can give ground without "
+                                     "splitting a reading"})
                 break
-            dropped = droppable[-1]
+            dropped = BookletPipeline._leaves_the_session(droppable)
             dropped.homework_questions[:0] = dropped.questions
             dropped.questions = []
-            log.info("pipeline.reading_subtopic_to_homework",
+            log.info("pipeline.subtopic_to_homework",
                      extra={"subtopic": dropped.subtopic,
                             "still_over_by": round(total() - CLASSWORK_CAP_MINUTES, 1)})
 

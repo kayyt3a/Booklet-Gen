@@ -53,13 +53,14 @@ from booklet_gen.agents.spelling import (                        # noqa: E402
     LIST_SIZE, TEST_SIZE, SpellingAgent, _bank_for)
 from booklet_gen.agents.term_planner import (                    # noqa: E402
     TermPlannerAgent, _ladder, _norm_focus)
-from booklet_gen.pipeline import BookletPipeline                 # noqa: E402
+from booklet_gen.pipeline import (                               # noqa: E402
+    BookletPipeline, CLASSWORK_CAP_MINUTES)
 from booklet_gen.schemas import (                                # noqa: E402
     BookletData, Passage, Question, SpellingList, Subtopic, SubtopicOutput,
     SubtopicTeaching, TermPlan, TermWeek, ValidatedQuestion, WorkedExample)
 from booklet_gen.timing import (                                 # noqa: E402
-    booklet_timing, homework_minutes_in_order, homework_session_plan,
-    passage_minutes, question_minutes, round_display)
+    booklet_timing, classwork_section_minutes, homework_minutes_in_order,
+    homework_session_plan, passage_minutes, question_minutes, round_display)
 
 PASSED = 0
 TOTAL = 0
@@ -512,6 +513,63 @@ def passages() -> None:
         check(len(half) == 5,
               f"{s.subtopic} keeps all five questions in whichever half it "
               f"landed in", f"{len(half)} questions")
+
+    print("\n== the hour is shared out across topics, not spent on one ==")
+    # The English booklet the outline parser produces always carries Reading,
+    # Writing, Language Conventions and Vocabulary, in that order. The subtopic
+    # pushed out of the hour used to be whichever came last, so it was always
+    # grammar or vocabulary: measured on a Year 5 sample, two readings held 42
+    # of the 60 minutes and ten of the eleven questions, Similes was left with
+    # one question and Commas with none.
+    def lesson(name: str) -> SubtopicTeaching:
+        return SubtopicTeaching(
+            intro_paragraphs=[f"{name} takes a little explaining. " * 22],
+            key_points=["Read it through first."],
+            worked_example=WorkedExample(question=f"A worked {name} question.",
+                                         steps=["Start.", "Finish."],
+                                         answer="Done"),
+            guided_examples=[WorkedExample(question="Try it together.",
+                                           steps=["Start.", "Finish."],
+                                           answer="Done")] * 2)
+
+    booklet = [
+        SubtopicOutput(topic="Reading and Comprehension", subtopic=f"Reading {i}",
+                       teaching=lesson(f"Reading {i}"),
+                       questions=[vq(f"r{i}q{j}", f"P{i}") for j in range(5)],
+                       passages=[Passage(id=f"P{i}",
+                                         paragraphs=["A story worth reading. " * 12] * 5)])
+        for i in range(2)
+    ] + [
+        SubtopicOutput(topic="Vocabulary and Word Study", subtopic="Similes",
+                       teaching=lesson("Similes"),
+                       questions=[vq(f"v{j}", None) for j in range(4)]),
+        SubtopicOutput(topic="Language Conventions", subtopic="Commas",
+                       teaching=lesson("Commas"),
+                       questions=[vq(f"c{j}", None) for j in range(4)]),
+    ]
+    over = sum(classwork_section_minutes(s) for s in booklet)
+    check(over > CLASSWORK_CAP_MINUTES,
+          "the fixture English booklet really is over the hour",
+          f"{over:.0f} min against a {CLASSWORK_CAP_MINUTES} min cap")
+
+    BookletPipeline._fit_classwork_to_cap(booklet)
+    taught = [s for s in booklet if s.questions]
+    check(all(len(s.questions) > 1 for s in taught),
+          "no subtopic is left in the session holding a single token question",
+          str([(s.subtopic, len(s.questions)) for s in taught]))
+    topics = {s.topic for s in taught}
+    check("Language Conventions" in topics and "Vocabulary and Word Study" in topics,
+          "grammar and vocabulary are still taught, not always the ones dropped",
+          str(sorted(topics)))
+    check(sum(1 for s in booklet if not s.questions) == 1
+          and not [s for s in booklet if not s.questions][0].questions,
+          "one subtopic left the session, and it came from the doubled topic",
+          str([s.subtopic for s in booklet if not s.questions]))
+    check([s for s in booklet if not s.questions][0].topic
+          == "Reading and Comprehension",
+          "which is the reading, because Reading still has another subtopic in")
+    check(len([s for s in booklet if not s.questions][0].homework_questions) == 5,
+          "and it took all five of its questions with it")
 
     print("\n== homework is charged for the reading it asks about ==")
     # Class Work has always charged for a passage; Homework charged nothing, so
