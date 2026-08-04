@@ -37,14 +37,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pypdf                                                    # noqa: E402
 from pydantic import BaseModel, Field                           # noqa: E402
+from reportlab.lib import colors                                # noqa: E402
 from reportlab.lib.pagesizes import A4                          # noqa: E402
 from reportlab.lib.units import cm                              # noqa: E402
 
 from booklet_gen import schemas as S                            # noqa: E402
 from booklet_gen.formatter import (                             # noqa: E402
-    HOMEWORK_MIN_START_CM, PAGE_MARGIN, SPELLING_TEST_SPACES, _escape,
-    _lesson_html, _prettify_fractions, _register_fonts, answer_line_labels,
-    answer_unit, written_response_rules,
+    CHROME_MARGIN, HOMEWORK_MIN_START_CM, PAGE_MARGIN, SPELLING_TEST_SPACES,
+    _escape, _lesson_html, _make_styles, _prettify_fractions, _register_fonts,
+    answer_line_labels, answer_unit, written_response_rules,
     apply_bold_markup, key_answer, ordered_questions, part_counts, part_labels,
     passage_groups, question_numbering, quote_inline_examples, render_exam_pdf,
     render_pdf, simplify_fractions_in_answer, solution_lines,
@@ -200,6 +201,58 @@ check(part_labels("A box 4 cm long.") == [], "no false part markers")
 # that printed a denominator at the visual equivalent of 5.3pt, in a booklet
 # whose first topic is comparing fractions. The slash still leans; the digits
 # are full size.
+# Contrast. The page number was the worst of these and it is the one that
+# matters most: every answer in the key ends "(p8)", and that is the only way
+# back to the question. The most-used wayfinding element in the booklet was its
+# lowest-contrast text, at 3.54:1 against a 4.5:1 standard.
+print("\nContrast")
+
+
+def _relative_luminance(colour) -> float:
+    def f(x):
+        return x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
+    return (0.2126 * f(colour.red) + 0.7152 * f(colour.green)
+            + 0.0722 * f(colour.blue))
+
+
+def contrast(colour, background=1.0) -> float:
+    lo, hi = sorted((_relative_luminance(colour), background))
+    return (hi + 0.05) / (lo + 0.05)
+
+
+_register_fonts()
+_styles = _make_styles()
+# Styles set in white or near-white are printed on a coloured band and are
+# checked against the band, not against the page.
+ON_A_BAND = {"part_band", "part_band_sub", "subject_band", "passage_label",
+             "answers_heading"}
+faint = []
+for name, style in sorted(_styles.items()):
+    colour = getattr(style, "textColor", None)
+    if colour is None or name in ON_A_BAND:
+        continue
+    if _relative_luminance(colour) > 0.6:      # white text, lives on a band
+        continue
+    r = contrast(colour)
+    if r < 4.5:
+        faint.append((name, round(r, 2)))
+check(not faint, "every text colour on the page meets AA against white",
+      str(faint))
+# The passage label prints on the reading box's cream, not on white.
+CREAM = colors.HexColor("#FDF8EF")
+label_r = contrast(_styles["passage_label"].textColor,
+                   _relative_luminance(CREAM))
+check(label_r >= 4.5, "and the READ THIS label meets it against the cream box",
+      f"{label_r:.2f}:1")
+
+# Chrome has to clear a home printer's unprintable band at the foot of the
+# sheet: HP DeskJet 12.7mm, Epson EcoTank 14.0mm. Below that, printing at
+# actual size drops the page number the key's back-references depend on, and
+# printing to fit rescales the whole sheet and shrinks every ruled line.
+check(CHROME_MARGIN / cm * 10 >= 15.0,
+      "the page number clears a home printer's dead band at the foot",
+      f"{CHROME_MARGIN / cm * 10:.1f} mm from the sheet edge")
+
 print("\nFractions")
 _register_fonts()
 SUB_SUP_DIGITS = "⁰¹⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉"      # ² and ³ are real exponents, cm², m³

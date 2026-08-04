@@ -25,6 +25,16 @@ from .timing import booklet_timing, homework_session_plan
 
 PAGE_MARGIN = 2.0 * cm
 
+# Where the running header and the page number sit, measured from the sheet
+# edge. They used to sit at 1.2cm, which put the descender of "Page" 11.3mm
+# from the edge, inside the unprintable band of common home printers (HP
+# DeskJet 12.7mm, Epson EcoTank 14.0mm). Printing at actual size clipped or
+# dropped the page number, and the answer key's "(p8)" back-references are
+# useless without it; printing to fit instead rescaled the whole sheet to about
+# 94 percent and quietly shrank every ruled line the child writes on. 1.6cm
+# clears both. It also moves the header out from under a corner staple.
+CHROME_MARGIN = 1.6 * cm
+
 log = logging.getLogger(__name__)
 
 
@@ -98,7 +108,7 @@ def _make_styles():
         ),
         "meta": ParagraphStyle(
             "meta", parent=base["Normal"], fontName=FONT_REGULAR,
-            fontSize=10, alignment=TA_CENTER, textColor=colors.HexColor("#888888"),
+            fontSize=10, alignment=TA_CENTER, textColor=colors.HexColor("#5F5F5F"),
         ),
         "wordmark": ParagraphStyle(
             "wordmark", parent=base["Normal"], fontName=FONT_BOLD,
@@ -173,7 +183,7 @@ def _make_styles():
         "we_answer": ParagraphStyle(
             "we_answer", parent=base["Normal"], fontName=FONT_BOLD,
             fontSize=10.5, leading=15, spaceBefore=7,
-            textColor=colors.HexColor("#1B8A3A"),
+            textColor=colors.HexColor("#146B2C"),
         ),
         "practice_label": ParagraphStyle(
             "practice_label", parent=base["Normal"], fontName=FONT_BOLD,
@@ -216,7 +226,7 @@ def _make_styles():
         ),
         "footer_note": ParagraphStyle(
             "footer_note", parent=base["Normal"], fontName=FONT_ITALIC,
-            fontSize=9, textColor=colors.HexColor("#888888"), alignment=TA_CENTER,
+            fontSize=9, textColor=colors.HexColor("#5F5F5F"), alignment=TA_CENTER,
         ),
         "footer_note_left": ParagraphStyle(
             "footer_note_left", parent=base["Normal"], fontName=FONT_REGULAR,
@@ -233,7 +243,7 @@ def _make_styles():
         # block is something to read rather than something to do.
         "passage_label": ParagraphStyle(
             "passage_label", parent=base["Normal"], fontName=FONT_BOLD,
-            fontSize=9, leading=12, textColor=colors.HexColor("#A9793F"),
+            fontSize=9, leading=12, textColor=colors.HexColor("#7A5424"),
             spaceAfter=4,
         ),
         "passage_title": ParagraphStyle(
@@ -1353,15 +1363,16 @@ def _draw_page_chrome(canvas, doc):
         canvas.restoreState()
         return
     canvas.setFont(FONT_REGULAR, 9)
-    canvas.setFillColor(colors.HexColor("#888888"))
+    canvas.setFillColor(colors.HexColor("#5F5F5F"))
     canvas.drawRightString(
-        A4[0] - PAGE_MARGIN, 1.2 * cm, f"Page {doc.page}",
+        A4[0] - PAGE_MARGIN, CHROME_MARGIN, f"Page {doc.page}",
     )
     header = getattr(doc, "_header_text", "")
     if header:
-        canvas.drawString(PAGE_MARGIN, A4[1] - 1.2 * cm, header)
+        canvas.drawString(PAGE_MARGIN, A4[1] - CHROME_MARGIN, header)
         canvas.setStrokeColor(colors.HexColor("#DDDDDD"))
-        canvas.line(PAGE_MARGIN, A4[1] - 1.35 * cm, A4[0] - PAGE_MARGIN, A4[1] - 1.35 * cm)
+        canvas.line(PAGE_MARGIN, A4[1] - CHROME_MARGIN - 0.15 * cm,
+                    A4[0] - PAGE_MARGIN, A4[1] - CHROME_MARGIN - 0.15 * cm)
     canvas.restoreState()
 
 
@@ -1791,7 +1802,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             continue
         subject_topic_headers(section, state)
         time_badge = (
-            f'  <font size=9 color="#1B8A3A">'
+            f'  <font size=9 color="#146B2C">'
             f'(about {times["section_minutes"][si]} min)</font>'
         )
         story.append(Paragraph(_escape(section.subtopic) + time_badge, styles["subtopic"]))
@@ -2244,7 +2255,7 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
         story.append(PageBreak())
 
     # ---- Marking key ----
-    story.append(_part_band(styles, "Marking Key", "#1B8A3A",
+    story.append(_part_band(styles, "Marking Key", "#146B2C",
                             "Solutions and mark allocations"))
     story.append(Spacer(1, 0.4 * cm))
     counter["n"] = 0
@@ -2264,10 +2275,10 @@ def _answer_block(styles, q_num: int, vq: ValidatedQuestion, page: int | None = 
     # it tells the person marking that this solution was checked. The check
     # glyph is outside Latin-1, so drop it when we fell back to Helvetica.
     mark = "✓ verified" if _UNICODE_FONT else "verified"
-    symbol_html = f' <font color="#1B8A3A"><b>{mark}</b></font>' if vq.verified else ""
+    symbol_html = f' <font color="#146B2C"><b>{mark}</b></font>' if vq.verified else ""
     # Marking 63 questions spread over 18 pages means constant flipping, so the
     # key says where the question was.
-    page_html = (f' <font size=9 color="#888888">(p{page})</font>'
+    page_html = (f' <font size=9 color="#5F5F5F">(p{page})</font>'
                  if page else "")
     # Booklet keys restore the unit the question asked for and show a fraction
     # in lowest terms. An exam marking key does neither: senior answers carry
