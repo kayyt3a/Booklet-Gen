@@ -55,8 +55,11 @@ from booklet_gen.agents.term_planner import (                    # noqa: E402
     TermPlannerAgent, _ladder, _norm_focus)
 from booklet_gen.pipeline import BookletPipeline                 # noqa: E402
 from booklet_gen.schemas import (                                # noqa: E402
-    Passage, Question, SpellingList, Subtopic, SubtopicOutput, SubtopicTeaching,
-    TermPlan, TermWeek, ValidatedQuestion, WorkedExample)
+    BookletData, Passage, Question, SpellingList, Subtopic, SubtopicOutput,
+    SubtopicTeaching, TermPlan, TermWeek, ValidatedQuestion, WorkedExample)
+from booklet_gen.timing import (                                 # noqa: E402
+    booklet_timing, homework_minutes_in_order, homework_session_plan,
+    passage_minutes, question_minutes, round_display)
 
 PASSED = 0
 TOTAL = 0
@@ -509,6 +512,42 @@ def passages() -> None:
         check(len(half) == 5,
               f"{s.subtopic} keeps all five questions in whichever half it "
               f"landed in", f"{len(half)} questions")
+
+    print("\n== homework is charged for the reading it asks about ==")
+    # Class Work has always charged for a passage; Homework charged nothing, so
+    # the same text was worth minutes in the session and free a week later. A
+    # sitting holding two whole texts was billed as though the child already
+    # knew them, and the number on the band is a promise to the parent.
+    hw_only = BookletData(
+        subject="English", year_level="Year 5", student_name="Sam",
+        sections=[SubtopicOutput(
+            topic="Reading", subtopic="Comprehension", questions=[],
+            homework_questions=[vq(f"h{j}", "P") for j in range(6)],
+            passages=[Passage(id="P", paragraphs=["Two hundred words of story. "
+                                                  * 20] * 5)])])
+    read = passage_minutes(hw_only.sections[0].passages[0])
+    check(read > 3.0, "the fixture reading really does take a while",
+          f"{read:.1f} min")
+
+    per_q = homework_minutes_in_order(hw_only)
+    check(len(per_q) == 6, "one figure per homework question", str(len(per_q)))
+    check(per_q[0] - per_q[1] > read * 0.95,
+          "the first question under a reading carries the reading's time",
+          f"first {per_q[0]:.1f} min against {per_q[1]:.1f} for the next")
+    check(all(abs(a - b) < 0.01 for a, b in zip(per_q[1:], per_q[2:])),
+          "and the rest are charged alike, because by then it has been read")
+
+    totals = booklet_timing(hw_only)
+    check(totals["homework_raw"] > sum(
+        question_minutes(q.question, "homework")
+        for q in hw_only.sections[0].homework_questions) + read * 0.95,
+        "the printed Homework total counts the reading too",
+        f"about {totals['homework_minutes']} min")
+
+    plan = homework_session_plan(hw_only)
+    check(sum(p["minutes"] for p in plan) >= round_display(read),
+          "and a sitting's own estimate is not left short of the reading in it",
+          str([(p["count"], p["minutes"]) for p in plan]))
 
     print("\n== a maths booklet is untouched ==")
     client = StubClient(questions=MATHS_PAYLOAD)

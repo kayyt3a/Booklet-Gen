@@ -127,17 +127,6 @@ def _part_count(text: str) -> int:
     return len(part_labels(text))
 
 
-def printed_order(questions, section) -> list:
-    """The questions in the order the page prints them.
-
-    Grouping comprehension questions under their passage reorders them, and the
-    session plan below numbers questions, so it has to see the printed order
-    rather than the order the generator happened to emit.
-    """
-    from .formatter import ordered_questions, section_passages
-    return ordered_questions(questions, section_passages(section))
-
-
 # Reading a passage costs time the questions do not: the first question under a
 # passage is charged for reading it, at a primary reader's pace on unfamiliar
 # text, and the rest are not, because by then it has been read.
@@ -203,6 +192,27 @@ _MAX_SESSIONS = 4
 _MIN_QUESTIONS_TO_SPLIT = 6
 
 
+def homework_minutes_in_order(data) -> list[float]:
+    """Minutes for each homework question, in the order the page prints them.
+
+    The first question under a reading carries that reading's time, exactly as
+    Class Work charges it in `classwork_section_minutes`. Homework used to get
+    its passages free, so a sitting containing two whole texts was billed as
+    though the child already knew them: a Year 5 English booklet promised 19
+    minutes for a sitting holding about 3.5 minutes of unbilled reading.
+    """
+    from .formatter import passage_groups, section_passages
+    out: list[float] = []
+    for s in data.sections:
+        for passage, group in passage_groups(s.homework_questions,
+                                             section_passages(s)):
+            read = passage_minutes(passage) if passage is not None else 0.0
+            for i, vq in enumerate(group):
+                out.append(question_minutes(vq.question, "homework")
+                           + (read if i == 0 else 0.0))
+    return out
+
+
 def homework_session_plan(data) -> list[dict]:
     """Split the homework questions into sittings of roughly equal length.
 
@@ -210,9 +220,7 @@ def homework_session_plan(data) -> list[dict]:
     homework question list, in printed order. Empty when there is too little
     homework to be worth splitting.
     """
-    mins = [question_minutes(vq.question, "homework")
-            for s in data.sections
-            for vq in printed_order(s.homework_questions, s)]
+    mins = homework_minutes_in_order(data)
     n = len(mins)
     if n < _MIN_QUESTIONS_TO_SPLIT:
         return []
@@ -273,6 +281,10 @@ def booklet_timing(data) -> dict:
     classwork_raw = sum(section_raw)
     homework_raw = sum(
         questions_minutes(s.homework_questions, "homework")
+        # The readings those questions are about. Class Work has always charged
+        # for a passage and Homework never did, so the same text was worth four
+        # minutes in the session and nothing at all a week later.
+        + section_passage_minutes(s, s.homework_questions)
         # The lesson the student has to read before they can do that homework.
         + (teaching_minutes(s.teaching) if not s.questions else 0.0)
         for s in data.sections)
