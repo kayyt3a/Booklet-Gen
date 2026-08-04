@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_motifs.html" import scatter %}
 {% block title %}My booklets - Folio{% endblock %}
 {% block body %}
 <div class="card">
@@ -6,9 +7,12 @@
   <p class="sub">Everything you have generated, newest first.</p>
 
   {% if not jobs %}
-    <div class="empty">
-      <p>You have not generated anything yet.</p>
-      <a class="btn small" href="{{ url_for('views.index') }}">Create your first booklet</a>
+    <div class="empty emptyWarm">
+      {{ scatter() }}
+      <div style="position:relative;z-index:1">
+        <p>Nothing here yet. Your first booklet takes about two minutes to build.</p>
+        <a class="btn small" href="{{ url_for('views.index') }}">Create your first booklet</a>
+      </div>
     </div>
   {% else %}
     <ul class="jobs">

@@ -1,18 +1,17 @@
 {% extends "base.html" %}
+{% from "_motifs.html" import pencil, book, star %}
+{% block title %}Create a booklet - Folio{% endblock %}
 {% block body %}
 <div class="card">
+  <div class="motifRow">
+    <span class="ink-navy">{{ book(26) }}</span>
+    <span class="ink-orange">{{ pencil(22) }}</span>
+    <span class="ink-pale">{{ star(15) }}</span>
+  </div>
   <h1>Create a practice booklet</h1>
   <p class="sub">Choose a type, year, and topic. We build a validated PDF booklet
     with a mini-lesson, practice questions, and a worked answer key.</p>
 
-  {% if not g.user %}
-    <div class="empty">
-      <p>Create a free account to start generating booklets.</p>
-      <a class="btn small" href="{{ url_for('auth.signup') }}">Sign up</a>
-      <p class="muted" style="margin-top:16px">Already have one?
-        <a class="link" href="{{ url_for('auth.login') }}">Log in</a>.</p>
-    </div>
-  {% else %}
   <form method="post" action="{{ url_for('views.generate') }}">
     {{ csrf_field() }}
     <label for="program">Booklet type</label>
@@ -63,7 +62,6 @@
       saved to <a class="link" href="{{ url_for('views.library') }}">My booklets</a>.
     </div>
   </form>
-  {% endif %}
 </div>
 
 <script>

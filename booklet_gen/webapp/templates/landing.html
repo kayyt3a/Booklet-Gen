@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% from "_motifs.html" import scatter, pencil, book, hexagon, triangle, check %}
+{% block title %}Folio - printable practice booklets for Years 1 to 10{% endblock %}
+{% block body %}
+
+<section class="hero">
+  {{ scatter() }}
+  <div class="heroInner">
+    <span class="eyebrow">Free &middot; Years 1 to 10, plus WACE exam papers</span>
+    <h1>Practice booklets your kid will actually finish.</h1>
+    <p class="sub">Pick a subject and a year level. Folio writes a printable PDF
+      in about two minutes: a mini-lesson, a worked example, practice questions
+      sized for an hour, and an answer key with the working shown.</p>
+    <div class="heroCta">
+      <a class="btn" href="{{ url_for('auth.signup') }}">Create a free account</a>
+      <a class="btn secondary" href="{{ url_for('auth.login') }}">Log in</a>
+    </div>
+    <p class="reassure">No credit card. Just a login, so your booklets are saved.</p>
+  </div>
+</section>
+
+<div class="card">
+  <div class="sample">
+    <div class="sampleText">
+      <h2>This is what comes out</h2>
+      <p class="sub" style="margin-bottom:0">A real page from a Year 5 maths
+        booklet. Every one is laid out to be printed at home on A4 and worked
+        through with a pen.</p>
+      <ul class="ticks">
+        <li>{{ check(19) }}<span>A mini-lesson, then a worked example, then questions to try</span></li>
+        <li>{{ check(19) }}<span>Class work sized to one hour, with the rest set as homework</span></li>
+        <li>{{ check(19) }}<span>An answer key at the back with the working, not just the answers</span></li>
+        <li>{{ check(19) }}<span>Room to write, and a spot to mark it out of</span></li>
+      </ul>
+    </div>
+    <img class="sampleShot" width="620" height="877"
+         src="{{ url_for('static', filename='img/sample-page.png') }}"
+         alt="A page from a Year 5 maths booklet, showing a mini-lesson on
+              comparing fractions, a worked example, and three practice
+              questions with ruled answer lines.">
+  </div>
+</div>
+
+<div class="card">
+  <h2>Four kinds of booklet</h2>
+  <p class="sub" style="margin-bottom:18px">Pick the one that matches what the
+    student is working towards.</p>
+  <div class="lines">
+    {% set icons = {'scholarships': hexagon, 'naplan': book,
+                    'accelerate': pencil, 'methods_exam': triangle} %}
+    {% set inks = {'scholarships': 'ink-navy', 'naplan': 'ink-navy',
+                   'accelerate': 'ink-orange', 'methods_exam': 'ink-orange'} %}
+    {% for key, p in programs.items() %}
+      <div class="line">
+        <span class="lineIcon {{ inks.get(key, 'ink-navy') }}">
+          {{ icons.get(key, book)(26) }}</span>
+        <div>
+          <p class="lineName">{{ p.label }}</p>
+          <p class="lineBlurb">{{ p.blurb }}</p>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  <div class="hint">
+    Every booklet is generated fresh for the year level and topic you choose, so
+    two students never get the same page.
+  </div>
+</div>
+
+<div class="card warm" style="position:relative;overflow:hidden;text-align:center">
+  <h2 style="margin-bottom:8px">Make one and see</h2>
+  <p class="muted" style="max-width:420px;margin:0 auto 20px;font-size:14.5px">
+    An account takes a moment and costs nothing. Your booklets are saved so you
+    can print them again later.</p>
+  <a class="btn" style="width:auto;padding:13px 26px;margin-top:0"
+     href="{{ url_for('auth.signup') }}">Create a free account</a>
+</div>
+
+{% endblock %}

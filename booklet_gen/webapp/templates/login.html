@@ -1,7 +1,9 @@
 {% extends "base.html" %}
+{% from "_motifs.html" import book %}
 {% block title %}Log in - Folio{% endblock %}
 {% block body %}
-<div class="card narrow">
+<div class="card narrow warm">
+  <div class="motifRow ink-navy">{{ book(28) }}</div>
   <h1>Welcome back</h1>
   <p class="sub">Log in to generate booklets and reach your saved ones.</p>
   <form method="post">

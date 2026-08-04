@@ -5,22 +5,19 @@
   <h1>Your account</h1>
   <p class="sub">{{ g.user['email'] }}</p>
 
-  <ul class="jobs">
-    <li class="jobItem">
-      <div class="jobMain">
-        <p class="jobTitle">Booklets generated</p>
-        <div class="jobMeta">{{ job_count }} in total, {{ file_count }} still
-          downloadable</div>
-      </div>
-    </li>
-    <li class="jobItem">
-      <div class="jobMain">
-        <p class="jobTitle">Today's allowance</p>
-        <div class="jobMeta">{{ used_today }} of {{ daily_limit }} booklets used
-          in the last 24 hours. A term plan counts as its number of weeks.</div>
-      </div>
-    </li>
-  </ul>
+  <div class="stats">
+    <div class="stat">
+      <div class="statNum">{{ job_count }}</div>
+      <p class="statLabel">Booklets generated</p>
+      <p class="statNote">{{ file_count }} still downloadable</p>
+    </div>
+    <div class="stat">
+      <div class="statNum">{{ used_today }} <span
+        style="font-size:17px;font-weight:650;color:var(--muted)">of {{ daily_limit }}</span></div>
+      <p class="statLabel">Used in the last 24 hours</p>
+      <p class="statNote">A term plan counts as its number of weeks.</p>
+    </div>
+  </div>
 </div>
 
 <div class="card">
@@ -32,7 +29,7 @@
      href="{{ url_for('views.account_export') }}">Download my data</a>
 </div>
 
-<div class="card">
+<div class="card danger">
   <h2>Delete your account</h2>
   <p class="muted">This removes your login, your booklet history and every
     stored file. It cannot be undone, and nothing is kept afterwards.</p>
@@ -42,7 +39,7 @@
     <label for="password">Confirm your password</label>
     <input id="password" name="password" type="password"
            autocomplete="current-password" required>
-    <button type="submit" style="background:#a02020">Delete my account</button>
+    <button type="submit" class="btn danger">Delete my account</button>
   </form>
 </div>
 {% endblock %}

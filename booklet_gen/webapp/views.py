@@ -65,8 +65,18 @@ def _slug(s: str) -> str:
 
 @bp.route("/")
 def index():
+    # Two different pages behind one URL. A signed-out visitor is deciding
+    # whether this is worth an account, so they get the landing page: what a
+    # booklet is, a real page out of one, and the four product lines. Someone
+    # signed in has already decided and wants the form.
+    #
+    # This used to be one template branching on `g.user`, which meant a
+    # prospective customer's first impression was a heading and a Sign up
+    # button on an otherwise empty page.
+    if not g.user:
+        return render_template("landing.html", programs=PROGRAMS)
     return render_template(
-        "index.html",
+        "generate.html",
         programs=PROGRAMS, years=YEARS, subjects=ACCELERATE_SUBJECTS,
         term_weeks=TERM_WEEKS, exam_programs=EXAM_PROGRAMS, exam_years=EXAM_YEARS,
     )

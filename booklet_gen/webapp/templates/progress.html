@@ -1,7 +1,14 @@
 {% extends "base.html" %}
+{% from "_motifs.html" import paperplane, trail, check %}
 {% block title %}Generating - Folio{% endblock %}
 {% block body %}
 <div class="card narrow">
+  {# Trail first, then the plane: it reads as having flown the path, not as
+     heading towards one it has not travelled yet. #}
+  <div class="flight">
+    <span class="ink-pale">{{ trail(110) }}</span>
+    <span class="ink-navy">{{ paperplane(30) }}</span>
+  </div>
   <h1 id="heading">Building your booklet</h1>
   <p class="sub" id="msg">{{ job['label'] }}</p>
 
@@ -16,6 +23,7 @@
   </div>
 
   <div id="done" style="display:none">
+    <div class="doneMark ink-green">{{ check(30) }}</div>
     <a class="btn" id="dl" href="#">Download</a>
     <a class="btn secondary" href="{{ url_for('views.index') }}">Make another</a>
   </div>

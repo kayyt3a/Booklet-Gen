@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Folio mark: an open book, the one motif from the booklet cover that
+       still reads at 16px in a browser tab. Navy tile so it holds its shape
+       against both light and dark tab strips. -->
+  <rect width="64" height="64" rx="14" fill="#1F3A5F"/>
+  <g fill="none" stroke="#ffffff" stroke-width="3.4"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 22c-4.5-3.6-9.6-5-17-5v25c7.4 0 12.5 1.4 17 5"/>
+    <path d="M32 22c4.5-3.6 9.6-5 17-5v25c-7.4 0-12.5 1.4-17 5"/>
+  </g>
+  <path d="M32 22v25" stroke="#f0a028" stroke-width="3.4" stroke-linecap="round"/>
+</svg>

@@ -1,7 +1,9 @@
 {% extends "base.html" %}
+{% from "_motifs.html" import pencil %}
 {% block title %}Sign up - Folio{% endblock %}
 {% block body %}
-<div class="card narrow">
+<div class="card narrow warm">
+  <div class="motifRow ink-orange">{{ pencil(28) }}</div>
   <h1>Create your account</h1>
   <p class="sub">Free to use. Generate practice booklets and exam papers, and
     keep them all in one place.</p>

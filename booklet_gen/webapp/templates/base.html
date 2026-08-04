@@ -4,12 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}Folio{% endblock %}</title>
+  <meta name="description" content="{% block description %}Printable practice
+    booklets for Years 1 to 10. A mini-lesson, worked examples, practice
+    questions and a checked answer key, built in about two minutes.{% endblock %}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
   <header>
     <div class="headerInner">
-      <a class="brand" href="{{ url_for('views.index') }}">FOLIO <span>practice booklets</span></a>
+      <a class="brand" href="{{ url_for('views.index') }}">
+        <svg class="brandMark" width="24" height="24" viewBox="0 0 32 32" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <path d="M16 9c-3-2.5-6.5-3.5-12-3.5v17c5.5 0 9 1 12 3.5"/>
+          <path d="M16 9c3-2.5 6.5-3.5 12-3.5v17c-5.5 0-9 1-12 3.5"/>
+        </svg>
+        FOLIO <span>practice booklets</span></a>
       <nav class="nav">
         {% if g.user %}
           <a href="{{ url_for('views.index') }}"
@@ -32,5 +43,9 @@
     {% endwith %}
     {% block body %}{% endblock %}
   </div>
+  <footer>
+    Folio, practice booklets for Years 1 to 10.
+    {% if g.user %}Signed in as {{ g.user['email'] }}.{% endif %}
+  </footer>
 </body>
 </html>

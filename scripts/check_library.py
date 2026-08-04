@@ -40,7 +40,9 @@ uid = db.get_user_by_email("lib@test.com")["id"]
 # empty state
 r = c.get("/library")
 assert r.status_code == 200, r.status_code
-assert b"not generated anything yet" in r.data, "empty state missing"
+# Matched on the call to action rather than on the wording above it, so that
+# rephrasing the empty state does not fail a test about the library working.
+assert b"Create your first booklet" in r.data, "empty state missing"
 print("empty library renders")
 
 # a finished job with an archived file
