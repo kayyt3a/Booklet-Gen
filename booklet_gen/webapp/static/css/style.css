@@ -1,0 +1,143 @@
+/* Folio web app styles.
+ *
+ * Lifted out of an inline <style> block in base.html. It lived there while the
+ * app was four pages and one look; it moved here because the block was being
+ * re-sent and re-parsed on every page load, and because progress.html had
+ * already grown a second <style> block of its own, which is how one stylesheet
+ * quietly becomes several.
+ *
+ * The palette is deliberately the booklet's palette. --navy is the same
+ * #1F3A5F the PDF sets its headings and Class Work band in, so the site a
+ * parent signs up on and the page they print look like one product. Orange is
+ * an accent only, never an action colour, which is the rule the PDF cover
+ * already follows.
+ */
+
+:root {
+  --navy:#1F3A5F; --navy-d:#16273f; --navy-l:#2d5183;
+  --orange:#f0a028; --green:#1B8A3A;
+  --bg:#f4f6fa; --card:#fff; --ink:#1c2434; --muted:#667085;
+  --border:#e4e8f0; --shadow:0 1px 2px rgba(16,30,54,.04), 0 4px 16px rgba(16,30,54,.06);
+  --radius:14px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  background:var(--bg);color:var(--ink);margin:0;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---- header ---- */
+header{
+  background:var(--navy);color:#fff;padding:0 20px;
+  position:sticky;top:0;z-index:20;box-shadow:0 1px 3px rgba(16,30,54,.12);
+}
+.headerInner{
+  max-width:880px;margin:0 auto;display:flex;align-items:center;
+  justify-content:space-between;gap:12px;min-height:58px;flex-wrap:wrap;
+}
+header a{color:#fff;text-decoration:none}
+.brand{font-weight:800;letter-spacing:1.5px;font-size:19px;display:flex;align-items:center;gap:8px}
+.brand span{opacity:.55;font-weight:500;font-size:12px;letter-spacing:.3px}
+.nav{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.nav a{
+  font-size:14px;padding:7px 12px;border-radius:8px;
+  transition:background .15s ease;white-space:nowrap;
+}
+.nav a:hover{background:rgba(255,255,255,.12)}
+.nav a.active{background:rgba(255,255,255,.18);font-weight:600}
+
+/* ---- layout ---- */
+.wrap{max-width:880px;margin:26px auto 60px;padding:0 16px}
+.card{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:28px;box-shadow:var(--shadow);margin-bottom:18px;
+}
+.card.narrow{max-width:440px;margin-left:auto;margin-right:auto}
+h1{margin:0 0 6px;font-size:25px;letter-spacing:-.3px}
+h2{margin:0 0 12px;font-size:18px}
+.sub{color:var(--muted);margin:0 0 22px;font-size:14.5px}
+
+/* ---- forms ---- */
+label{display:block;font-size:13px;font-weight:600;margin:16px 0 6px;color:#3b4658}
+input,select{
+  width:100%;padding:11px 12px;border:1px solid #d6dce8;border-radius:9px;
+  font:inherit;font-size:14.5px;background:#fff;color:var(--ink);
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+select{
+  appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23667085' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 13px center;padding-right:36px;
+}
+input:focus,select:focus{
+  outline:none;border-color:var(--navy-l);box-shadow:0 0 0 3px rgba(45,81,131,.13);
+}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:560px){ .row{grid-template-columns:1fr} }
+
+button,.btn{
+  background:var(--navy);color:#fff;border:0;padding:12px 18px;border-radius:9px;
+  font:inherit;font-weight:650;font-size:14.5px;cursor:pointer;width:100%;
+  text-align:center;display:inline-block;text-decoration:none;margin-top:18px;
+  transition:background .15s ease, transform .06s ease;
+}
+button:hover,.btn:hover{background:var(--navy-d)}
+button:active,.btn:active{transform:translateY(1px)}
+.btn.secondary{
+  background:#fff;color:var(--navy);border:1px solid #d6dce8;
+}
+.btn.secondary:hover{background:#f7f9fc}
+.btn.small{width:auto;padding:8px 14px;font-size:13.5px;margin:0}
+
+.checkbox{display:flex;align-items:flex-start;gap:10px;margin-top:18px}
+.checkbox input{width:auto;margin-top:2px;flex:none}
+.checkbox label{margin:0;font-weight:500;font-size:14px;color:var(--ink)}
+
+/* ---- misc ---- */
+.flash{
+  background:#fff8e6;color:#7c5b00;border:1px solid #fde68a;
+  padding:11px 14px;border-radius:10px;margin-bottom:16px;font-size:14px;
+}
+.muted{color:var(--muted);font-size:13.5px}
+a.link{color:var(--navy);font-weight:600}
+.hint{
+  background:#f7f9fc;border:1px solid var(--border);border-radius:10px;
+  padding:12px 14px;font-size:13.5px;color:var(--muted);margin-top:18px;
+}
+
+/* ---- history list ---- */
+.jobs{list-style:none;margin:0;padding:0}
+.jobItem{
+  display:flex;align-items:center;gap:14px;padding:15px 2px;
+  border-bottom:1px solid var(--border);
+}
+.jobItem:last-child{border-bottom:0}
+.jobMain{flex:1;min-width:0}
+.jobTitle{font-weight:620;font-size:14.5px;margin:0 0 3px;word-break:break-word}
+.jobMeta{color:var(--muted);font-size:12.5px}
+.pill{
+  display:inline-block;border-radius:999px;padding:2px 9px;
+  font-size:11.5px;font-weight:700;letter-spacing:.2px;
+}
+.pill.done{background:#e7f6ec;color:#136b2d}
+.pill.running{background:#fff3d9;color:#8a5a00}
+.pill.error{background:#fdeaea;color:#a02020}
+.empty{text-align:center;padding:34px 10px;color:var(--muted)}
+.empty p{margin:0 0 18px}
+
+/* ---- progress page ----
+ * The bar is deliberately indeterminate. The pipeline reports no stages, so a
+ * percentage would be a number we invented; a moving bar says "still working"
+ * without claiming to know how far along it is.
+ */
+.bar{height:7px;border-radius:99px;background:#e8edf5;overflow:hidden}
+.bar span{
+  display:block;height:100%;width:38%;border-radius:99px;
+  background:linear-gradient(90deg,var(--navy-l),var(--navy));
+  animation:slide 1.5s ease-in-out infinite;
+}
+@keyframes slide{
+  0%{margin-left:-38%} 100%{margin-left:100%}
+}

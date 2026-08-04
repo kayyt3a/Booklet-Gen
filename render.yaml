@@ -8,19 +8,22 @@
 #      (they are marked sync:false so they are NOT stored in the repo).
 #   4. Deploy. Render builds the Dockerfile and gives you a public URL.
 #
-# Free plan notes:
-#   - The service spins down after ~15 min idle; the next request cold-starts
-#     in ~30-60s, then runs normally.
-#   - The free plan has NO persistent disk, so the SQLite database and
-#     generated PDFs reset on every restart/redeploy. Fine for a demo.
-#   - To make data persist: change `plan: free` to `plan: starter` and
-#     uncomment the `disk:` block below. That is a paid plan (~$7/mo).
+# Plan notes:
+#   - `starter` because the free plan spins down after ~15 min idle and the
+#     next request cold-starts in 30-60s. That is survivable for a demo and
+#     not for a public site: the first visitor after a quiet spell is the one
+#     deciding whether this looks like a real product.
+#   - The `disk:` block below stays commented out on purpose. It exists to
+#     persist /data, but generated PDFs are archived as blobs in Postgres
+#     (db.save_job_file, served by views.download), and accounts, job history
+#     and the RAG library live there too. Nothing that matters is on the
+#     instance filesystem, so paying for a disk would buy nothing.
 
 services:
   - type: web
     name: folio
     runtime: docker
-    plan: free
+    plan: starter
     dockerfilePath: ./Dockerfile
     envVars:
       # Set these in the Render dashboard when prompted (never committed).
@@ -34,10 +37,9 @@ services:
       # SQLite + Chroma, which are wiped whenever the instance restarts.
       - key: DATABASE_URL
         sync: false
-    # Generated PDFs still land on the instance filesystem and are lost on
-    # restart. That only affects re-downloading an old booklet: accounts, job
-    # history, and the RAG library all live in Postgres. To keep the PDFs too,
-    # switch to `plan: starter` and uncomment this disk.
+    # Only needed if PDFs ever stop being archived to Postgres. See the plan
+    # note at the top of this file before uncommenting: as things stand this
+    # would be paying for storage nothing reads.
     # disk:
     #   name: folio-data
     #   mountPath: /data

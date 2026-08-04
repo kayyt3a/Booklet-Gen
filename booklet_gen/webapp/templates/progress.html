@@ -26,18 +26,6 @@
   </div>
 </div>
 
-<style>
-  .bar{height:7px;border-radius:99px;background:#e8edf5;overflow:hidden}
-  .bar span{
-    display:block;height:100%;width:38%;border-radius:99px;
-    background:linear-gradient(90deg,var(--navy-l),var(--navy));
-    animation:slide 1.5s ease-in-out infinite;
-  }
-  @keyframes slide{
-    0%{margin-left:-38%} 100%{margin-left:100%}
-  }
-</style>
-
 <script>
   // Rough progress narration. The pipeline does not report stages, so these
   // are time-based and only there to show the request is alive.
