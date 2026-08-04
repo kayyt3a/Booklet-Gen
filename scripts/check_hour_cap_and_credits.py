@@ -122,8 +122,11 @@ check(after_minutes <= CLASSWORK_CAP_MINUTES,
 check(question_count(sections) == before_questions,
       "the surplus is moved to homework, never deleted",
       f"{before_questions} questions in, {question_count(sections)} out")
-check(all(s.questions for s in in_session(sections)),
-      "no subtopic is left teaching with nothing to try")
+check(any(not s.questions for s in sections)
+      and all(s.questions for s in in_session(sections)),
+      "subtopics either stay in the session with practice or leave it entirely",
+      f"{len(in_session(sections))} taught, "
+      f"{sum(1 for s in sections if not s.questions)} moved out")
 check(len(in_session(sections)) >= MIN_CLASSWORK_SUBTOPICS,
       "the session keeps enough subtopics to be worth sitting down for",
       f"{len(in_session(sections))} subtopics")
@@ -206,6 +209,24 @@ for s in emptied:
     check("Now you try:" not in classwork_text.split(s.subtopic)[-1][:200]
           if s.subtopic in classwork_text else True,
           f"and {s.subtopic} prints no orphan label in class work")
+
+# The same orphan, on the other side of the booklet. The key looped over every
+# section for Class Work with no guard, so a subtopic the cap had emptied
+# printed its heading in the key with no answers under it, and whoever was
+# marking read that as a missing page. The Homework half of the key always had
+# the guard; the Class Work half did not.
+key_text = text.split("Answers &amp; Worked Solutions")[-1] \
+    if "Answers &amp; Worked Solutions" in text \
+    else text.split("Worked Solutions")[-1]
+key_classwork = key_text.split("Homework")[0]
+for s in emptied:
+    check(s.subtopic not in key_classwork,
+          f"the key does not head a Class Work section for {s.subtopic}, "
+          "which has no class work",
+          key_classwork.strip()[-40:].replace("\n", " "))
+for s in in_session(sections):
+    check(s.subtopic in key_classwork,
+          f"but {s.subtopic}, which was taught, is in the Class Work key")
 
 
 # ---------------------------------------------------------------------------

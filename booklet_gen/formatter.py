@@ -1820,6 +1820,13 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     story.append(Paragraph("Class Work", styles["topic"]))
     state = {"subject": None, "topic": None}
     for section in data.sections:
+        # A subtopic the hour cap moved out has no class work, and its answers
+        # are printed under Homework below. Without this the key printed its
+        # heading here with nothing underneath, and whoever was marking read
+        # that as a missing page. The Homework loop has always had the
+        # equivalent guard.
+        if not section.questions:
+            continue
         subject_topic_headers(section, state)
         story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
         # Grouping questions under their passage changes the printed order, so
