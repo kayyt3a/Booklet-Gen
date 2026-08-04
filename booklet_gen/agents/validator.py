@@ -491,7 +491,7 @@ _INTEGRAND = re.compile(
 _DEF_LIMITS = re.compile(
     r"(?:from|between)\s+(-?[\d./]+)\s+(?:to|and)\s+(-?[\d./]+)", re.I,
 )
-# "f'(2)", "find f'(-1)" — derivative evaluated at a point.
+# "f'(2)", "find f'(-1)": derivative evaluated at a point.
 _DERIV_AT = re.compile(r"f\s*'\s*\(\s*(-?[\d./]+)\s*\)", re.I)
 
 
@@ -560,7 +560,7 @@ def _check_derivative(question: str, answer: str) -> Optional[ValidationResult]:
     except Exception:
         return None
 
-    # "Find f'(2)" — a derivative evaluated at a point, so the answer is a number.
+    # "Find f'(2)": a derivative evaluated at a point, so the answer is a number.
     at = _DERIV_AT.search(question)
     if at:
         point = _parse_math(at.group(1))

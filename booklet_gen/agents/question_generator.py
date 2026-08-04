@@ -365,7 +365,7 @@ class QuestionGeneratorAgent:
         if reference_chunks:
             joined = "\n\n---\n\n".join(reference_chunks)
             base_user += (
-                "\n\nReference material (real textbook/exam excerpts at this level — "
+                "\n\nReference material (real textbook/exam excerpts at this level, "
                 "use these to calibrate style, phrasing, and difficulty; do NOT copy "
                 "questions verbatim):\n\n" + joined
             )

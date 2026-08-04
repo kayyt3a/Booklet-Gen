@@ -3,7 +3,7 @@
 A "program" sits above the subject engines. It decides which subject(s) a
 booklet covers, how the request is phrased to the generator, and the label
 printed on the cover. Renaming a product line is a one-line edit to `label`
-here — nothing else in the codebase hard-codes these names.
+here: nothing else in the codebase hard-codes these names.
 """
 from __future__ import annotations
 

@@ -40,7 +40,7 @@ def _year_number(year_level: str) -> int:
 
 
 # Reading budgets by year band. The whole point is to keep the *teaching* text
-# light — kids are here to practise, not to read an essay. Younger kids get the
+# light: kids are here to practise, not to read an essay. Younger kids get the
 # bare minimum; the oldest get a little more but it stays lean.
 #
 # key_points is a RANGE, not a count. It used to be a single number rendered as
@@ -116,7 +116,7 @@ class IntroWriterAgent:
         if reference_chunks:
             joined = "\n\n---\n\n".join(reference_chunks)
             base_user += (
-                "\n\nReference material (real textbook/exam excerpts at this level — "
+                "\n\nReference material (real textbook/exam excerpts at this level, "
                 "use these to calibrate voice, examples, and difficulty; do NOT copy "
                 "verbatim):\n\n" + joined
             )

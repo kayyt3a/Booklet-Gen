@@ -71,6 +71,22 @@ for name in PROMPTS:
 
 
 # ---------------------------------------------------------------------------
+# The user turns are built in Python, not in the prompt files, and four of them
+# carried an em dash into the same request that tells the model never to use
+# one. The rest were comments, swept for the same house rule.
+ALLOWED_DASH_LINES = ("_GLOBAL_STYLE", "_EM_DASH", "_EN_RANGE", "_EN_DASH",
+                      "(—) or en dashes")
+package = Path(__file__).resolve().parent.parent / "booklet_gen"
+offenders = []
+for py in sorted(package.rglob("*.py")):
+    for n, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1):
+        if any(d in line for d in DASHES) and not any(
+                a in line for a in ALLOWED_DASH_LINES):
+            offenders.append(f"{py.relative_to(package.parent)}:{n}")
+check(not offenders, "no em or en dash anywhere in the package source",
+      str(offenders[:3]))
+
+
 print("\nPeople and places")
 print("-" * 62)
 # None of this was written down anywhere before. The prompts asked for

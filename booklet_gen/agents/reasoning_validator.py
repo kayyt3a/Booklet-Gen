@@ -9,7 +9,7 @@ pattern.
 Real example this was built to catch:
     "If 'FLUTE' is coded as 'GNVSF', how is 'PIANO' coded?"
     F->G (+1), L->N (+2), U->V (+1), T->S (-1), E->F (+1)
-    The shifts are +1,+2,+1,-1,+1 — no single rule — so PIANO's code is
+    The shifts are +1,+2,+1,-1,+1, no single rule, so PIANO's code is
     not derivable and the question is broken. The LLM judge passed it.
 
 This validator returns:
@@ -69,7 +69,7 @@ class ReasoningValidator:
 
         source, code, target = words[0].upper(), words[1].upper(), words[2].upper()
         if len(source) != len(code):
-            return None  # not a straight per-position cipher — leave to the judge
+            return None  # not a straight per-position cipher, leave to the judge
 
         ans_words = _QUOTED.findall(q.answer)
         provided = (ans_words[0].upper() if ans_words else _letters_only(q.answer))

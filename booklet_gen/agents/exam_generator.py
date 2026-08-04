@@ -73,7 +73,7 @@ class ExamGeneratorAgent:
             joined = "\n\n---\n\n".join(reference_chunks)
             base_user += (
                 "\n\nReference material (real WACE exam excerpts and marking keys "
-                "at this level — use these to calibrate style, phrasing, mark "
+                "at this level, use these to calibrate style, phrasing, mark "
                 "allocation, and difficulty; do NOT copy questions verbatim):\n\n"
                 + joined
             )

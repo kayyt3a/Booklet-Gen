@@ -2,9 +2,9 @@
 
 Heuristics, in order of preference:
 1. Split on numbered problem markers ("1.", "1)", "Question 1")
-   — matches practice-exam layouts.
+   matches practice-exam layouts.
 2. Split on double-newline paragraphs
-   — matches textbook explanatory text.
+   matches textbook explanatory text.
 3. Merge short adjacent chunks up to a target size.
 4. Cap oversized chunks with a hard character limit.
 """

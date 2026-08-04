@@ -154,7 +154,8 @@ class BookletPipeline:
         # already answered under one heading is not practice under another.
         seen = _SeenQuestions()
         sections, covered, rag_pool = self._generate_from_outline(outline, seen)
-        recap = self._build_recap(outline.subject, outline.year_level, None, rag_pool, seen)
+        recap = self._build_recap(outline.subject, outline.year_level, None,
+                                  rag_pool, seen, covered=covered)
         challenge = self._build_challenge(
             outline.subject, outline.year_level, covered, rag_pool, seen,
         )
@@ -227,7 +228,8 @@ class BookletPipeline:
                 s.subject = subj
             all_sections.extend(sections)
             # Recap revises the previous week (term plan) or earlier skills.
-            all_recap.extend(self._build_recap(subj, year_level, prev_focus, rag_pool, seen))
+            all_recap.extend(self._build_recap(subj, year_level, prev_focus,
+                                              rag_pool, seen, covered=covered))
             all_challenge.extend(
                 self._build_challenge(subj, year_level, covered, rag_pool, seen)
             )
@@ -668,13 +670,23 @@ class BookletPipeline:
             "total_minutes": round_total(recap_raw + classwork_raw + homework_raw),
         }
 
-    def _build_recap(self, subject, year_level, recap_focus, reference_chunks, seen=None):
+    def _build_recap(self, subject, year_level, recap_focus, reference_chunks,
+                     seen=None, covered=None):
         """A short easy warm-up quiz revising earlier material (spaced retrieval).
         For a term plan `recap_focus` is the previous week's topic.
 
         The recap carries no mini-lesson by design: it revises what the student
         already knows, so there is nothing to teach and nothing to pass to the
         generator.
+
+        It does get told what today's booklet teaches, as an exclusion. Without
+        it the recap knew nothing about the booklet it opens, and the only
+        guard was an exact-text dedupe, which catches a repeated question and
+        not a repeated skill and not a pre-taught one. A warm-up that asks
+        about the thing the first lesson is about to teach is a spoiler, and
+        one that asks about something the student has never been taught is an
+        ambush on question 1, which is where a child decides how this is going
+        to go.
         """
         if self._n_recap <= 0:
             return []
@@ -682,6 +694,11 @@ class BookletPipeline:
         if seen is None:
             seen = _SeenQuestions()
         name = recap_focus or f"quick revision of key {subject} skills learned earlier"
+        today = [s for _, s in (covered or []) if s]
+        if today:
+            name += (". Revise only skills the student has met in earlier "
+                     "weeks. Do NOT ask about anything this booklet is about "
+                     "to teach: " + "; ".join(today))
         st = Subtopic(name=name, difficulty_hint="easy")
         try:
             # allow_passages=False: the recap is a handful of loose questions
@@ -909,7 +926,7 @@ class BookletPipeline:
                 subject, year_level, topic_name, subtopic, reference_chunks,
             )
         except Exception as e:
-            # Soft failure — booklet still renders without the mini-lesson.
+            # Soft failure: the booklet still renders without the mini-lesson.
             log.warning(
                 "pipeline.intro_failed",
                 extra={"subject": subject, "subtopic": subtopic.name, "error": str(e)[:200]},
@@ -993,7 +1010,7 @@ class BookletPipeline:
             fallback.notes = f"sympy inconclusive; {fallback.notes}"
             return fallback
         if key in {"reasoning", "verbal reasoning", "quantitative reasoning"}:
-            # Deterministic check for ciphers and number sequences first — it
+            # Deterministic check for ciphers and number sequences first, it
             # catches broken examples the LLM judge waves through. Only when it
             # can't assess (returns None) do we fall back to the judge.
             det = self._reasoning.validate(q)
@@ -1072,7 +1089,7 @@ class BookletPipeline:
 
     def _reasoning_reject(self, subject: str, q: Question) -> bool:
         """True if the deterministic reasoning checker can PROVE the question is
-        broken (unsolvable cipher, wrong sequence). Deterministic and free — no
+        broken (unsolvable cipher, wrong sequence). Deterministic and free, no
         API call. Returns False for non-reasoning subjects or questions the
         checker can't assess."""
         if subject.strip().lower() not in {
@@ -1128,7 +1145,7 @@ class BookletPipeline:
             retry_count = 0
             # Regenerate while the question fails validation OR duplicates one we
             # already accepted. On each retry we pull a fresh BATCH and scan all
-            # of its questions for the best non-duplicate — taking only the first
+            # of its questions for the best non-duplicate, taking only the first
             # question (the old behaviour) produced repeated questions whenever
             # the model favoured the same opener.
             while (not result.verified or self._norm_q(q.question) in seen) \
@@ -1160,7 +1177,7 @@ class BookletPipeline:
                 if best_q is not None:
                     q, result = best_q, best_result
             # A reasoning question the deterministic checker can prove is
-            # broken (unsolvable cipher/sequence) must never appear — drop it
+            # broken (unsolvable cipher/sequence) must never appear, so drop it
             # rather than show an unsolvable question, even without a check mark.
             if self._reasoning_reject(subject, q):
                 log.info("pipeline.drop_broken",
@@ -1253,7 +1270,7 @@ class BookletPipeline:
                          extra={"subject": subject})
                 continue
             result = self._validate(subject, year_level, q, reference_chunks)
-            # For the challenge set we tolerate the LLM's first attempt more —
+            # For the challenge set we tolerate the LLM's first attempt more,
             # regeneration would cost another full-set call. Just record the
             # verification status.
             image_path, image_attr = self._resolve_visual(q)

@@ -39,6 +39,6 @@ def get_embedder(config: Config | None = None):
     """Returns whichever embedder makes sense for the configured provider.
 
     Today: always Gemini (works fine even when LLM_PROVIDER=claude, as long as
-    a GEMINI_API_KEY is present — embeddings and generation are decoupled).
+    a GEMINI_API_KEY is present, embeddings and generation are decoupled).
     """
     return GeminiEmbedder(config)

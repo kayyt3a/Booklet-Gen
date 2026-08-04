@@ -2,13 +2,13 @@
 
 Called from the pipeline once the generator has returned a Question with a
 diagram_spec. Returns a path to a PNG, or None on any failure (in which
-case the question just renders without an image — never blocks the booklet).
+case the question just renders without an image, never blocks the booklet).
 
 Supported spec types
 --------------------
 { "type": "circle_slices", "slices": 4, "shaded": 1 }
     A circle divided into equal wedges by straight lines through the centre.
-    User's example — "circle sliced into 4 portions" — becomes two lines
+    User's example, "circle sliced into 4 portions", becomes two lines
     (horizontal + vertical), giving four quadrants with `shaded` shaded.
 
 { "type": "bar_model", "parts": 8, "shaded": 5 }
@@ -162,7 +162,7 @@ def _circle_slices(spec: dict, out: Path) -> None:
     shaded = max(0, min(shaded, slices))
 
     fig, ax = plt.subplots(figsize=(2.4, 2.4), dpi=180)
-    # Shaded wedges — wedges are drawn CCW from the theta1 angle.
+    # Shaded wedges: wedges are drawn CCW from the theta1 angle.
     wedge_angle = 360.0 / slices
     for i in range(slices):
         # Start each wedge at 90° so the "first" slice sits at 12 o'clock.
@@ -172,7 +172,7 @@ def _circle_slices(spec: dict, out: Path) -> None:
             ax.add_patch(Wedge((0, 0), 1.0, t1, t2,
                                facecolor=SHADE_COLOR, alpha=SHADE_ALPHA,
                                edgecolor="none"))
-    # Straight line dividers (radii) — always visible over the shading.
+    # Straight line dividers (radii), always visible over the shading.
     for i in range(slices):
         angle = math.radians(90 - i * wedge_angle)
         x, y = math.cos(angle), math.sin(angle)
@@ -459,7 +459,7 @@ def _cylinder(spec: dict, out: Path) -> None:
 
 
 def _pretty_num(x: float) -> str:
-    """Render numbers without gratuitous decimals — 4.0 -> "4", 3.5 -> "3.5"."""
+    """Render numbers without gratuitous decimals: 4.0 -> "4", 3.5 -> "3.5"."""
     if abs(x - round(x)) < 1e-9:
         return str(int(round(x)))
     return f"{x:g}"

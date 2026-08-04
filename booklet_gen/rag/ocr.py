@@ -2,7 +2,7 @@
 
 Uses pdf2image (poppler) to render pages, then pytesseract to OCR them.
 Only invoked per-page when the pypdf text extraction is too sparse to be
-useful — mixed PDFs still get fast text extraction where possible.
+useful: mixed PDFs still get fast text extraction where possible.
 """
 from __future__ import annotations
 

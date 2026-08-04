@@ -63,7 +63,7 @@ class ChallengeGeneratorAgent:
         if reference_chunks:
             joined = "\n\n---\n\n".join(reference_chunks[:6])
             base_user += (
-                "\n\nReference material (real textbook/exam excerpts at this level — "
+                "\n\nReference material (real textbook/exam excerpts at this level, "
                 "for calibration only; do NOT copy verbatim):\n\n" + joined
             )
         error_feedback = ""
