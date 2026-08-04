@@ -140,6 +140,16 @@ def _make_styles():
             fontSize=18, leading=22, spaceBefore=6, spaceAfter=8,
             textColor=colors.HexColor("#1F3A5F"),
         ),
+        # The four parts of the answer key. In the body each of these gets a
+        # full-width coloured band, and the key used to set them in "topic",
+        # the same style as the topic name inside them, so "Class Work" and
+        # "Fractions" were typographically identical and whoever was marking
+        # could not see where one part stopped and the next began. The key
+        # reuses the body's bands instead.
+        "key_part": ParagraphStyle(
+            "key_part", parent=base["Heading1"], fontName=FONT_BOLD,
+            fontSize=21, leading=25, spaceBefore=16, spaceAfter=1,
+        ),
         "subtopic": ParagraphStyle(
             "subtopic", parent=base["Heading2"], fontName=FONT_BOLD,
             fontSize=13.5, leading=17, spaceBefore=12, spaceAfter=7,
@@ -942,6 +952,32 @@ def _passage_flowable(styles, passage):
     return tbl
 
 
+def _key_part_heading(styles, text: str, hex_colour: str):
+    """A part divider inside the answer key: Warm-up, Class Work, Homework,
+    Final Challenge.
+
+    Carries the part's own colour from the body and a rule under it, so the
+    marker can find where Class Work stops without reading every heading. A
+    solid band would match the body exactly, but there are four of them and a
+    reversed-out band costs about five plain pages' worth of ink; the key is
+    read by an adult with a pen, and it needs to be scannable rather than
+    inviting.
+    """
+    style = ParagraphStyle("key_part_" + text.replace(" ", ""),
+                           parent=styles["key_part"],
+                           textColor=colors.HexColor(hex_colour))
+    rule = Table([[""]], colWidths=[A4[0] - 2 * PAGE_MARGIN], rowHeights=[2])
+    rule.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(hex_colour)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return KeepTogether([Paragraph(_escape(text), style), rule,
+                         Spacer(1, 0.25 * cm)])
+
+
 def _part_band(styles, text: str, bg_hex: str, subtitle: str = ""):
     """A full-width coloured divider for a major part (Recap / Class Work /
     Homework), so the two halves of the booklet read as distinct sections."""
@@ -991,6 +1027,10 @@ BODY_HEIGHT = A4[1] - 2 * PAGE_MARGIN
 # than on a fresh page: the band, a heading and a question or two. Raise this to
 # BODY_HEIGHT / cm to go back to Homework always starting on its own page.
 HOMEWORK_MIN_START_CM = 7.0
+
+# The same, for the Final Challenge: its band, blurb and first question need
+# room, or the band strands itself at the foot of a page.
+_CHALLENGE_MIN_START_CM = 9.0
 
 
 def part_labels(text: str) -> list[str]:
@@ -1344,6 +1384,11 @@ def cover_background_path() -> str | None:
 
 
 def _draw_page_chrome(canvas, doc):
+    if doc.page == 1:
+        # Declares the document's language to a screen reader and to any
+        # procurement checklist that looks. ReportLab has no doc-level setter
+        # for it, so it goes on the catalog from the first page.
+        canvas.setCatalogEntry("Lang", "en-AU")
     canvas.saveState()
     # Page 1 is the cover. When a background image is configured, draw it full
     # bleed and skip the running header/footer so the design stays clean.
@@ -1916,15 +1961,22 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                     j += 1
 
         if data.challenge_questions:
+            # The Final Challenge is a scored part of the booklet, the same as
+            # the Warm-up, Class Work and Homework, and it is the one the
+            # product is sold on. It used to arrive as a centred heading a
+            # centimetre below the last homework question, so after twenty
+            # questions the thing called the challenge appeared squashed at the
+            # foot of the page it had been working down. It gets the same band
+            # every other part gets, and a page of its own to arrive on.
             story.append(Spacer(1, 0.4 * cm))
-            story.append(Paragraph("Final Challenge", styles["challenge_heading"]))
-            ct = (f" (about {times['challenge_minutes']} min)"
+            story.append(CondPageBreak(_CHALLENGE_MIN_START_CM * cm))
+            ct = (f" About {times['challenge_minutes']} min."
                   if times["challenge_minutes"] else "")
-            story.append(Paragraph(
-                "Now let's see how well you know it all. Questions from across "
-                f"everything you practised.{ct}",
-                styles["challenge_blurb"],
-            ))
+            story.append(_part_band(
+                styles, "Final Challenge", "#8B1E3F",
+                "You have done the hard part. These last questions mix "
+                f"everything together. Nothing new, just all at once.{ct}"))
+            story.append(Spacer(1, 0.3 * cm))
             render_questions(data.challenge_questions)
 
     # ---- Spelling List (words to learn for next week) ----
@@ -1977,10 +2029,10 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             story.append(_answer_block(styles, shown(acount["n"]), vq, page))
 
     if data.recap_questions:
-        story.append(Paragraph("Warm-up Recap", styles["topic"]))
+        story.append(_key_part_heading(styles, "Warm-up Recap", "#6b7280"))
         render_answers(data.recap_questions)
 
-    story.append(Paragraph("Class Work", styles["topic"]))
+    story.append(_key_part_heading(styles, "Class Work", "#1F3A5F"))
     state = {"subject": None, "topic": None}
     for section in data.sections:
         # A subtopic the hour cap moved out has no class work, and its answers
@@ -1999,7 +2051,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                                          section_passages(section)))
 
     if has_homework:
-        story.append(Paragraph("Homework", styles["topic"]))
+        story.append(_key_part_heading(styles, "Homework", "#8B1E3F"))
         state = {"subject": None, "topic": None}
         for section in data.sections:
             if not section.homework_questions:
@@ -2010,7 +2062,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                                              section_passages(section)))
 
     if data.challenge_questions:
-        story.append(Paragraph("Final Challenge", styles["topic"]))
+        story.append(_key_part_heading(styles, "Final Challenge", "#8B1E3F"))
         render_answers(data.challenge_questions)
 
     story.extend(_image_credits_block(styles, data))
@@ -2068,14 +2120,34 @@ def _image_credits_block(styles, data: BookletData) -> list:
     return out
 
 
+def booklet_title(data: BookletData) -> str:
+    """What the file calls itself: in a browser tab, a print queue, Properties.
+
+    Every booklet used to be titled "Academic Accelerate Practice Booklet",
+    which is the same string for a Year 1 English booklet and a Year 10 maths
+    one, so a tutor with four of them open could not tell which tab was which.
+    """
+    parts = [data.program_label or data.subject, data.year_level]
+    if data.program_label and data.subject and data.subject != data.program_label:
+        parts.insert(1, data.subject)
+    if data.student_name:
+        parts.append(data.student_name)
+    return " - ".join(p for p in parts if p)
+
+
 def _booklet_doc(target, data: BookletData):
     doc = BaseDocTemplate(
         target,
         pagesize=A4,
         leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
         topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
-        title=f"{data.program_label or data.subject} Practice Booklet",
+        title=booklet_title(data),
         author="Folio",
+        # ReportLab writes its own literal "(unspecified)" into these when they
+        # are left off, and a parent sees that in the Properties dialog of the
+        # thing they paid for.
+        subject=f"{data.subject} practice, {data.year_level}",
+        creator="Folio",
     )
     _head = data.program_label or data.subject
     doc._header_text = f"{_head}  |  {data.year_level}  |  {data.student_name}"

@@ -801,6 +801,55 @@ check(hw_shown and max(n for n in hw_shown if n is not None) < len(markers),
 check(f"(p{key_start + 1})" not in key_text and "(p1)" not in key_text,
       "no reference points into the key itself or the cover")
 
+# The key's four parts used to be set in "topic", the same style as the topic
+# name inside them, so "Class Work" and "Fractions" were typographically
+# identical and whoever was marking could not see where one part stopped.
+# What the file calls itself, in a browser tab, a print queue and the
+# Properties dialog. Every booklet was titled "<program> Practice Booklet",
+# identical for a Year 1 English booklet and a Year 10 maths one, and Subject
+# and Creator carried ReportLab's literal "(unspecified)".
+print("\nPDF metadata")
+_meta = pypdf.PdfReader(str(booklet)).metadata
+_root = pypdf.PdfReader(str(booklet)).trailer["/Root"]
+for field in ("/Title", "/Author", "/Subject", "/Creator"):
+    value = str(_meta.get(field) or "")
+    check(value and "unspecified" not in value.lower(),
+          f"{field} is filled in", repr(value))
+title = str(_meta.get("/Title") or "")
+check(data.year_level in title and (data.student_name or "") in title,
+      "the title identifies the year and the student, so two tabs differ",
+      repr(title))
+check(str(_root.get("/Lang") or "") == "en-AU",
+      "the document declares its language", repr(str(_root.get("/Lang"))))
+
+print("\nAnswer key hierarchy")
+KEY_PARTS = ("Warm-up Recap", "Class Work", "Homework", "Final Challenge")
+for part in KEY_PARTS:
+    check(key_text.count(part) >= 1, f"the key still names {part}")
+# Size is the thing that carries the hierarchy, and it is measurable.
+sizes = {}
+for page in pypdf.PdfReader(str(booklet)).pages[key_start:]:
+    page.extract_text(visitor_text=lambda t, c, tm, fd, fs: sizes.setdefault(
+        t.strip(), round(float(fs) * abs(tm[0] or 1.0), 1)) if t.strip() else None)
+part_sizes = [sizes[p] for p in KEY_PARTS if p in sizes]
+topic_sizes = [v for k, v in sizes.items()
+               if k in ("Fractions", "Decimals", "Measurement")]
+check(bool(part_sizes) and bool(topic_sizes),
+      "both a part heading and a topic heading were measured in the key",
+      f"parts {part_sizes}, topics {topic_sizes}")
+check(part_sizes and topic_sizes and min(part_sizes) > max(topic_sizes),
+      "a part heading in the key outranks a topic heading inside it",
+      f"parts {sorted(set(part_sizes))} vs topics {sorted(set(topic_sizes))}")
+
+# The Final Challenge is a scored part like the others and it is what the
+# product is sold on. It used to arrive as a centred heading a centimetre below
+# the last homework question.
+challenge_page = next((i for i, p in enumerate(pages[:key_start])
+                       if "Final Challenge" in p), None)
+check(challenge_page is not None, "the Final Challenge is in the body")
+check("You have done the hard part" in question_text.replace("\n", " "),
+      "and arrives as an earned part, not as more questions")
+
 print("\nScore line")
 check(f"______ / {n_questions}" in text.replace("\n", " "),
       "there is a total to mark out of", str(n_questions))

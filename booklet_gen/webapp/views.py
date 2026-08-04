@@ -121,7 +121,14 @@ def generate():
         return redirect(url_for("views.index"))
 
     job_id = uuid.uuid4().hex
+    # The student's name belongs in the label. Without it every Year 5 maths
+    # booklet a tutor generates is called "Academic Accelerate - Year 5 -
+    # Mathematics", so five students give five identical rows in My Booklets
+    # and five downloads the browser quietly numbers (1), (2), (3). The name is
+    # already collected and already printed on the cover.
     label = f"{PROGRAMS[program].label} - {year}" + (f" - {subject}" if subject else "")
+    if name:
+        label = f"{label} - {name}"
     if is_term:
         label = f"{label} (term plan)"
     db.create_job(job_id, g.user["id"], label, units=units)
@@ -157,8 +164,11 @@ def _run_job(job_id: str, a: dict):
     try:
         pipeline = BookletPipeline()
         out_dir = Path(a["out_dir"])
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        slug = _slug(a.get("label") or "booklet")
+        # Dated, so a tutor generating a booklet a week for the same student
+        # gets files they can tell apart in a Downloads folder. `label` now
+        # carries the student's name, so this is the last thing needed to make
+        # the name unique. (`ts` was computed here and never used.)
+        slug = f"{_slug(a.get('label') or 'booklet')}-{datetime.now():%Y%m%d}"
         if a.get("is_exam"):
             paper = pipeline.run_exam(
                 a["year"], a["name"], topic_focus=a["topic"],
