@@ -443,6 +443,14 @@ class BookletPipeline:
         Every subtopic keeps at least one classwork question: a mini-lesson
         with nothing to try immediately afterwards is worse than a slightly
         long session.
+
+        The hour is held in every case but one. A reading and its five
+        questions move as a unit and are never split, so an English session
+        already down to `MIN_CLASSWORK_SUBTOPICS` readings can only get under
+        the cap by dropping to two, which throws away a third of the session to
+        save a minute or two. It runs a little long instead, and logs that it
+        did. The printed estimate is recomputed from the booklet either way, so
+        the page still tells the truth about the overrun.
         """
         if not sections:
             return
@@ -496,47 +504,88 @@ class BookletPipeline:
         # Bounded: each pass moves at least one question and no section goes
         # below one.
         while total() > CLASSWORK_CAP_MINUTES:
-            movable = [s for s in in_session() if len(s.questions) > 1]
-            if not movable:
+            # Sections that can give ground without splitting a reading go
+            # first, so an English booklet loses a maths-shaped tail or a whole
+            # spare reading before any comprehension is broken up.
+            movable = [s for s in in_session()
+                       if BookletPipeline._tail_group_size(s) < len(s.questions)]
+            if movable:
+                biggest = max(movable, key=lambda s: len(s.questions))
+                BookletPipeline._move_tail_to_homework(biggest)
+                continue
+            # Everything left is a single reading and the questions about it.
+            # Splitting one is the thing we will not do, so a whole subtopic
+            # moves to Homework instead, taking its reading and all five
+            # questions together. If that would leave too thin a session,
+            # accept the overrun: a few minutes long beats a comprehension
+            # broken in half.
+            droppable = in_session()
+            if len(droppable) <= MIN_CLASSWORK_SUBTOPICS:
+                log.warning(
+                    "pipeline.classwork_over_cap",
+                    extra={"minutes": round(total(), 1),
+                           "cap": CLASSWORK_CAP_MINUTES,
+                           "subtopics": len(droppable),
+                           "reason": "every remaining subtopic is one reading, "
+                                     "and a reading is not split"})
                 break
-            biggest = max(movable, key=lambda s: len(s.questions))
-            BookletPipeline._move_tail_to_homework(biggest)
+            dropped = droppable[-1]
+            dropped.homework_questions[:0] = dropped.questions
+            dropped.questions = []
+            log.info("pipeline.reading_subtopic_to_homework",
+                     extra={"subtopic": dropped.subtopic,
+                            "still_over_by": round(total() - CLASSWORK_CAP_MINUTES, 1)})
 
         for s in sections:
             s.estimated_minutes = (
                 round_display(classwork_section_minutes(s)) if s.questions else None)
 
     @staticmethod
-    def _move_tail_to_homework(section) -> None:
-        """Move the last classwork question, or its whole passage group, down.
+    def _tail_group_size(section) -> int:
+        """How many classwork questions the last one cannot be separated from.
 
-        Trimming the hour one question at a time would otherwise undo the
-        passage-safe split: the last two questions of a three question reading
-        would end up in Homework while the third stayed in Class Work, and the
-        student would meet the same passage in both halves. Moving the group
-        keeps a reading and its questions together.
-
-        The exception is a section that is nothing but one passage group. There
-        the group cannot move whole without emptying Class Work, so one
-        question moves and the passage stays available to both halves through
-        `SubtopicOutput.passages`. That is the case the schema's
-        subtopic-level passage list exists for.
+        One, unless the last question hangs off a reading, in which case it is
+        every question about that reading.
         """
         qs = section.questions
-        if len(qs) <= 1:
-            return
+        if not qs:
+            return 0
         pid = qs[-1].question.passage_id
+        if not pid:
+            return 1
         n = 1
-        if pid:
-            while n < len(qs) and qs[-(n + 1)].question.passage_id == pid:
-                n += 1
-            if n >= len(qs):
-                n = 1
+        while n < len(qs) and qs[-(n + 1)].question.passage_id == pid:
+            n += 1
+        return n
+
+    @staticmethod
+    def _move_tail_to_homework(section) -> bool:
+        """Move the last classwork question, or its whole reading, down.
+
+        Trimming the hour one question at a time would undo the passage-safe
+        split: the last two questions of a three question reading would end up
+        in Homework while the third stayed in Class Work, and the student would
+        meet the same passage in both halves. Moving the group keeps a reading
+        and its questions together.
+
+        A reading is never split, not even when it is the whole section. It
+        used to be: a section that was one reading gave ground a question at a
+        time, so a five question comprehension was whittled to two in Class
+        Work and three in Homework under the same passage printed twice. Five
+        questions follow a reading, and a booklet that quietly delivers two is
+        not the product. Returns False in that case, leaving the section alone
+        for `_fit_classwork_to_cap` to move whole instead.
+        """
+        qs = section.questions
+        n = BookletPipeline._tail_group_size(section)
+        if len(qs) <= 1 or n >= len(qs):
+            return False
         moved = qs[-n:]
         del qs[-n:]
         # Prepend, so questions arrive in Homework in the order they were
         # written and a moved group stays contiguous there too.
         section.homework_questions[:0] = moved
+        return True
 
     @staticmethod
     def _timing(sections, challenge, recap) -> dict:

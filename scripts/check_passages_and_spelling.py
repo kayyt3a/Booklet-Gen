@@ -55,8 +55,8 @@ from booklet_gen.agents.term_planner import (                    # noqa: E402
     TermPlannerAgent, _ladder, _norm_focus)
 from booklet_gen.pipeline import BookletPipeline                 # noqa: E402
 from booklet_gen.schemas import (                                # noqa: E402
-    Passage, Question, SpellingList, Subtopic, SubtopicOutput, TermPlan,
-    TermWeek, ValidatedQuestion)
+    Passage, Question, SpellingList, Subtopic, SubtopicOutput, SubtopicTeaching,
+    TermPlan, TermWeek, ValidatedQuestion, WorkedExample)
 
 PASSED = 0
 TOTAL = 0
@@ -447,22 +447,68 @@ def passages() -> None:
           == ["c2", "c3", "c4", "h1"],
           "and they stay contiguous and in order in Homework")
 
+    # A section that is nothing but one reading used to give ground a question
+    # at a time, which whittled a five question comprehension down to two in
+    # Class Work and three in Homework under the same passage printed twice.
+    # Five questions follow a reading. It refuses to move instead, and the
+    # caller moves the whole subtopic.
     only_group = SubtopicOutput(
         topic="Reading", subtopic="Inference",
-        questions=[vq("c1", "A"), vq("c2", "A"), vq("c3", "A")],
+        questions=[vq(f"c{i}", "A") for i in range(1, 6)],
         passages=[Passage(id="A", paragraphs=["Reading."])])
-    BookletPipeline._move_tail_to_homework(only_group)
-    check(len(only_group.questions) == 2 and len(only_group.homework_questions) == 1,
-          "a section that is nothing but one passage still gives ground one "
-          "question at a time rather than emptying Class Work")
+    moved = BookletPipeline._move_tail_to_homework(only_group)
+    check(moved is False and len(only_group.questions) == 5
+          and not only_group.homework_questions,
+          "a section that is nothing but one reading is never split, it "
+          "refuses to move and says so",
+          f"moved={moved}, {len(only_group.questions)} left in class work")
     check(only_group.passages[0].id == "A",
-          "and the passage stays on the SUBTOPIC, so the split group is still "
-          "resolvable from both halves: this is why passages are not stored "
-          "per half")
+          "and the passage stays on the SUBTOPIC, so a group that does move "
+          "whole is still resolvable from both halves: this is why passages "
+          "are not stored per half")
 
     lone = SubtopicOutput(topic="t", subtopic="s", questions=[vq("only", "A")])
     BookletPipeline._move_tail_to_homework(lone)
     check(len(lone.questions) == 1, "the last classwork question never moves")
+
+    # End to end, through the real cap fitter, on an English booklet far over
+    # the hour. This is the shape the bug actually appeared in: five readings
+    # of five questions each, where trimming a question at a time left the
+    # student two questions in class and three in homework under the same
+    # passage reprinted.
+    def reading_section(i: int) -> SubtopicOutput:
+        return SubtopicOutput(
+            topic="Reading", subtopic=f"Reading {i}",
+            teaching=SubtopicTeaching(
+                intro_paragraphs=["A mini-lesson long enough to cost real "
+                                  "minutes when the cap is measured. " * 6],
+                key_points=["Read the whole thing first."],
+                worked_example=WorkedExample(
+                    question="A worked comprehension question.",
+                    steps=["Find it.", "Say it."], answer="There"),
+                guided_examples=[WorkedExample(
+                    question="Try this one together.",
+                    steps=["Find it.", "Say it."], answer="There")]),
+            questions=[vq(f"r{i}q{j}", f"P{i}") for j in range(5)],
+            passages=[Passage(id=f"P{i}",
+                              paragraphs=["A story worth reading."] * 5)])
+
+    booklet = [reading_section(i) for i in range(5)]
+    BookletPipeline._fit_classwork_to_cap(booklet)
+    check(sum(1 for s in booklet if s.questions) < 5,
+          "an English booklet over the hour really is trimmed by the cap",
+          f"{sum(1 for s in booklet if s.questions)} of 5 readings taught")
+    split = [s.subtopic for s in booklet
+             if {q.question.passage_id for q in s.questions}
+             & {q.question.passage_id for q in s.homework_questions}]
+    check(not split,
+          "and no reading ends up with some questions in Class Work and the "
+          "rest in Homework", str(split))
+    for s in booklet:
+        half = s.questions or s.homework_questions
+        check(len(half) == 5,
+              f"{s.subtopic} keeps all five questions in whichever half it "
+              f"landed in", f"{len(half)} questions")
 
     print("\n== a maths booklet is untouched ==")
     client = StubClient(questions=MATHS_PAYLOAD)
