@@ -45,8 +45,9 @@ from booklet_gen.formatter import (                             # noqa: E402
     HOMEWORK_MIN_START_CM, PAGE_MARGIN, SPELLING_TEST_SPACES, _escape,
     _lesson_html, _register_fonts, answer_line_labels, answer_unit,
     apply_bold_markup, key_answer, ordered_questions, part_counts, part_labels,
-    passage_groups, quote_inline_examples, render_exam_pdf, render_pdf,
-    simplify_fractions_in_answer, solution_lines, spelling_test_spaces)
+    passage_groups, question_numbering, quote_inline_examples, render_exam_pdf,
+    render_pdf, simplify_fractions_in_answer, solution_lines,
+    spelling_test_spaces)
 from booklet_gen.schemas import (                               # noqa: E402
     ExamPaper, ExamSection, SubtopicTeaching, ValidatedQuestion, WorkedExample)
 from booklet_gen.timing import (                                # noqa: E402
@@ -611,7 +612,49 @@ check(printed and max(printed) < n_questions,
       f"of {n_questions} questions")
 check(printed.count(1) > 1, "the numbering restarts more than once",
       f"{printed.count(1)} sections start at 1")
-check(f"(p{key_start})" not in key_text and "(p1)" not in key_text,
+
+# The key is only usable if the number beside an answer is the number beside
+# the question. Class Work restarted its numbering and Homework did not, so a
+# parent marking homework read "1." in the key against "17." on the page.
+#
+# Both are checked against `question_numbering`, the one function that decides
+# what a question is called, and each question is found by its own marker text
+# rather than by counting numbered lines: mini-lessons number their steps 1, 2,
+# 3 as well, and counting lines cannot tell a step from a question.
+nums = question_numbering(data)
+body_shown, missing = [], []
+for i, marker in enumerate(markers, 1):
+    m = re.search(r"^(\d+)\.\s[^\n]*" + re.escape(marker),
+                  question_text, re.MULTILINE)
+    body_shown.append(int(m.group(1)) if m else None)
+    if m is None:
+        missing.append(marker)
+check(not missing, "every question prints with a number beside it",
+      str(missing[:3]))
+expected = [nums.get(i) for i in range(1, len(markers) + 1)]
+wrong_body = [(mk, g, e) for mk, g, e in zip(markers, body_shown, expected)
+              if g != e]
+check(not wrong_body, "the page numbers every question as the numbering says",
+      str(wrong_body[:3]))
+wrong_key = [(i, g, e) for i, (g, e) in enumerate(zip(printed, expected), 1)
+             if g != e]
+check(not wrong_key, "and the key numbers every answer exactly the same way",
+      str(wrong_key[:3]))
+
+# The specific regression: Homework used to print the running index while the
+# key printed the restarted number, so the two halves of a marked booklet
+# disagreed from question 17 on.
+hw_start = len(data.recap_questions) + sum(len(s.questions) for s in sections)
+hw_shown = body_shown[hw_start:hw_start + sum(len(s.homework_questions)
+                                              for s in sections)]
+check(hw_shown and max(n for n in hw_shown if n is not None) < len(markers),
+      "homework numbers restart too, rather than running on to the booklet total",
+      f"highest homework number {max(n for n in hw_shown if n is not None)}")
+# `key_start` is a 0-based index, so the key's own first page prints as
+# `key_start + 1`. Testing `key_start` tested the last *question* page, which is
+# a perfectly legal target and only passed while no question happened to land
+# there.
+check(f"(p{key_start + 1})" not in key_text and "(p1)" not in key_text,
       "no reference points into the key itself or the cover")
 
 print("\nScore line")
@@ -634,9 +677,16 @@ check(len(bands) == len(plan), "one band printed per session",
 check([int(a) for a, _ in bands] == list(range(1, len(plan) + 1)),
       "sessions are numbered in order", str(bands))
 check(all(b == str(len(plan)) for _, b in bands), "each band says the total")
-first_hw = n_questions - n_hw - len(data.challenge_questions) + 1
-check(f"questions {first_hw} to" in question_text.replace("\n", " "),
-      "the first session names the questions it covers", f"from {first_hw}")
+# A band says how much work the sitting holds, not which numbered questions.
+# Numbers restart at every subtopic and every reading, so a span like
+# "questions 17 to 27" named numbers printed nowhere in the booklet.
+band_counts = [int(c) for c in
+               re.findall(r"Session \d+ of \d+\s*\|\s*(\d+) questions?",
+                          question_text.replace("\n", " "))]
+check(band_counts == [p["count"] for p in plan],
+      "each band says how many questions its sitting holds", str(band_counts))
+check("questions 1 to" not in question_text.replace("\n", " "),
+      "and names no numbered span, which restarted numbering makes meaningless")
 check(homework_session_plan(BookletData(
     subject="Maths", year_level="Year 5", student_name="A",
     sections=[SubtopicOutput(topic="T", subtopic="S", questions=[],

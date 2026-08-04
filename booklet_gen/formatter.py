@@ -1331,15 +1331,19 @@ def _score_card(styles, data: BookletData):
     return KeepTogether([caption, Spacer(1, 0.1 * cm), tbl])
 
 
-def _session_band(styles, index: int, of: int, minutes: int,
-                  first_q: int, last_q: int):
+def _session_band(styles, index: int, of: int, minutes: int, count: int):
     """A day marker inside the Homework part.
 
     Thirty-five questions billed as one number "across the week" is not a plan,
     it is a pile. This splits the pile into sittings a parent can point at.
+
+    The band counts the sitting's questions rather than naming a numbered span.
+    Question numbers restart at each subtopic and each reading, so "questions 17
+    to 27" named numbers that appear nowhere on the page. Where a sitting stops
+    is shown by where the next band starts; what the band has to say is how much
+    work is in it.
     """
-    span = (f"question {first_q}" if first_q == last_q
-            else f"questions {first_q} to {last_q}")
+    span = "1 question" if count == 1 else f"{count} questions"
     text = (f"<b>Session {index} of {of}</b>  |  {span}  |  about {minutes} min"
             "  |  Date: __________")
     tbl = Table([[Paragraph(text, styles["question"])]],
@@ -1694,7 +1698,6 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # session may start part way through a subtopic. When it starts on the
         # first question of a subtopic the band goes above that heading, not
         # between the heading and its questions.
-        first_homework_number = counter["n"] + 1
         starts = {s["start"]: (i + 1, s) for i, s in enumerate(sessions)}
 
         def session_band_for(flat_index: int):
@@ -1702,10 +1705,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             if not hit:
                 return None
             i, s = hit
-            return _session_band(
-                styles, i, len(sessions), s["minutes"],
-                first_homework_number + s["start"],
-                first_homework_number + s["end"] - 1)
+            return _session_band(styles, i, len(sessions), s["minutes"],
+                                 s["count"])
 
         flat = 0
         state = {"subject": None, "topic": None}
@@ -1731,6 +1732,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             for passage, group in passage_groups(section.homework_questions,
                                                  section_passages(section)):
                 for i, vq in enumerate(group):
+                    if j:
+                        story.append(Spacer(1, Q_GAP))
                     band = session_band_for(flat)
                     if band is not None:
                         if flat:
@@ -1756,10 +1759,12 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                         block = _passage_question_block(
                             styles, passage,
                             _question_flowables(styles, counter["n"], vq,
-                                                page_map))
+                                                page_map, 0.0,
+                                                shown(counter["n"])))
                     else:
                         block = _question_block(styles, counter["n"], vq,
-                                                page_map)
+                                                page_map, 0.0,
+                                                shown(counter["n"]))
                     story.append(block)
                     flat += 1
                     j += 1
