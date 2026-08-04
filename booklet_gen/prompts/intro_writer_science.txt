@@ -40,6 +40,8 @@ CONTENT RULES
 - Key points: the number and length are set by the LENGTH LIMITS. Short, punchy.
 - Exactly ONE worked example. Steps must show real reasoning, for calculations, show the numbers; for explanations, show the causal chain.
 - Calibrate language to the year level.
+- Calibrate reading level by counting, not by feel. Average about 12 to 15 words a sentence for Years 3 to 6 and no sentence over 22; Years 1 to 2 shorter again, Years 7 and up may run a little longer. At most one subordinate clause in a sentence. A student who cannot read the sentence cannot reach the thinking it is asking for.
+
 
 `worked_example.diagram_spec` must be null for science.
 

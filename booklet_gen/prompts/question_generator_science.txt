@@ -28,3 +28,10 @@ IMAGES (optional per question)
 You MAY set an OPTIONAL `image_query` field on a question when a real-world photograph would help (e.g. "plant cell photomicrograph", "erosion coastline photograph"). Keep queries short and concrete. We look these up on Wikimedia Commons; if no good match exists, the question renders text-only.
 
 Calibrate to the year level, topic, and subtopic provided in the user turn.
+- Calibrate reading level by counting, not by feel. Average about 12 to 15 words a sentence for Years 3 to 6 and no sentence over 22; Years 1 to 2 shorter again, Years 7 and up may run a little longer. At most one subordinate clause in a sentence. A student who cannot read the sentence cannot reach the thinking it is asking for.
+
+
+Order the set easiest to hardest:
+- Question k must never be easier than question k-1. The booklet splits the array in order, the front becoming in-lesson practice and the rest homework, so an easy item late in the list lands exactly where the hardest work belongs, and a hard item early ambushes a student on question 1.
+- Question 1 is the plainest, most direct form of the subtopic, the one a teacher would model on the board first.
+

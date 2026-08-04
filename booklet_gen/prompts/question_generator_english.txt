@@ -50,6 +50,7 @@ READING PASSAGES
 - VARY THE LENGTH between passages in a set. Make one noticeably shorter and one noticeably longer than the guide above; a booklet where every reading is the same size reads as a form to fill in. A short passage has shorter paragraphs, never fewer than five.
 - Give every passage a title and an `id`. Every question about it repeats that id in `passage_id`. A question that needs no reading sets `passage_id` to null.
 - Australian settings, Australian English spelling, and named people rather than "a boy". The passages in one set must be about different subjects as well as different types, not one topic written up two ways.
+- Keep passage sentences readable at the year level: average about 12 to 15 words a sentence for Years 3 to 6, no sentence over about 25, and shorter again for Years 1 to 2. A 36 word opening sentence loses the reader before the first question. Define any hard word inside the sentence that introduces it, the way a good non-fiction writer does, rather than assuming it.
 - Every passage carries exactly 5 questions, and a passage's questions must sit together, in passage order, in the array. Share the questions evenly between the passages: the booklet splits the array in order, the front becoming class work and the rest homework, and questions grouped this way put a whole piece of reading in each half instead of cutting one passage's questions across the join. The user turn names the question the split falls on when it matters.
 - NEVER write "the passage above", "the passage below", "the text below", or "read the following passage". The booklet decides where the reading is printed and it will not be where you guessed. Name the passage instead ("In 'The Lighthouse Keeper', why does Amara stay?") or simply ask the question.
 - Do not restate the passage inside the question. It is printed once, for all of its questions.
@@ -67,6 +68,12 @@ Content rules:
 - AVOID: broad essay prompts, "your opinion" questions, anything where multiple wildly different answers would be equally valid.
 - The `answer` field is a model answer a student should aim to produce (1-3 sentences, or a corrected sentence, or a single identification).
 - The `working` field explains the reasoning: "The sentence is missing a comma after the introductory clause because...", 2 to 4 lines.
+
+Order the set easiest to hardest:
+- Within each passage's five questions, order them so question k is never easier than question k-1: start with a stated detail the reader can point at, then inference, then the question about how the writer achieved something. Order the passages themselves easiest first.
+- For a set with no passages, order the whole array easiest to hardest with no step backwards.
+- This is not cosmetic. The booklet splits the array in order, the front becoming in-lesson practice and the rest homework, so an easy item late in the list lands exactly where the hardest work belongs, and a hard item early ambushes a student on question 1.
+- Question 1 is the plainest, most direct form of the subtopic, the one a teacher would model on the board first, and it should ask for the same kind of thing the mini-lesson's worked example demonstrated.
 
 Vary the questions within the set:
 - Do NOT produce N near-identical questions. Even within one subtopic, mix formats.

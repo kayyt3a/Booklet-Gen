@@ -186,9 +186,18 @@ class StubClient:
 
     @staticmethod
     def agent_of(system: str) -> str:
+        # Dispatch on how each prompt OPENS, not on a word that happens to
+        # appear in it. This used to test `"mini-lesson" in system`, which is
+        # true of the intro writer and also of any other prompt that mentions
+        # the mini-lesson in passing: telling the question generator to make
+        # question 1 match the mini-lesson's worked example silently turned
+        # every question-generation call into an intro call, and the failure
+        # surfaced as a schema error three layers away.
         if system.startswith("You convert a short natural-language description"):
             return "outline"
-        if "mini-lesson" in system:
+        if system.startswith("You generate practice"):
+            return "questions"
+        if "writing a mini-lesson" in system:
             return "intro"
         if system.startswith("You set the weekly spelling list"):
             return "spelling"

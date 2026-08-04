@@ -44,7 +44,8 @@ CONTENT RULES
 - Spelling is NOT taught here. Words are set as a weekly list and tested by dictation in another part of the booklet, so never write a lesson or an example that works out how a single word is spelt. If the subtopic still names spelling, teach word structure that transfers to unseen words (prefixes, suffixes, plurals) instead of the letters of one word.
 - Exactly ONE worked example. The lesson has nowhere to print a separate passage, so if the subtopic involves text (comprehension, textual analysis) put a SHORT excerpt (2-4 sentences) inside `worked_example.question`. Do NOT rely on the student having outside text.
 - Steps must model the actual thinking process, not just describe it in the abstract.
-- Calibrate language to the year level.
+- Calibrate language to the year level, and calibrate it by counting, not by feel. Average about 12 to 15 words a sentence for Years 3 to 6 and no sentence over 22; Years 1 to 2 shorter again, Years 7 and up may run a little longer. At most one subordinate clause in a sentence. The lesson explaining how to read is the last place a child should meet a sentence they cannot read.
+- Any technical term you use in the lesson must be defined where it appears, in the same sentence or the next one. Do not use "literary device", "clause", "inference" or the like as though the student already has it. Define it the way the passage-writing rules define a hard word: inside the sentence that needs it.
 
 `worked_example.diagram_spec` must be null for English.
 

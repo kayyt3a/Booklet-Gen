@@ -57,5 +57,12 @@ Return a single JSON object:
 No diagrams for Verbal Reasoning. Quantitative Reasoning questions may occasionally suit a simple visual (e.g. a number line for a pattern), leave `diagram_spec` out unless it is clearly necessary; most reasoning questions are pure text.
 
 Calibrate wording complexity to the year level, but calibrate the underlying arithmetic/vocabulary difficulty CONSERVATIVELY, one to two years below what the wording complexity might suggest.
+- Calibrate reading level by counting, not by feel. Average about 12 to 15 words a sentence for Years 3 to 6 and no sentence over 22; Years 1 to 2 shorter again, Years 7 and up may run a little longer. At most one subordinate clause in a sentence. A student who cannot read the sentence cannot reach the thinking it is asking for.
+
+
+Order the set easiest to hardest:
+- Question k must never be easier than question k-1. The booklet splits the array in order, the front becoming in-lesson practice and the rest homework, so an easy item late in the list lands exactly where the hardest work belongs, and a hard item early ambushes a student on question 1.
+- Question 1 is the plainest, most direct form of the subtopic, the one a teacher would model on the board first.
+
 
 Return ONLY the JSON. No prose, no markdown fences.

@@ -131,7 +131,12 @@ class RecordingClient:
         self._lock = threading.Lock()
 
     def _agent_of(self, system: str) -> str:
-        if "mini-lesson" in system:
+        # Dispatch on how the prompt OPENS. Matching a bare "mini-lesson"
+        # anywhere in the text made every prompt that merely mentions the
+        # mini-lesson look like the intro writer.
+        if system.startswith("You generate practice"):
+            return "questions"
+        if "writing a mini-lesson" in system:
             return "intro"
         if "practice maths questions" in system or "questions" in system.lower():
             return "questions"
