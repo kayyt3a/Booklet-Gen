@@ -129,6 +129,11 @@ NOTATION_CASES = [
     ("Multiply the top number by 3: 1 x 3 = 3.", f"1 {MULT} 3", " x "),
     ("If 5x = 45, what is the value of x?", "5x = 45", MULT),
     ("Perimeter = 2 * (length + width)", f"2 {MULT} (", "*"),
+    # The bracket form used to survive with a letter x, so the rule a child is
+    # taught the formula from printed "2 x (length + width)" three lines above
+    # "length × width" in the same box.
+    ("Perimeter = 2 x (length + width)", f"2 {MULT} (", " x "),
+    ("Check: 2 x (8 + 2) = 20", f"2 {MULT} (8 + 2)", " x "),
     ("Volume = 7 * 4 * 2", f"7 {MULT} 4 {MULT} 2", "*"),
     ("Volume = l x w x h.", f"l {MULT} w {MULT} h", " x "),
     ("Volume = 40 cm x 20 cm x 10 cm.", f"cm {MULT} 20", " x "),
@@ -533,8 +538,39 @@ check(not (tmp / "booklet-student.pdf").exists(),
       "render_pdf writes one file and no second copy")
 check("Answers &" in text or "Worked Solutions" in text, "the key is present")
 check(key_start > 0, "the key is at the back", f"key starts on page {key_start + 1}")
+# Printed double-sided, sheet n carries pages 2n-1 and 2n. If the key starts on
+# an even page it is the back of the last page the student wrote on, and the
+# first thing on the key is the spelling dictation list this booklet takes
+# deliberate trouble to keep out of the child's hands. Turning the sheet over
+# handed it straight back.
+check((key_start + 1) % 2 == 1,
+      "and starts on the front of a fresh sheet, not the back of the last one",
+      f"page {key_start + 1}")
+blank_versos = [i + 1 for i, p in enumerate(pages) if "intentionally blank" in p]
+check(all(b == key_start for b in blank_versos),
+      "any blank verso sits immediately before the key and nowhere else",
+      str(blank_versos))
+check(len(blank_versos) <= 1, "and there is at most one of them",
+      str(blank_versos))
 for q in ("Homework 0.0", "Question 0.0", "Subtopic 4"):
     check(q in question_text, f"the questions come first ({q})")
+
+# The cover used to promise more than the booklet does. "Symbolically
+# verified" went on every all-maths cover regardless of what ran, and most of
+# a primary maths booklet ("Round 468 to the nearest hundred", "Explain his
+# mistake") is decided by the LLM judge, not by SymPy. Claiming an algebra
+# engine stood behind "explain his mistake" is what a sceptical tutor
+# screenshots. Say it again only when the mark itself distinguishes the two.
+cover = " ".join(pages[0].split())    # the claim wraps across lines
+check("symbolically" not in cover.lower(),
+      "the cover claims no symbolic proof it cannot show per answer")
+check("checked for accuracy" in cover,
+      "it claims what is true of every answer instead")
+# "Show your working" belongs on a maths cover only; there is no working in an
+# English booklet.
+check("show your working" in cover,
+      "a maths booklet still asks for working")
+# The English half of that pair is checked with the English booklet below.
 
 print("\nVerification marks")
 # The cover is exempt: it carries the legend explaining what the mark in the
@@ -750,19 +786,35 @@ check(warm is not None and classwork is not None and warm >= classwork * 0.8,
 print("\nPage fill")
 
 
+# The cover, the sign-off page and the blank verso before the key are all
+# meant to end early, so measuring their tails says nothing about how well
+# questions are packed. They used to be excluded by position, which only
+# worked while the sign-off happened to be last: inserting the blank verso
+# pushed it one page in and the check started failing on a page it had never
+# been about.
+def _exempt_pages(pages_, stop: int) -> set[int]:
+    out = {0}
+    for i, page in enumerate(pages_[:stop]):
+        if "intentionally blank" in page or "Marked by:" in page:
+            out.add(i)
+    return out
+
+
 def page_fill(pages_, lows_, label):
     """Worst tail of blank space on the question pages, ignoring part breaks."""
     stop = key_page(pages_)
     tails = [(low - BODY_BOTTOM) / cm for low in lows_[:stop]]
     boundary = {i for i in range(stop - 1)
                 if "Homework" in "\n".join(pages_[i + 1].splitlines()[:4])}
+    exempt = _exempt_pages(pages_, stop)
     worst_b, worst_p = (0, 0.0), (0, 0.0)
-    for i, tail in list(enumerate(tails))[1:-1]:
+    measured = [(i, t) for i, t in enumerate(tails) if i not in exempt]
+    for i, tail in measured:
         if i in boundary:
             worst_b = max(worst_b, (i + 1, tail), key=lambda t: t[1])
         else:
             worst_p = max(worst_p, (i + 1, tail), key=lambda t: t[1])
-    mean = sum(tails[1:-1]) / max(1, len(tails) - 2)
+    mean = sum(t for _, t in measured) / max(1, len(measured))
     check(worst_p[1] < 6.0, f"no {label} page abandoned more than 6cm early",
           f"worst is page {worst_p[0]} at {worst_p[1]:.1f}cm")
     check(worst_b[1] <= HOMEWORK_MIN_START_CM,
@@ -796,7 +848,10 @@ for i, page in enumerate(stress_pages[:stress_stop]):
     if body and body[0].strip().endswith("Answer:") and "Question" not in body[0]:
         orphans.append(i + 1)
 check(not orphans, "no working space separated from its question", str(orphans))
-stress_tails = [(low - BODY_BOTTOM) / cm for low in stress_lows[:stress_stop]][1:-1]
+stress_exempt = _exempt_pages(stress_pages, stress_stop)
+stress_tails = [(low - BODY_BOTTOM) / cm
+                for i, low in enumerate(stress_lows[:stress_stop])
+                if i not in stress_exempt]
 check(max(stress_tails) < 6.0, "no page abandoned early under stress",
       f"worst {max(stress_tails):.1f}cm")
 
@@ -929,6 +984,16 @@ e_question_pages = e_pages[:e_key_start]
 e_question_text = "\n".join(e_question_pages)
 e_key_text = "\n".join(e_pages[e_key_start:])
 e_text = "\n".join(e_pages)
+
+e_cover = " ".join(e_pages[0].split())
+check("show your working" not in e_cover,
+      "an English cover does not ask for working it has no room for")
+check("symbolically" not in e_cover.lower()
+      and "checked for accuracy" in e_cover,
+      "and claims the same accuracy check the maths cover does")
+check((e_key_start + 1) % 2 == 1,
+      "the English key also starts on the front of a fresh sheet",
+      f"page {e_key_start + 1}")
 
 
 def page_of(pages_, needle):

@@ -331,9 +331,12 @@ _STAR_MULT_RE = re.compile(r"(?<=[0-9A-Za-z\)])\s*\*\s*(?=[0-9A-Za-z\(])")
 # single letter that is not itself x, so the unknown in "5x = 45", "solve for x"
 # and any ordinary word containing an x are all left alone.
 _MULT_OPERAND = r"(?:[0-9]+(?:\.[0-9]+)?|[a-wyzA-WYZ])"
+# An opening bracket counts as a right-hand operand too. Without it the rule a
+# child is taught the formula from, "2 x (length + width)", kept its letter x
+# three lines above "length × width" in the same box.
 _X_MULT_RE = re.compile(
-    r"(?<![A-Za-z0-9])(" + _MULT_OPERAND + r")\s*[xX]\s*(?="
-    + _MULT_OPERAND + r"(?![A-Za-z0-9]))")
+    r"(?<![A-Za-z0-9])(" + _MULT_OPERAND + r")\s*[xX]\s*(?=(?:"
+    + _MULT_OPERAND + r"(?![A-Za-z0-9])|\())")
 
 # "40 cm x 20 cm", "3 units x 2 units": a unit word, then x, then a number.
 _X_MULT_UNIT_RE = re.compile(
@@ -1489,9 +1492,15 @@ def _spelling_key_block(styles, test):
     if not words:
         return []
     from_week = getattr(test, "from_week", None)
-    source = (f"These are {len(words)} of the twenty words set in week "
-              f"{from_week}. " if from_week else
-              f"These are {len(words)} of the twenty words set last week. ")
+    # The size of the list these were drawn from is not carried here, and the
+    # sentence used to assert it was twenty. It said "10 of the twenty words"
+    # over a list of ten, in a booklet whose own spelling list is ten long.
+    # Say only what the data supports.
+    n = len(words)
+    word_s = "word" if n == 1 else "words"
+    source = (f"These are {n} {word_s} from the list set in week {from_week}. "
+              if from_week else
+              f"These are {n} {word_s} from last week's list. ")
     numbered = ", ".join(f"{i}. {_escape(str(w))}" for i, w in enumerate(words, 1))
     return [KeepTogether([
         Paragraph("Spelling Test", styles["topic"]),
@@ -1503,9 +1512,15 @@ def _spelling_key_block(styles, test):
     ])]
 
 
+# Key for the page number of the last page the student writes on, recorded by
+# the probe build into the same map the question PageMarkers use.
+LAST_STUDENT_PAGE = "last_student_page"
+
+
 def _booklet_story(styles, data: BookletData, times: dict, *,
                    cover_bg: str | None,
-                   page_map: dict | None, page_refs: dict | None) -> list:
+                   page_map: dict | None, page_refs: dict | None,
+                   blank_before_key: bool = False) -> list:
     """Build the whole story for the booklet.
 
     Called twice. On the first call `page_map` is an empty dict that the
@@ -1556,11 +1571,24 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     section_subjects = {(s.subject or data.subject).strip().lower()
                         for s in data.sections}
     only_maths = section_subjects == {"mathematics"}
+    # Two claims that were not true of the booklet they were printed on.
+    #
+    # "show your working" went on every cover, including English booklets,
+    # where there is no working to show.
+    #
+    # "symbolically verified" went on every all-maths cover regardless of what
+    # actually ran. Only questions SymPy can decide are proved symbolically;
+    # everything else, which is most of a primary booklet ("Round 468 to the
+    # nearest hundred", "Explain his mistake"), is checked by the LLM judge,
+    # the same one English uses. Claiming an algebra engine stood behind
+    # "explain his mistake" is the kind of thing a sceptical tutor screenshots,
+    # and it devalues the mark on the answers where it is earned. Until the
+    # mark distinguishes the two, the cover claims only what is true of all of
+    # them.
     story.append(Paragraph(
-        "Work through it in order and show your working. The answer key at the "
-        "back marks each answer that has "
-        + ("been symbolically verified." if only_maths
-           else "been checked for accuracy."),
+        "Work through it in order"
+        + (" and show your working." if only_maths else ".")
+        + " Every answer in the key at the back has been checked for accuracy.",
         styles["footer_note"],
     ))
     story.append(PageBreak())
@@ -1797,6 +1825,23 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     story.append(_score_card(styles, data))
 
     # ---- Answer key (same order: recap, class work, homework, challenge) ----
+    #
+    # The key must come off a different sheet of paper from the last page the
+    # student writes on. Printed double-sided, an odd-numbered last student
+    # page puts the key on the back of it, and the first thing on the key is
+    # the spelling dictation list this booklet takes deliberate trouble to keep
+    # out of the child's hands. Turning the sheet over handed it straight back.
+    #
+    # The probe build records where the student half ends; the real build adds
+    # a blank verso when that page is odd. Says so on the page, so a parent
+    # does not read a blank sheet as a printing fault.
+    if page_map is not None:
+        story.append(PageMarker(page_map, LAST_STUDENT_PAGE))
+    if blank_before_key:
+        story.append(PageBreak())
+        story.append(Paragraph(
+            "This page is intentionally blank, so the answers start on a new "
+            "sheet of paper.", styles["footer_note"]))
     story.append(PageBreak())
     story.append(Paragraph("Answers &amp; Worked Solutions", styles["answers_heading"]))
     story.append(Paragraph(
@@ -1952,10 +1997,16 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         styles, data, times,
         cover_bg=cover_bg, page_map=page_refs, page_refs=None))
 
+    # An odd last student page means the key would print on its reverse. The
+    # blank verso shifts every key page by one, but nothing references a key
+    # page, so the map built above still holds.
+    blank_before_key = page_refs.get(LAST_STUDENT_PAGE, 0) % 2 == 1
+
     doc = _booklet_doc(str(out_path), data)
     doc.build(_booklet_story(
         styles, data, times,
-        cover_bg=cover_bg, page_map=None, page_refs=page_refs))
+        cover_bg=cover_bg, page_map=None, page_refs=page_refs,
+        blank_before_key=blank_before_key))
     return out_path
 
 
