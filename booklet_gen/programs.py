@@ -110,6 +110,12 @@ PROGRAMS: dict[str, Program] = {
         subjects=(),
         pick_subject=True,
         blurb="Curriculum revision to help a student get ahead at school. Pick the subject.",
+        # Accelerate is a launch product and production runs clean-room, so
+        # external retrieval is off for it exactly as it is for NAPLAN. Without
+        # a guide it would be the only customer-facing product generating with
+        # no curriculum grounding at all.
+        guidance_file="accelerate_practice.txt",
+        use_rag=False,
     ),
     "methods_exam": Program(
         key="methods_exam",

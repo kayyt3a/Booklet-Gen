@@ -6,10 +6,16 @@ Runs without an API key or database:
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from booklet_gen.pipeline import BookletPipeline
-from booklet_gen.programs import get_program
+from booklet_gen.programs import (
+    EXTERNAL_CONTENT_ENV,
+    customer_programs,
+    get_program,
+    program_external_rag_enabled,
+)
 from booklet_gen.schemas import Subtopic
 
 
@@ -44,7 +50,11 @@ check("\u2014" not in guide and "\u2013" not in guide,
 print("\nRestricted NAPLAN vectors are off by default")
 print("-" * 68)
 check(naplan.use_rag is False, "NAPLAN external RAG is disabled")
-check(get_program("accelerate").use_rag is True,
+check(get_program("accelerate").use_rag is False,
+      "Accelerate external RAG is disabled, since it also goes on sale")
+# The per-program flag must still mean something. Scholarships is off the
+# customer menu and keeps retrieval, so a future reviewed store can serve it.
+check(get_program("scholarships").use_rag is True,
       "the program switch does not silently disable every product")
 
 print("\nThe guide reaches generation even while retrieval stays off")
@@ -86,6 +96,36 @@ check(len(captured) == 2 and all(parts == [guide] for parts in captured),
       "lesson and question stages receive only the internal guide")
 check(section.topic == "Number" and section.subtopic == "Fractions",
       "generation still builds the requested section")
+
+# The general invariant, not just the NAPLAN one. Production runs clean-room,
+# so every product a customer can actually buy generates with no retrieval. A
+# product with neither RAG nor a guide has no curriculum grounding at all.
+print("\nEvery product on sale is grounded without retrieval")
+print("-" * 68)
+os.environ.pop(EXTERNAL_CONTENT_ENV, None)
+for key, program in customer_programs().items():
+    check(not program_external_rag_enabled(program),
+          f"{program.label} does not reach external content in production")
+    check((program.authoring_guidance() or "").split().__len__() > 500,
+          f"{program.label} has a substantial authoring guide instead")
+
+accelerate = get_program("accelerate")
+acc_guide = accelerate.authoring_guidance() or ""
+for band in ("Years 1 and 2", "Years 3 and 4", "Years 5 and 6",
+             "Years 7 and 8", "Years 9 and 10"):
+    check(acc_guide.count(band) == 2,
+          f"the Accelerate guide covers {band} in both subjects")
+for strand in ("Number", "Algebra", "Measurement", "Space", "Statistics",
+               "Probability", "Language", "Literature", "Literacy"):
+    check(strand in acc_guide, f"the Accelerate guide names the {strand} strand")
+check("Never reproduce or closely paraphrase" in acc_guide,
+      "the Accelerate guide forbids paraphrasing published resources")
+check("workbook" in acc_guide and "textbook" in acc_guide,
+      "and names textbooks and workbooks as sources it will not draw on")
+check("not an official curriculum document" in " ".join(acc_guide.split()),
+      "the Accelerate guide does not claim endorsement")
+check("—" not in acc_guide and "–" not in acc_guide,
+      "the Accelerate guide contains no em or en dash")
 
 readme = Path("rag_sources/README.md").read_text(encoding="utf-8")
 check("Do not migrate that library into the paid product" in readme,
