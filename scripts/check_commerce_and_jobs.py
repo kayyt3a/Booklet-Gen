@@ -23,6 +23,7 @@ os.environ.pop("STRIPE_PRICE_TERM", None)
 
 from booklet_gen.webapp import create_app  # noqa: E402
 from booklet_gen.webapp import db, mailer, payments, views  # noqa: E402
+from booklet_gen.programs import WEB_PROGRAM_ALLOWLIST_ENV  # noqa: E402
 
 
 def passed(label: str) -> None:
@@ -262,6 +263,20 @@ try:
     assert b"available for Years 1 to 10" in rejected.data
     assert not db.list_jobs(request_user["id"])
 
+    # Methods Exam is off the customer menu until it has its own authoring
+    # guide, so the server must refuse it even when a form field names it.
+    off_menu = request_client.post(
+        "/generate",
+        data={"program": "methods_exam", "year": "Year 11",
+              "student_name": "Kai",
+              "csrf_token": page_token(request_client, "/")},
+        follow_redirects=True,
+    )
+    assert not db.list_jobs(request_user["id"])
+
+    # With it explicitly allowlisted, an exam still costs one unit and ignores
+    # term_plan, which is the credit arithmetic this case exists to pin down.
+    os.environ[WEB_PROGRAM_ALLOWLIST_ENV] = "naplan,accelerate,methods_exam"
     accepted = request_client.post(
         "/generate",
         data={"program": "methods_exam", "year": "Year 11",
@@ -276,6 +291,7 @@ try:
 finally:
     views.JOB_MODE = saved_mode
     views.GLOBAL_DAILY_BOOKLET_LIMIT = saved_global_limit
+    os.environ.pop(WEB_PROGRAM_ALLOWLIST_ENV, None)
 passed("server validation keeps booklet years and exam credit costs honest")
 
 logout_token = token("/")

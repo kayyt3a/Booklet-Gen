@@ -25,7 +25,10 @@ os.environ.pop("DATABASE_URL", None)
 
 from booklet_gen.webapp import create_app                        # noqa: E402
 from booklet_gen.webapp import db                                # noqa: E402
-from booklet_gen.programs import PROGRAMS                        # noqa: E402
+from booklet_gen.programs import (                               # noqa: E402
+    PROGRAMS,
+    customer_programs,
+)
 
 failures: list[str] = []
 
@@ -60,8 +63,16 @@ check(b"Practice booklets your kid will actually finish" in body,
       "it leads with what the product is")
 check(b'name="program"' not in body and b"Generate booklet" not in body,
       "and does not show the generate form to someone who cannot use it")
-for p in PROGRAMS.values():
+offered = customer_programs()
+withheld = {k: p for k, p in PROGRAMS.items() if k not in offered}
+for p in offered.values():
     check(p.label.encode() in body, f"it names the {p.label} booklet")
+# Scholarships and Methods Exam are held back from the customer menu until each
+# has its own original-authoring guide and a reviewed sample set. Advertising a
+# product the site will then refuse to generate is the failure this guards.
+for p in withheld.values():
+    check(p.label.encode() not in body,
+          f"and does not advertise {p.label}, which is not on sale yet")
 check(b"sample-page.png" in body,
       "it shows a real page out of a booklet, not just a description")
 check(b"No credit card" in body, "it says what signing up costs")
@@ -91,9 +102,12 @@ check(b"Practice booklets your kid will actually finish" not in body,
 for field in (b'id="year"', b'id="student_name"', b'id="term_plan"',
               b'name="csrf_token"'):
     check(field in body, f"the form still carries {field.decode()}")
-for key, p in PROGRAMS.items():
+for key, p in offered.items():
     check(f'id="program_{key}"'.encode() in body and p.blurb.encode() in body,
           f"the form explains the {p.label} choice")
+for key in withheld:
+    check(f'id="program_{key}"'.encode() not in body,
+          f"the form offers no way to pick {PROGRAMS[key].label}")
 check(b"progressively planned booklets" in body,
       "the term-plan choice explains what it delivers")
 
