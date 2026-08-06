@@ -14,6 +14,10 @@ cumulative "Final Challenge", with a verified answer key.
   subject: Mathematics or English; Science exists but is not offered, no RAG
   material), Methods Exam (Year 11-12 WACE practice paper, separate pipeline
   and formatter path). Names here are the source of truth for cover/menu labels.
+  Only `DEFAULT_WEB_PROGRAMS` (`naplan`, `accelerate`) reach the customer menu;
+  `customer_programs()` gates the rest, and `views.py` refuses a posted program
+  outside it. `FOLIO_WEB_PROGRAM_ALLOWLIST` overrides. The CLI still addresses
+  every entry.
 - **Validation**: SymPy for maths, a deterministic cipher/sequence checker for
   Reasoning (`booklet_gen/agents/reasoning_validator.py`), an LLM judge for
   everything else. Validation is **batched** (one call per subtopic, not one
@@ -39,9 +43,10 @@ cumulative "Final Challenge", with a verified answer key.
 - **Web app** (`booklet_gen/webapp/`): Flask, `db.py` (Postgres or SQLite),
   dropdown generate form. Accounts, email verification, credits, Stripe
   Checkout, queued generation, private file storage, customer legal pages, and
-  an admin support console are implemented in the current working tree. Daily
-  caps remain as abuse guards. Treat auth and payment code with more care than
-  the rest.
+  an admin support console are implemented on the review branch
+  `codex/overnight-product-readiness-20260806`, not yet on `main`. Daily caps
+  remain as abuse guards. Treat auth and payment code with more care than the
+  rest.
 - **Exam papers**: `pipeline.run_exam()` + `formatter.render_exam_pdf()`
   produce a WACE-shaped Methods practice paper (calculator-free and
   calculator-assumed sections, marks, marking key). Separate path from

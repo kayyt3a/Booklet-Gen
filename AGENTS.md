@@ -1,75 +1,53 @@
-# Folio
+# FolioAI: agent instructions
 
-AI-generated practice booklet product for Years 1-10 (Australia). Parents/tutors
-generate PDF booklets: mini-lesson -> worked example -> practice questions ->
-cumulative "Final Challenge", with a verified answer key.
+**`CLAUDE.md` is the source of truth for this repository. Read it first.**
+It describes the pipeline, the booklet types, the RAG rights gate, the database
+layout, the web app, and how to run things. This file exists because Codex
+looks for `AGENTS.md` and Claude Code looks for `CLAUDE.md`. Keeping two full
+copies drifts, and has already drifted once, so this one stays short and points
+at the other.
 
-## What exists
+The rules below are repeated here rather than only referenced, because they are
+the ones that cause real damage when missed.
 
-- **Generator pipeline** (`booklet_gen/pipeline.py`): outline parser -> question
-  generator -> validator -> intro/lesson writer -> challenge generator -> PDF
-  formatter. Calls Gemini via `booklet_gen/llm/`.
-- **Booklet types** (`booklet_gen/programs.py`): Scholarships (reasoning engine),
-  NAPLAN Practice (maths+English combined), Academic Accelerate (parent picks
-  subject: Mathematics or English; Science exists but is not offered, no RAG
-  material), Methods Exam (Year 11-12 WACE practice paper, separate pipeline
-  and formatter path). Names here are the source of truth for cover/menu labels.
-- **Validation**: SymPy for maths, a deterministic cipher/sequence checker for
-  Reasoning (`booklet_gen/agents/reasoning_validator.py`), an LLM judge for
-  everything else. Validation is **batched** (one call per subtopic, not one
-  per question) via `pipeline._validate_many`. Don't regress this to
-  per-question calls, it's the main lever on API cost/quota.
-- **RAG**: ingested from `rag_sources/<Subject>/<Year>/<Tag>/` via
-  `scripts/ingest_folder.py`. `rag_sources/` is gitignored (large + some
-  content is copyrighted for personal use only, e.g. ACER scholarship papers).
-  Two store backends behind one interface (`rag/store.py`): Postgres+pgvector
-  when `DATABASE_URL` is set, on-disk ChromaDB otherwise.
-- **Database**: one Postgres serves both accounts and the vector store, via
-  `DATABASE_URL` (see `dbpool.py`). Without it everything falls back to local
-  SQLite + Chroma, which is fine locally but means a deployed instance loses
-  accounts on restart and has no RAG. `scripts/migrate_rag_to_postgres.py`
-  moves an existing Chroma library up without re-embedding.
-- **Web app** (`booklet_gen/webapp/`): Flask, `db.py` (Postgres or SQLite),
-  dropdown generate form. Accounts (signup/login) gate access; generation is
-  free and unlimited (no pricing/credits/payments), with a per-account daily
-  cap as an abuse guard. Treat auth code with more care than the rest.
-- **Exam papers**: `pipeline.run_exam()` + `formatter.render_exam_pdf()`
-  produce a WACE-shaped Methods practice paper (calculator-free and
-  calculator-assumed sections, marks, marking key). Separate path from
-  booklets. Calculus answers are verified symbolically in
-  `agents/validator.py`.
-- **Term plans**: `pipeline.run_term_plan()` generates N weekly booklets with a
-  difficulty ramp and revision weeks at the end.
-- **Deployment**: `Dockerfile` + `DEPLOY.md`, gunicorn entrypoint
-  `booklet_gen.webapp:create_app()`.
+## Non-negotiable
 
-## Conventions
+- **No em dashes or en dashes anywhere.** Code, prompts, docs, commit messages,
+  generated booklets. `_dedash` in `formatter.py` is a backstop, not a licence.
+- **Keep validation batched** through `pipeline._validate_many`, one call per
+  subtopic. Never one LLM call per question. It is the main lever on API cost.
+- **Autonomous work opens a pull request.** Never push or merge to `main`
+  without direct real-time supervision. This repo handles accounts, auth, and
+  payments.
+- **Preserve unrelated dirty work.** Do not reset, discard, or overwrite
+  changes you did not make.
+- **Treat auth, account deletion, payments, credits, and downloads as
+  high-risk.** Read the surrounding code before changing it.
+- **Every pipeline, formatter, security, commerce, or operational change needs
+  a deterministic check script** under `scripts/check_*.py` that fails on the
+  previous behaviour.
+- **No third-party assessment material.** Do not upload, embed, migrate, quote,
+  paraphrase, or generate from past NAPLAN, WACE, ACER, textbook, workbook, or
+  commercial tutoring content. Production launches with an empty vector store
+  and external retrieval disabled. See the RAG section of `CLAUDE.md`.
+- **Never ask the founder to paste** passwords, banking details, identity
+  documents, full database URLs, or secret keys into a chat, and never commit
+  them.
+- **Do not delete local assessment PDFs** on the founder's machine merely to
+  make a check pass.
 
-- **No em dashes, anywhere** (code output, prose, generated booklets). The
-  formatter has a deterministic stripper (`_dedash` in `formatter.py`) as a
-  backstop, but write clean in the first place.
-- **All commits/pushes go to `main`** directly, per explicit user instruction
-  from earlier in this project. This is a deliberate override of the usual
-  feature-branch default. Exception: anything an autonomous agent does (see
-  below) opens a PR instead.
-- User is on **Windows** (PowerShell), moderate technical comfort, learning as
-  they go. When giving them commands, use PowerShell syntax and remind them to
-  `cd` into the repo first if relevant.
-- User's Gemini key has **billing enabled** (since 2026-07-27), so free-tier
-  rate limits no longer apply. Batched validation still matters for cost.
-- Deployed on **Render** with a **Supabase Postgres** (session pooler) as
-  DATABASE_URL, backing both accounts and the pgvector RAG library.
+## Checks are the contract between agents
 
-## Running things
+Two agents cannot read each other's reasoning, only each other's code. A check
+script is an executable claim about behaviour, so it survives a handoff in a
+way that prose does not. Before trusting a description of what was built, run:
 
 ```
-python -m venv .venv && .venv\Scripts\pip install -r requirements.txt   # Windows
-python main.py --program accelerate --subject Maths --year "Year 5" --name "Sam"
-python -m booklet_gen.webapp     # local web app at 127.0.0.1:5000
+PYTHONPATH=. python scripts/check_<name>.py
 ```
 
-## Autonomous agent guardrail
+`check_models.py` needs `GEMINI_API_KEY` and `check_postgres_backends.py` needs
+`DATABASE_URL`. The rest run offline.
 
-Any agent/routine working on this repo without direct real-time user
-supervision must open a PR, never push or merge to `main` directly. This repo
-handles user accounts and authentication; changes there need human review.
+When a check fails, work out which side is stale before editing either one. A
+check written against older behaviour is a stale check, not a code defect.
