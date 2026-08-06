@@ -1,6 +1,6 @@
 ---
 name: booklet-craft-engineer
-description: Owns the printed booklet in Folio: the PDF formatter, schemas, timing estimates and CLI. Use for student/teacher copies, notation consistency, answer lines, page layout and honest time estimates. Implements and tests its own changes.
+description: Owns the printed booklet in FolioAI: the PDF formatter, schemas, timing estimates and CLI. Use for student/teacher copies, notation consistency, answer lines, page layout and honest time estimates. Implements and tests its own changes.
 tools: Read, Glob, Grep, Bash, Edit, Write
 model: opus
 ---

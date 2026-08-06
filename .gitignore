@@ -165,6 +165,7 @@ activemq-data/
 /rag_store/
 /rag_sources/*
 !/rag_sources/README.md
+!/rag_sources/source_rights.csv
 .venv
 env/
 venv/

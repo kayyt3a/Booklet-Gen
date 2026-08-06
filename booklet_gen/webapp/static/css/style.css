@@ -1,4 +1,4 @@
-/* Folio web app styles.
+/* FolioAI web app styles.
  *
  * Lifted out of an inline <style> block in base.html. It lived there while the
  * app was four pages and one look; it moved here because the block was being
@@ -42,6 +42,7 @@
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
+[hidden]{display:none!important}
 body{
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
   background:var(--bg);color:var(--ink);margin:0;line-height:1.5;
@@ -71,6 +72,16 @@ header a{color:#fff;text-decoration:none}
 /* An orange rule rather than a lozenge. The lozenge read as a generic admin
  * panel; the rule is the one place the brand accent appears on every page. */
 .nav a.active{font-weight:600;border-bottom-color:var(--orange)}
+.mobileLabel{display:none}
+button:focus-visible,.btn:focus-visible,.nav a:focus-visible,.brand:focus-visible,
+summary:focus-visible,a.link:focus-visible{
+  outline:3px solid rgba(240,160,40,.65);outline-offset:3px;
+}
+.skipLink{
+  position:fixed;top:8px;left:8px;z-index:100;background:#fff;color:var(--navy);
+  padding:9px 12px;border-radius:7px;font-weight:700;transform:translateY(-160%);
+}
+.skipLink:focus{transform:translateY(0);outline:3px solid var(--orange)}
 
 /* ---- layout ---- */
 .wrap{max-width:880px;margin:26px auto 60px;padding:0 16px}
@@ -90,9 +101,17 @@ h2{margin:0 0 12px;font-size:20px;font-weight:700;letter-spacing:-.2px}
 /* ---- footer ---- */
 footer{
   max-width:880px;margin:0 auto;padding:26px 16px 40px;
-  color:var(--muted);font-size:13px;
+  color:var(--muted);font-size:13px;display:flex;gap:12px 24px;
+  align-items:center;justify-content:space-between;flex-wrap:wrap;
 }
 footer a{color:var(--muted);font-weight:600}
+.footerLinks{display:flex;gap:14px}
+.navForm{margin:0}
+.navForm button{
+  width:auto;margin:0;padding:7px 10px;background:transparent;border-radius:6px;
+  border-bottom:2px solid transparent;font-weight:400;font-size:14px;
+}
+.navForm button:hover{background:rgba(255,255,255,.12)}
 
 /* ---- forms ---- */
 label{display:block;font-size:13px;font-weight:600;margin:16px 0 6px;color:#3b4658}
@@ -119,6 +138,7 @@ button,.btn{
   transition:background .15s ease, transform .06s ease;
 }
 button:hover,.btn:hover{background:var(--navy-d)}
+button:disabled{background:#aab4c3;cursor:not-allowed;transform:none}
 button:active,.btn:active{transform:translateY(1px)}
 .btn.secondary{
   background:#fff;color:var(--navy);border:1px solid #d6dce8;
@@ -132,6 +152,70 @@ button:active,.btn:active{transform:translateY(1px)}
 .checkbox{display:flex;align-items:flex-start;gap:10px;margin-top:18px}
 .checkbox input{width:auto;margin-top:2px;flex:none}
 .checkbox label{margin:0;font-weight:500;font-size:14px;color:var(--ink)}
+
+/* ---- create flow ---- */
+.formSection{border:0;border-top:1px solid var(--border);padding:22px 0 0;margin:26px 0 0}
+.formSection legend{
+  padding:0 12px 0 0;font-size:16px;font-weight:750;color:var(--ink);
+  display:flex;align-items:center;gap:9px;
+}
+.stepBadge{
+  width:25px;height:25px;border-radius:50%;display:inline-grid;place-items:center;
+  background:var(--navy);color:#fff;font-size:12px;font-weight:800;
+}
+.programGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:15px}
+.programOption{position:relative;min-width:0}
+.programOption input{
+  position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;
+}
+.programOption label{
+  position:relative;height:100%;min-height:105px;margin:0;padding:15px 40px 15px 15px;
+  display:flex;align-items:flex-start;gap:12px;border:1px solid #d6dce8;
+  border-radius:12px;background:#fff;color:var(--ink);cursor:pointer;
+  transition:border-color .15s ease,box-shadow .15s ease,background .15s ease,transform .08s ease;
+}
+.programOption label:hover{border-color:#aebbd0;background:#fbfcfe;transform:translateY(-1px)}
+.programOption input:focus-visible + label{
+  outline:3px solid rgba(45,81,131,.18);outline-offset:2px;border-color:var(--navy-l);
+}
+.programOption input:checked + label{
+  border-color:var(--navy);background:#f5f8fc;box-shadow:0 0 0 1px var(--navy);
+}
+.programIcon{flex:none;margin-top:1px}
+.programOption strong{display:block;font-size:14.5px;line-height:1.35;margin-bottom:4px}
+.programOption small{display:block;color:var(--muted);font-size:12.5px;line-height:1.4}
+.choiceMark{
+  position:absolute;top:15px;right:14px;width:18px;height:18px;border:1.5px solid #b9c2d1;
+  border-radius:50%;background:#fff;
+}
+.programOption input:checked + label .choiceMark{border:5px solid var(--navy)}
+.fieldHelp{margin:5px 0 0;color:var(--muted);font-size:12.5px}
+
+.termChoice{position:relative;margin-top:24px}
+.termChoice input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.termChoice label{
+  margin:0;padding:15px;display:flex;align-items:flex-start;gap:12px;
+  border:1px solid #d6dce8;border-radius:12px;background:#f7f9fc;cursor:pointer;
+  transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
+}
+.termChoice label:hover{border-color:#aebbd0}
+.termChoice input:focus-visible + label{
+  outline:3px solid rgba(45,81,131,.18);outline-offset:2px;border-color:var(--navy-l);
+}
+.termChoice input:checked + label{
+  border-color:var(--navy);background:#f2f6fb;box-shadow:0 0 0 1px var(--navy);
+}
+.termChoice strong{display:block;font-size:14px;line-height:1.35;margin-bottom:3px}
+.termChoice small{display:block;color:var(--muted);font-size:12.5px;font-weight:400;line-height:1.45}
+.termCheck{
+  width:20px;height:20px;border:1.5px solid #aeb8c8;border-radius:5px;background:#fff;
+  flex:none;position:relative;margin-top:1px;
+}
+.termChoice input:checked + label .termCheck{background:var(--navy);border-color:var(--navy)}
+.termChoice input:checked + label .termCheck::after{
+  content:"";position:absolute;left:5px;top:2px;width:6px;height:10px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);
+}
 
 /* ---- misc ---- */
 .flash{
@@ -250,25 +334,133 @@ a.link{color:var(--navy);font-weight:600}
 /* The sample booklet page, so a visitor sees the actual product. */
 .sample{display:flex;gap:30px;align-items:flex-start;flex-wrap:wrap}
 .sampleText{flex:1 1 300px;min-width:0}
-.sampleShot{
+.sampleLink{
   /* min-width:0 matters: a flex item defaults to min-width:auto, which for an
    * image is its intrinsic width. At 620px intrinsic that refused to shrink
    * and shoved itself onto its own row under the text. */
-  flex:0 1 320px;width:320px;min-width:0;height:auto;
+  flex:0 1 320px;width:320px;min-width:0;color:var(--navy);text-align:center;
+  text-decoration:none;font-size:12.5px;font-weight:650;
+}
+.creditBanner{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:11px 14px;border:1px solid #cfd9e7;border-radius:10px;
+  background:#f5f8fc;color:var(--navy);font-size:13.5px;margin:18px 0 4px;
+}
+.creditBanner.centered{max-width:380px;margin:18px auto 0;justify-content:center}
+.creditBanner strong{font-size:17px}
+.authAside{text-align:center;margin:12px 0 0}
+.jobItem form{margin:0;flex:none}
+.sampleShot{
+  width:100%;min-width:0;height:auto;margin-bottom:8px;
   border:1px solid var(--border);border-radius:10px;
   box-shadow:0 6px 22px rgba(16,30,54,.13);display:block;
 }
+.sampleLink:hover .sampleShot{box-shadow:0 8px 26px rgba(16,30,54,.18)}
+.sampleLink:focus-visible{outline:3px solid rgba(45,81,131,.2);outline-offset:4px;border-radius:10px}
 @media (max-width:700px){
-  .sampleShot{flex-basis:auto;width:100%;max-width:360px;margin:0 auto}
+  .sampleLink{flex-basis:auto;width:100%;max-width:360px;margin:0 auto}
 }
 
 /* ---- stat tiles (account) ---- */
-.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 @media (max-width:560px){ .stats{grid-template-columns:1fr} }
 .stat{background:#f7f9fc;border:1px solid var(--border);border-radius:12px;padding:18px}
 .statNum{font-size:28px;font-weight:800;letter-spacing:-.5px;line-height:1.1;color:var(--navy)}
 .statLabel{font-size:13px;font-weight:650;margin:6px 0 2px}
 .statNote{color:var(--muted);font-size:12.5px;line-height:1.45}
+
+/* Account deletion is deliberately available but visually quiet until the
+ * account owner chooses to open it. */
+.dangerZone{
+  background:#fff;border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow);margin-bottom:18px;overflow:hidden;
+}
+.dangerZone summary{
+  list-style:none;padding:18px 22px;display:flex;justify-content:space-between;
+  align-items:center;gap:16px;cursor:pointer;color:var(--danger);
+}
+.dangerZone summary::-webkit-details-marker{display:none}
+.dangerZone summary:hover{background:#fffafa}
+.dangerZone summary strong{display:block;font-size:14px}
+.dangerZone summary small{display:block;color:var(--muted);font-size:12.5px;font-weight:400;margin-top:2px}
+.disclosure{
+  width:9px;height:9px;border:solid var(--muted);border-width:0 2px 2px 0;
+  transform:rotate(45deg);transition:transform .15s ease;flex:none;margin-right:4px;
+}
+.dangerZone[open]{border-color:#f3cfcf;background:var(--danger-tint)}
+.dangerZone[open] .disclosure{transform:rotate(225deg);margin-top:5px}
+.dangerBody{padding:0 22px 22px;border-top:1px solid #f3cfcf}
+
+/* ---- pricing, support, and owner pages ---- */
+.pricingIntro{text-align:center;max-width:620px;margin:8px auto 28px}
+.pricingIntro .motifRow{justify-content:center}
+.pricingGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-bottom:18px}
+.priceCard{
+  position:relative;background:#fff;border:1px solid var(--border);
+  border-radius:var(--radius);padding:26px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;
+}
+.priceCard.featured{border:2px solid var(--navy);padding:25px}
+.priceBadge{
+  position:absolute;top:-12px;right:18px;background:var(--navy);color:#fff;
+  border-radius:999px;padding:4px 10px;font-size:11.5px;font-weight:700;
+}
+.price{color:var(--navy);font-size:38px;font-weight:800;margin:4px 0 8px;letter-spacing:-1px}
+.price span{font-size:16px;vertical-align:top;line-height:2.1;margin-right:2px}
+.priceFeatures{list-style:none;padding:0;margin:16px 0 5px;flex:1}
+.priceFeatures li{display:flex;align-items:flex-start;gap:8px;margin:10px 0;font-size:13.5px}
+.priceFeatures .motif{color:var(--green);flex:none;margin-top:1px}
+.priceCard form{margin:0}
+.pricingFinePrint{text-align:center}
+.pricingFinePrint p{max-width:660px;margin:8px auto;color:var(--muted);font-size:14px}
+.centerCard{text-align:center}
+.centerCard .motifRow{justify-content:center}
+.centerCard .btn{width:auto;margin-right:6px}
+.balanceCallout{
+  padding:16px;background:#f5f8fc;border:1px solid var(--border);border-radius:10px;
+  margin:20px 0;color:var(--navy);
+}
+.balanceCallout strong{font-size:25px;margin-right:4px}
+.policyPage{font-size:14.5px;line-height:1.65}
+.policyPage > p,.policyPage > h2{max-width:720px}
+.policyPage h2{margin-top:28px}
+.supportGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:22px}
+.supportGrid section{border:1px solid var(--border);border-radius:12px;padding:18px;background:#f9fafc}
+.supportGrid section h2{margin:0 0 8px;font-size:16px}
+.supportGrid section p{margin:0;color:var(--muted);font-size:13.5px}
+.businessDetails{margin-top:28px!important;padding-top:18px;border-top:1px solid var(--border);color:var(--muted)}
+.adminCreditForm{display:grid;grid-template-columns:2fr .6fr 2fr auto;gap:12px;align-items:end}
+.adminCreditForm label{margin-top:0}
+.adminCreditForm button{margin:0;white-space:nowrap}
+.tableScroll{overflow-x:auto;margin-top:16px}
+.adminTable{width:100%;border-collapse:collapse;font-size:13px}
+.adminTable th,.adminTable td{padding:10px;text-align:left;border-bottom:1px solid var(--border);vertical-align:middle}
+.adminTable th{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.35px}
+.adminTable form{margin:0}
+
+@media (max-width:620px){
+  header{padding:0 12px}
+  .signedIn .headerInner{padding-top:8px;row-gap:5px}
+  .signedIn .brand span{display:none}
+  .signedIn .nav{
+    order:2;width:100%;justify-content:space-between;
+    border-top:1px solid rgba(255,255,255,.14);padding:3px 0 5px;
+  }
+  .signedIn .nav a{flex:1;text-align:center;padding:6px 3px;font-size:13px}
+  .signedIn .navForm{flex:1}
+  .signedIn .navForm button{width:100%;padding:6px 3px;font-size:13px}
+  .signedIn .desktopLabel{display:none}
+  .signedIn .mobileLabel{display:inline}
+  .wrap{margin-top:18px;padding:0 12px}
+  .card{padding:22px 20px}
+  h1{font-size:28px}
+  .programGrid{grid-template-columns:1fr}
+  .programOption label{min-height:0}
+  .heroCta .btn{width:100%}
+  .pricingGrid,.supportGrid{grid-template-columns:1fr}
+  .adminCreditForm{grid-template-columns:1fr}
+  .centerCard .btn{width:100%;margin-right:0}
+}
 
 /* ---- progress page ----
  * The bar is deliberately indeterminate. The pipeline reports no stages, so a

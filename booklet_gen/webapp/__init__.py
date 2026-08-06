@@ -1,12 +1,12 @@
-"""Folio web application (Flask).
+"""FolioAI web application (Flask).
 
-A parent-facing app: sign up, pick Type / Year / Subject from dropdowns, and
-download a generated booklet or a whole term plan. Free to use.
+A parent-facing app: sign up, buy booklet credits, choose a program and year,
+and download a generated booklet or a whole term plan.
 
 Run locally:
     export FLASK_SECRET_KEY=$(python -c "import secrets;print(secrets.token_urlsafe(48))")
     export GEMINI_API_KEY=...
-    python -m booklet_gen.webapp
+    python -m flask --app booklet_gen.webapp:create_app run
 
 Serve in production with gunicorn (see Dockerfile):
     gunicorn "booklet_gen.webapp:create_app()"
@@ -21,10 +21,12 @@ import logging
 import os
 import secrets
 import time
+from datetime import timedelta
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from ..dbpool import is_postgres
 from .db import init_db
@@ -115,26 +117,48 @@ def _cookies_should_be_secure() -> bool:
     return is_postgres()
 
 
+def _validate_runtime_config() -> None:
+    require_postgres = (os.environ.get("FOLIO_REQUIRE_POSTGRES") or "").strip().lower()
+    queue_mode = (os.environ.get("FOLIO_JOB_MODE") or "inline").strip().lower()
+    if (require_postgres in {"1", "true", "yes", "on"} or queue_mode == "queue") \
+            and not is_postgres():
+        raise RuntimeError(
+            "This FolioAI configuration requires Postgres, but DATABASE_URL is "
+            "missing. Queue mode cannot share a local SQLite file between the "
+            "web and worker services."
+        )
+
+
 def create_app() -> Flask:
+    _validate_runtime_config()
     app = Flask(
         __name__,
         template_folder="templates",
         static_folder="static",
     )
     app.config["SECRET_KEY"] = _resolve_secret_key()
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     app.config.update(
+        SESSION_COOKIE_NAME="folio_session",
         SESSION_COOKIE_HTTPONLY=True,
         # Lax still sends the cookie on a top-level GET navigation, so links
-        # into Folio keep working, but not on a cross-site form POST. That is
+        # into FolioAI keep working, but not on a cross-site form POST. That is
         # defence in depth behind the CSRF token, not a replacement for it.
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=_cookies_should_be_secure(),
+        PERMANENT_SESSION_LIFETIME=timedelta(days=14),
+        MAX_CONTENT_LENGTH=1 * 1024 * 1024,
+        PREFERRED_URL_SCHEME="https",
     )
     app.config["OUTPUT_DIR"] = Path(os.environ.get("FOLIO_OUTPUT", "output"))
     app.config["OUTPUT_DIR"].mkdir(parents=True, exist_ok=True)
 
     init_db()
     init_csrf(app)
+    from .commerce import validate_commerce_config
+    from .mailer import validate_mail_config
+    validate_commerce_config()
+    validate_mail_config()
 
     # A deploy or an idle spin-down kills in-flight generation threads while
     # the row still says "running". Nothing would ever clear those, so the
@@ -158,6 +182,31 @@ def create_app() -> Flask:
             detail=getattr(e, "description", "The request was not valid."),
         ), 400
 
+    @app.errorhandler(429)
+    def _too_many_requests(e):
+        return render_template(
+            "error.html",
+            heading="Please wait before trying again",
+            detail=getattr(e, "description", "Too many requests were made."),
+        ), 429
+
+    @app.errorhandler(404)
+    def _not_found(_e):
+        return render_template(
+            "error.html",
+            heading="We could not find that page",
+            detail="The link may be old, or the page may belong to another account.",
+        ), 404
+
+    @app.errorhandler(500)
+    def _server_error(_e):
+        return render_template(
+            "error.html",
+            heading="FolioAI hit an unexpected problem",
+            detail=("Nothing else is needed from you right now. Try again, or "
+                    "contact support if the problem continues."),
+        ), 500
+
     @app.template_filter("timeago")
     def _timeago(ts) -> str:
         """Render a unix timestamp as a short relative time."""
@@ -178,11 +227,53 @@ def create_app() -> Flask:
             return f"{n} day{'s' if n != 1 else ''} ago"
         return datetime.fromtimestamp(int(ts)).strftime("%d %b %Y")
 
+    from .admin import bp as admin_bp, is_admin
     from .auth import bp as auth_bp
+    from .payments import bp as payments_bp
+    from .public import bp as public_bp
     from .views import bp as views_bp
 
+    app.jinja_env.globals["is_admin"] = is_admin
+    app.register_blueprint(admin_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(payments_bp)
+    app.register_blueprint(public_bp)
     app.register_blueprint(views_bp)
+
+    @app.get("/healthz")
+    def _healthz():
+        try:
+            from . import db as _db
+            return ({"status": "ok"}, 200) if _db.health_check() else (
+                {"status": "error"}, 503)
+        except Exception:
+            log.exception("health check failed")
+            return {"status": "error"}, 503
+
+    @app.after_request
+    def _security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+        response.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=()",
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data:; style-src 'self' "
+            "'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+            "connect-src 'self'; object-src 'none'; base-uri 'self'; "
+            "frame-ancestors 'none'; form-action 'self'",
+        )
+        if app.config["SESSION_COOKIE_SECURE"]:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains",
+            )
+        if request.endpoint != "static":
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
 
     return app
 

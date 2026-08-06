@@ -54,9 +54,11 @@ print("-" * 62)
 home = client.get("/")
 body = home.data
 check(home.status_code == 200, "the front page loads", str(home.status_code))
+check(b"FOLIOAI" in body and b"FolioAI writes" in body,
+      "the customer-facing product name is FolioAI")
 check(b"Practice booklets your kid will actually finish" in body,
       "it leads with what the product is")
-check(b'id="program"' not in body and b"Generate booklet" not in body,
+check(b'name="program"' not in body and b"Generate booklet" not in body,
       "and does not show the generate form to someone who cannot use it")
 for p in PROGRAMS.values():
     check(p.label.encode() in body, f"it names the {p.label} booklet")
@@ -82,13 +84,18 @@ check(signed_in, "the fixture account signed in")
 
 home = client.get("/")
 body = home.data
-check(b'id="program"' in body and b"Generate booklet" in body,
+check(b'name="program"' in body and b"Generate booklet" in body,
       "the generate form is there")
 check(b"Practice booklets your kid will actually finish" not in body,
       "and the sales pitch is not, because they have already bought in")
 for field in (b'id="year"', b'id="student_name"', b'id="term_plan"',
               b'name="csrf_token"'):
     check(field in body, f"the form still carries {field.decode()}")
+for key, p in PROGRAMS.items():
+    check(f'id="program_{key}"'.encode() in body and p.blurb.encode() in body,
+          f"the form explains the {p.label} choice")
+check(b"progressively planned booklets" in body,
+      "the term-plan choice explains what it delivers")
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +125,11 @@ print("-" * 62)
 # is also one more thing that can be slow or gone when a parent first visits.
 OFFSITE = re.compile(
     rb'(?:src|href)\s*=\s*["\'](?!/|\{\{|#|data:|mailto:)[a-zA-Z]+:', re.I)
-pages = ["/", "/library", "/account", "/login", "/signup"]
+pages = [
+    "/", "/library", "/account", "/login", "/signup", "/pricing",
+    "/support", "/privacy", "/terms", "/forgot-password",
+    "/verify/resend",
+]
 for path in pages:
     data = client.get(path, follow_redirects=True).data
     hits = OFFSITE.findall(data)
@@ -143,6 +154,30 @@ check(lib.status_code == 200 and b"Ella" in lib.data,
 acct = client.get("/account")
 check(acct.status_code == 200 and b"Booklets generated" in acct.data,
       "the account page shows usage")
+check(b"<details class=\"dangerZone\">" in acct.data,
+      "account deletion is available without dominating the page")
+pricing = client.get("/pricing")
+check(pricing.status_code == 200 and b"pay-as-you-go pricing" in pricing.data,
+      "the pricing page explains the credit packs")
+check(b"Start with a free booklet" not in pricing.data and
+      b"Purchases coming soon" in pricing.data,
+      "a signed-in user sees payment availability honestly")
+for path, phrase in (("/support", b"How can we help"),
+                     ("/privacy", b"Privacy policy"),
+                     ("/terms", b"Terms of use"),
+                     ("/forgot-password", b"Reset your password")):
+    page = client.get(path)
+    check(page.status_code == 200 and phrase in page.data,
+          f"{path} renders its customer page")
+terms = client.get("/terms").data
+support = client.get("/support").data
+privacy = client.get("/privacy").data
+check(b"within 14 days" in terms and b"replacement credit" in terms,
+      "the terms state the voluntary quality remedy")
+check(b"two business days" in support and b"not usable" in support,
+      "support gives a response target and quality path")
+check(b"first name or nickname only" in privacy and b"accounting records" in privacy,
+      "privacy copy minimises child data and explains residual legal records")
 prog = client.get("/progress/pages-job")
 check(prog.status_code == 200 and b"bar" in prog.data,
       "the progress page renders")

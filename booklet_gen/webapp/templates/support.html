@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Support - FolioAI{% endblock %}
+{% block body %}
+<div class="card policyPage">
+  <p class="eyebrow">Customer support</p>
+  <h1>How can we help?</h1>
+  <p class="sub">Email <a class="link" href="mailto:{{ business.email }}">{{ business.email }}</a>
+    with the email on your FolioAI account and a short description of the
+    problem. We aim to acknowledge messages within two business days.</p>
+  {% if business.phone %}<p>Phone: {{ business.phone }}</p>{% endif %}
+  <div class="supportGrid">
+    <section>
+      <h2>A booklet failed</h2>
+      <p>Your reserved credits are returned automatically. Open My booklets and
+        use Try again. If it keeps failing, send us the booklet title and time.</p>
+    </section>
+    <section>
+      <h2>A payment is missing</h2>
+      <p>Wait one minute and refresh Account. If the credits still do not appear,
+        contact us with the Stripe receipt email. Do not send card details.</p>
+    </section>
+    <section>
+      <h2>A download expired</h2>
+      <p>FolioAI keeps only your most recent generated files. If a current file
+        cannot be downloaded, contact us before buying another credit.</p>
+    </section>
+    <section>
+      <h2>A booklet is not usable</h2>
+      <p>Contact us within 14 days with the booklet title and approximate
+        generation time. Do not send private information about the student. We
+        will review it and provide a replacement or appropriate remedy.</p>
+    </section>
+    <section>
+      <h2>Need an account removed?</h2>
+      <p>Use Account, then Delete your account. This removes the login, history,
+        stored booklets, and purchase records held in FolioAI.</p>
+    </section>
+  </div>
+  <p class="businessDetails">{{ business.name }}{% if business.number %} &middot;
+    {{ business.number }}{% endif %}{% if business.address %} &middot;
+    {{ business.address }}{% endif %}</p>
+</div>
+{% endblock %}

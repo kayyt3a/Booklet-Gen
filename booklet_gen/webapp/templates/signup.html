@@ -1,21 +1,24 @@
 {% extends "base.html" %}
 {% from "_motifs.html" import pencil %}
-{% block title %}Sign up - Folio{% endblock %}
+{% block title %}Sign up - FolioAI{% endblock %}
 {% block body %}
 <div class="card narrow warm">
   <div class="motifRow ink-orange">{{ pencil(28) }}</div>
   <h1>Create your account</h1>
-  <p class="sub">Free to use. Generate practice booklets and exam papers, and
-    keep them all in one place.</p>
+  <p class="sub">Your first booklet is included. Generate practice booklets
+    and exam papers, and keep them all in one place.</p>
   <form method="post">
     {{ csrf_field() }}
     <label for="email">Email</label>
-    <input id="email" name="email" type="email" autocomplete="email" required autofocus>
+    <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required autofocus>
     <label for="password">Password <span class="muted" style="font-weight:500">(at least 8 characters)</span></label>
     <input id="password" name="password" type="password" autocomplete="new-password"
-           minlength="8" required>
+           minlength="8" maxlength="256" required>
     <button type="submit">Create account</button>
   </form>
+  <p class="muted authAside">By creating an account, you agree to the
+    <a class="link" href="{{ url_for('public.terms') }}">Terms</a> and acknowledge
+    the <a class="link" href="{{ url_for('public.privacy') }}">Privacy policy</a>.</p>
   <p class="muted" style="margin-top:18px">Already have an account?
     <a class="link" href="{{ url_for('auth.login') }}">Log in</a>.</p>
 </div>

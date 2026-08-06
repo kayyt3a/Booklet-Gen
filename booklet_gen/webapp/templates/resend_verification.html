@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Resend verification - FolioAI{% endblock %}
+{% block body %}
+<div class="card narrow warm">
+  <h1>Resend verification</h1>
+  <p class="sub">Enter the email used for your FolioAI account. We will send a
+    new activation link if the account is waiting for verification.</p>
+  <form method="post">
+    {{ csrf_field() }}
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required autofocus>
+    <button type="submit">Send verification link</button>
+  </form>
+  <p class="muted authAside"><a class="link" href="{{ url_for('auth.login') }}">Back to login</a></p>
+</div>
+{% endblock %}

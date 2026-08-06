@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Folio mark: an open book, the one motif from the booklet cover that
+  <!-- FolioAI mark: an open book, the one motif from the booklet cover that
        still reads at 16px in a browser tab. Navy tile so it holds its shape
        against both light and dark tab strips. -->
   <rect width="64" height="64" rx="14" fill="#1F3A5F"/>

@@ -1,25 +1,26 @@
 {% extends "base.html" %}
 {% from "_motifs.html" import scatter, pencil, book, hexagon, triangle, check %}
-{% block title %}Folio - printable practice booklets for Years 1 to 10{% endblock %}
+{% block title %}FolioAI - printable practice booklets for Years 1 to 10{% endblock %}
 {% block body %}
 
 <section class="hero">
   {{ scatter() }}
   <div class="heroInner">
-    <span class="eyebrow">Free &middot; Years 1 to 10, plus WACE exam papers</span>
+    <span class="eyebrow">First booklet free &middot; Years 1 to 10, plus WACE exams</span>
     <h1>Practice booklets your kid will actually finish.</h1>
-    <p class="sub">Pick a subject and a year level. Folio writes a printable PDF
+    <p class="sub">Pick a subject and a year level. FolioAI writes a printable PDF
       in about two minutes: a mini-lesson, a worked example, practice questions
       sized for an hour, and an answer key with the working shown.</p>
     <div class="heroCta">
       <a class="btn" href="{{ url_for('auth.signup') }}">Create a free account</a>
-      <a class="btn secondary" href="{{ url_for('auth.login') }}">Log in</a>
+      <a class="btn secondary" href="#sample">See a sample</a>
     </div>
-    <p class="reassure">No credit card. Just a login, so your booklets are saved.</p>
+    <p class="reassure">Your first booklet is included. No credit card required. Already have an account?
+      <a class="link" href="{{ url_for('auth.login') }}">Log in</a>.</p>
   </div>
 </section>
 
-<div class="card">
+<div class="card" id="sample">
   <div class="sample">
     <div class="sampleText">
       <h2>This is what comes out</h2>
@@ -33,16 +34,20 @@
         <li>{{ check(19) }}<span>Room to write, and a spot to mark it out of</span></li>
       </ul>
     </div>
-    <img class="sampleShot" width="620" height="877"
-         src="{{ url_for('static', filename='img/sample-page.png') }}"
-         alt="A page from a Year 5 maths booklet, showing a mini-lesson on
-              comparing fractions, a worked example, and three practice
-              questions with ruled answer lines.">
+    <a class="sampleLink" href="{{ url_for('static', filename='img/sample-page.png') }}"
+       target="_blank" rel="noopener" aria-label="Open the sample booklet page full size">
+      <img class="sampleShot" width="620" height="877"
+           src="{{ url_for('static', filename='img/sample-page.png') }}"
+           alt="A page from a Year 5 maths booklet, showing a mini-lesson on
+                comparing fractions, a worked example, and three practice
+                questions with ruled answer lines.">
+      <span>Open full-size sample</span>
+    </a>
   </div>
 </div>
 
 <div class="card">
-  <h2>Four kinds of booklet</h2>
+  <h2>Choose your practice</h2>
   <p class="sub" style="margin-bottom:18px">Pick the one that matches what the
     student is working towards.</p>
   <div class="lines">
@@ -70,8 +75,8 @@
 <div class="card warm" style="position:relative;overflow:hidden;text-align:center">
   <h2 style="margin-bottom:8px">Make one and see</h2>
   <p class="muted" style="max-width:420px;margin:0 auto 20px;font-size:14.5px">
-    An account takes a moment and costs nothing. Your booklets are saved so you
-    can print them again later.</p>
+    Your first booklet is included, and your work is saved so you can print it
+    again later.</p>
   <a class="btn" style="width:auto;padding:13px 26px;margin-top:0"
      href="{{ url_for('auth.signup') }}">Create a free account</a>
 </div>

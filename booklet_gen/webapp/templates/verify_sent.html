@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% from "_motifs.html" import book %}
+{% block title %}Check your email - FolioAI{% endblock %}
+{% block body %}
+<div class="card narrow warm centerCard">
+  <div class="motifRow ink-navy">{{ book(30) }}</div>
+  <h1>Check your email</h1>
+  <p class="sub">We sent a verification link to <strong>{{ email }}</strong>.
+    Open it within 24 hours to activate your account and free booklet credit.</p>
+  <p class="muted">It may take a minute to arrive. Check your junk folder if
+    you do not see it.</p>
+  <a class="btn secondary" href="{{ url_for('auth.resend_verification') }}">Resend the email</a>
+</div>
+{% endblock %}

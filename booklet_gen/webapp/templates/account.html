@@ -1,11 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Account - Folio{% endblock %}
+{% block title %}Account - FolioAI{% endblock %}
 {% block body %}
 <div class="card">
   <h1>Your account</h1>
   <p class="sub">{{ g.user['email'] }}</p>
 
   <div class="stats">
+    <div class="stat">
+      <div class="statNum">{{ credits }}</div>
+      <p class="statLabel">Booklet credits</p>
+      <p class="statNote">
+        {% if payments_enabled %}<a class="link" href="{{ url_for('payments.pricing') }}">Buy more credits</a>
+        {% else %}Payments are currently disabled.{% endif %}
+      </p>
+    </div>
     <div class="stat">
       <div class="statNum">{{ job_count }}</div>
       <p class="statLabel">Booklets generated</p>
@@ -20,6 +28,27 @@
   </div>
 </div>
 
+{% if payments %}
+<div class="card">
+  <h2>Purchase history</h2>
+  <ul class="jobs compactJobs">
+    {% for payment in payments %}
+      <li class="jobItem">
+        <div class="jobMain">
+          <p class="jobTitle">{{ payment.product_key | replace('_', ' ') | title }}</p>
+          <div class="jobMeta">{{ payment.created_at | timeago }} &middot;
+            {{ payment.units }} booklet credits
+            {% if payment.amount_total is not none %}&middot;
+              {{ payment.currency | upper }} {{ '%.2f' | format(payment.amount_total / 100) }}
+            {% endif %}</div>
+        </div>
+        <span class="pill done">Paid</span>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <div class="card">
   <h2>Download your data</h2>
   <p class="muted">A JSON file listing your account details and every booklet
@@ -29,17 +58,26 @@
      href="{{ url_for('views.account_export') }}">Download my data</a>
 </div>
 
-<div class="card danger">
-  <h2>Delete your account</h2>
-  <p class="muted">This removes your login, your booklet history and every
-    stored file. It cannot be undone, and nothing is kept afterwards.</p>
-  <form method="post" action="{{ url_for('views.account_delete') }}"
-        onsubmit="return confirm('Delete your account and every booklet? This cannot be undone.')">
-    {{ csrf_field() }}
-    <label for="password">Confirm your password</label>
-    <input id="password" name="password" type="password"
-           autocomplete="current-password" required>
-    <button type="submit" class="btn danger">Delete my account</button>
-  </form>
-</div>
+<details class="dangerZone">
+  <summary>
+    <span>
+      <strong>Delete your account</strong>
+      <small>Permanently remove your login, history, and stored files.</small>
+    </span>
+    <span class="disclosure" aria-hidden="true"></span>
+  </summary>
+  <div class="dangerBody">
+    <p class="muted">This cannot be undone. It also removes your {{ credits }}
+      unused booklet credit{{ '' if credits == 1 else 's' }}. Contact support
+      before deleting if a payment issue is unresolved.</p>
+    <form method="post" action="{{ url_for('views.account_delete') }}"
+          onsubmit="return confirm('Delete your account and every booklet? This cannot be undone.')">
+      {{ csrf_field() }}
+      <label for="password">Confirm your password</label>
+      <input id="password" name="password" type="password"
+             autocomplete="current-password" required>
+      <button type="submit" class="btn danger">Delete my account</button>
+    </form>
+  </div>
+</details>
 {% endblock %}

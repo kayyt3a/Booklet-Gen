@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Admin - FolioAI{% endblock %}
+{% block body %}
+<div class="card">
+  <p class="eyebrow">Owner tools</p>
+  <h1>FolioAI support console</h1>
+  <p class="sub">Grant a support adjustment or inspect the latest generation jobs.</p>
+  <form class="adminCreditForm" method="post" action="{{ url_for('admin.credits') }}">
+    {{ csrf_field() }}
+    <div>
+      <label for="email">Customer email</label>
+      <input id="email" name="email" type="email" required>
+    </div>
+    <div>
+      <label for="units">Credits</label>
+      <input id="units" name="units" type="number" min="1" max="100" value="1" required>
+    </div>
+    <div>
+      <label for="reason">Reason</label>
+      <input id="reason" name="reason" type="text" maxlength="120" value="support adjustment" required>
+    </div>
+    <button type="submit">Add credits</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Latest generation jobs</h2>
+  <div class="tableScroll">
+    <table class="adminTable">
+      <thead><tr><th>Customer</th><th>Booklet</th><th>Status</th><th>Created</th><th>Action</th></tr></thead>
+      <tbody>
+      {% for job in jobs %}
+        <tr>
+          <td>{{ job.email }}</td>
+          <td>{{ job.label }}</td>
+          <td><span class="pill {{ 'done' if job.status == 'done' else 'error' if job.status == 'error' else '' }}">{{ job.status }}</span></td>
+          <td>{{ job.created_at | timeago }}</td>
+          <td>
+            {% if job.status == 'error' and job.request_json %}
+              <form method="post" action="{{ url_for('admin.retry', job_id=job.id) }}">
+                {{ csrf_field() }}<button class="btn secondary small" type="submit">No-charge retry</button>
+              </form>
+            {% else %}<span class="muted">None</span>{% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No jobs yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

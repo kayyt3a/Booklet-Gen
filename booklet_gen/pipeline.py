@@ -193,6 +193,7 @@ class BookletPipeline:
         from .programs import get_program, normalise_subject, ACCELERATE_SUBJECTS
 
         program = get_program(program_key)
+        authoring_guidance = program.authoring_guidance(year_level)
         if program.pick_subject:
             norm = normalise_subject(subject or "")
             if norm is None:
@@ -223,15 +224,27 @@ class BookletPipeline:
             # Force the engine subject: the parser normalises to a known
             # subject, but the program is authoritative about which engine runs.
             outline.subject = subj
-            sections, covered, rag_pool = self._generate_from_outline(outline, seen)
+            sections, covered, rag_pool = self._generate_from_outline(
+                outline,
+                seen,
+                authoring_guidance=authoring_guidance,
+                use_rag=program.use_rag,
+            )
+            generation_context = (
+                [authoring_guidance, *rag_pool]
+                if authoring_guidance else rag_pool
+            )
             for s in sections:
                 s.subject = subj
             all_sections.extend(sections)
             # Recap revises the previous week (term plan) or earlier skills.
             all_recap.extend(self._build_recap(subj, year_level, prev_focus,
-                                              rag_pool, seen, covered=covered))
+                                              generation_context, seen,
+                                              covered=covered))
             all_challenge.extend(
-                self._build_challenge(subj, year_level, covered, rag_pool, seen)
+                self._build_challenge(
+                    subj, year_level, covered, generation_context, seen,
+                )
             )
 
         self._fit_classwork_to_cap(all_sections)
@@ -371,7 +384,11 @@ class BookletPipeline:
 
         def build(spec) -> ExamSection:
             name, calc, marks, minutes = spec
-            chunks = self._retrieve(subject, year_level, "exam", topic_focus or name)
+            from .programs import reviewed_external_content_enabled
+            chunks = (
+                self._retrieve(subject, year_level, "exam", topic_focus or name)
+                if reviewed_external_content_enabled() else []
+            )
             draft = self._exam.generate_section(
                 subject, year_level, name, calc, marks,
                 topic_focus=topic_focus, reference_chunks=chunks,
@@ -735,7 +752,8 @@ class BookletPipeline:
         return out
 
     def _process_subtopic(self, subject, year_level, topic_name, subtopic,
-                          seen=None, passage_quota=2):
+                          seen=None, passage_quota=2,
+                          authoring_guidance=None, use_rag=True):
         """Generate one subtopic: lesson + validated questions. Returns
         (SubtopicOutput, rag_chunks). Self-contained so it can run in a thread.
 
@@ -748,7 +766,15 @@ class BookletPipeline:
         """
         if seen is None:
             seen = _SeenQuestions()
-        chunks = self._retrieve(subject, year_level, topic_name, subtopic.name)
+        from .programs import reviewed_external_content_enabled
+        retrieved_chunks = (
+            self._retrieve(subject, year_level, topic_name, subtopic.name)
+            if use_rag and reviewed_external_content_enabled() else []
+        )
+        chunks = (
+            [authoring_guidance, *retrieved_chunks]
+            if authoring_guidance else retrieved_chunks
+        )
         teaching = self._make_teaching(subject, year_level, topic_name, subtopic, chunks)
         passages: list[Passage] = []
         validated = self._generate_and_validate(
@@ -762,7 +788,9 @@ class BookletPipeline:
             "pipeline.subtopic.done",
             extra={"subject": subject, "topic": topic_name,
                    "subtopic": subtopic.name, "total": total, "failed": failed,
-                   "failure_rate": failure_rate, "rag_chunks": len(chunks),
+                   "failure_rate": failure_rate,
+                   "rag_chunks": len(retrieved_chunks),
+                   "authoring_guidance": bool(authoring_guidance),
                    "passages": len(passages)},
         )
         # Split the generated set: the first chunk is classwork ("Now you try"),
@@ -791,7 +819,7 @@ class BookletPipeline:
             failure_rate=failure_rate,
             estimated_minutes=round_display(raw_min),
         )
-        return section, chunks
+        return section, retrieved_chunks
 
     @staticmethod
     def _group_by_passage(validated):
@@ -858,7 +886,8 @@ class BookletPipeline:
         cuts.append(n)
         return min(cuts, key=lambda c: (abs(c - target), -c))
 
-    def _generate_from_outline(self, outline, seen=None):
+    def _generate_from_outline(self, outline, seen=None,
+                               authoring_guidance=None, use_rag=True):
         """Run generation for every subtopic in a single-subject outline.
         Subtopics are independent apart from the shared `seen` set (which is
         thread-safe), so they run concurrently (each is a batch of
@@ -881,7 +910,8 @@ class BookletPipeline:
             with ThreadPoolExecutor(max_workers=self._max_workers) as ex:
                 futures = {
                     ex.submit(self._process_subtopic, outline.subject,
-                              outline.year_level, tn, st, seen, quotas[i]): i
+                              outline.year_level, tn, st, seen, quotas[i],
+                              authoring_guidance, use_rag): i
                     for i, (tn, st) in enumerate(tasks)
                 }
                 for fut in as_completed(futures):
@@ -889,7 +919,8 @@ class BookletPipeline:
         else:
             for i, (tn, st) in enumerate(tasks):
                 results[i] = self._process_subtopic(
-                    outline.subject, outline.year_level, tn, st, seen, quotas[i])
+                    outline.subject, outline.year_level, tn, st, seen, quotas[i],
+                    authoring_guidance, use_rag)
 
         sections: list[SubtopicOutput] = []
         covered: list[tuple[str, str]] = []

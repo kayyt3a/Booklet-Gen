@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_motifs.html" import paperplane, trail, check %}
-{% block title %}Generating - Folio{% endblock %}
+{% block title %}Generating - FolioAI{% endblock %}
 {% block body %}
 <div class="card narrow">
   {# Trail first, then the plane: it reads as having flown the path, not as
@@ -30,7 +30,14 @@
 
   <div id="err" style="display:none">
     <div class="flash" id="errmsg"></div>
-    <a class="btn secondary" href="{{ url_for('views.index') }}">Try again</a>
+    {% if job['request_json'] %}
+      <form method="post" action="{{ url_for('views.retry', job_id=job['id']) }}">
+        {{ csrf_field() }}<button class="btn secondary" type="submit">Try again</button>
+      </form>
+    {% else %}
+      <a class="btn secondary" href="{{ url_for('views.index') }}">Create another booklet</a>
+    {% endif %}
+    <p class="muted">If a paid generation fails, its reserved credits are returned automatically.</p>
   </div>
 </div>
 
@@ -69,6 +76,7 @@
           document.getElementById('errmsg').textContent = d.error || 'Generation failed.';
           document.getElementById('err').style.display = 'block';
         } else {
+          if (d.status === "queued") stageEl.textContent = "Waiting for a generator to become available...";
           setTimeout(poll, 2500);
         }
       })

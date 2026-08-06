@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Privacy policy - FolioAI{% endblock %}
+{% block body %}
+<article class="card policyPage">
+  <p class="eyebrow">Last updated 6 August 2026</p>
+  <h1>Privacy policy</h1>
+  <p>{{ business.name }} provides FolioAI from {{ business.country }}. This policy
+    explains what information FolioAI handles, why it is needed, and the choices
+    available to account holders.</p>
+
+  <h2>Information we collect</h2>
+  <p>We collect your email address, password hash, account activity, purchase
+    records, and the booklet choices you submit. A student name and topic may
+    appear in a generated booklet. Security logs can also contain request
+    times, network addresses, browser information, and a one-way identifier
+    used for rate limiting. Please use only the minimum student information
+    needed, such as a first name or nickname.</p>
+
+  <h2>How we use it</h2>
+  <p>We use this information to authenticate your account, create and store
+    booklets, take payments, prevent misuse, provide support, and operate and
+    secure the service. We do not sell personal information.</p>
+
+  <h2>Service providers and overseas processing</h2>
+  <p>FolioAI uses service providers including Render for hosting, Supabase for
+    database and file storage, Stripe for payments, a configured email
+    provider, and an AI provider such as Google for generation. This can
+    involve processing or storage in the United States and other countries
+    where those providers operate. Providers receive only the information
+    needed to perform their service and operate under their own privacy and
+    security terms.</p>
+
+  <h2>Payments</h2>
+  <p>Stripe processes card payments. FolioAI receives transaction status,
+    purchase amount, customer identifiers, and limited payment details such as
+    card brand and last digits where Stripe makes them available. FolioAI does
+    not receive or store your complete card number.</p>
+
+  <h2>Children</h2>
+  <p>FolioAI accounts and purchases are intended to be managed by a parent,
+    guardian, tutor, or other authorised adult. Do not submit sensitive
+    information about a child. Use a first name or nickname only. Generated
+    materials are educational practice aids and are not a substitute for
+    professional advice, diagnosis, or a school assessment.</p>
+
+  <h2>Retention and security</h2>
+  <p>We retain account and purchase information while the account remains
+    active and as reasonably required for operations, legal obligations,
+    disputes, and fraud prevention. FolioAI limits downloadable files to the
+    retention count shown in My booklets. We use access controls, signed
+    downloads, password hashing, encrypted network connections, and other
+    safeguards, but no internet service can promise absolute security.</p>
+
+  <h2>Your choices</h2>
+  <p>You can download an account data export and permanently delete the account
+    from the Account page. Deleting the FolioAI account removes its application
+    data and stored files. Payment processors or business accounting records may
+    retain transaction information where required by law or their own legal
+    obligations. To ask for access, correction, or help with a privacy concern,
+    contact <a class="link" href="mailto:{{ business.email }}">{{ business.email }}</a>.</p>
+
+  <h2>Changes and complaints</h2>
+  <p>We may update this policy as FolioAI changes. The latest version and date are
+    published here. Contact us first if you have a concern and include enough
+    detail for us to investigate. We aim to acknowledge a privacy complaint
+    promptly and respond within 30 days. If you remain dissatisfied, you may
+    have the right to contact the Office of the Australian Information
+    Commissioner or another regulator that applies to you.</p>
+  <p class="businessDetails">Privacy contact: {{ business.name }}{% if business.number %}
+    &middot; {{ business.number }}{% endif %}{% if business.address %} &middot;
+    {{ business.address }}{% endif %} &middot;
+    <a class="link" href="mailto:{{ business.email }}">{{ business.email }}</a></p>
+</article>
+{% endblock %}

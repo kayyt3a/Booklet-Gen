@@ -42,9 +42,10 @@ def main() -> int:
     ap.add_argument("--gaps", action="store_true", help="Only show coverage gaps")
     args = ap.parse_args()
 
-    from booklet_gen.programs import ACCELERATE_SUBJECTS
+    from booklet_gen.programs import ACCELERATE_SUBJECTS, PROGRAMS
     needs = dict(PROGRAM_NEEDS)
     needs["Academic Accelerate"] = list(ACCELERATE_SUBJECTS)
+    rag_enabled = {program.label: program.use_rag for program in PROGRAMS.values()}
 
     backend = "Postgres (pgvector)" if is_postgres() else "local Chroma (rag_store/)"
     store = VectorStore()
@@ -90,6 +91,10 @@ def main() -> int:
     print("-" * 62)
     have = set(by_subject)
     for program, subjects in needs.items():
+        if not rag_enabled.get(program, True):
+            if not args.gaps:
+                print(f"  {program:<22} EXTERNAL RAG DISABLED - internal guide only")
+            continue
         missing = [s for s in subjects if s not in have]
         if missing and not args.gaps:
             status = f"PARTIAL - no {', '.join(missing)}" if len(missing) < len(subjects) \

@@ -1,4 +1,4 @@
-"""Security checks for the Folio web app: sessions, CSRF, redirects, quotas,
+"""Security checks for the FolioAI web app: sessions, CSRF, redirects, quotas,
 stuck jobs, account deletion.
 
 Every check proves the negative case as well as the positive one: a forged
@@ -48,6 +48,7 @@ def signup(client, email, password="password123"):
     return client.post("/signup",
                        data={"email": email, "password": password,
                              "csrf_token": token_from(client, "/signup")},
+                       environ_base={"REMOTE_ADDR": email},
                        follow_redirects=True)
 
 
@@ -114,7 +115,8 @@ db.save_job_file("victim-job", vid, "v.pdf", "application/pdf", b"%PDF student n
 db.finish_job("victim-job", path="/nonexistent")
 
 attacker = app.test_client()
-attacker.set_cookie("session", forge_cookie(PUBLISHED_DEFAULT, {"user_id": vid}),
+cookie_name = app.config["SESSION_COOKIE_NAME"]
+attacker.set_cookie(cookie_name, forge_cookie(PUBLISHED_DEFAULT, {"user_id": vid}),
                     domain="localhost")
 r = attacker.get("/library")
 assert r.status_code == 302 and "/login" in r.headers["Location"], r.status_code
@@ -125,7 +127,7 @@ ok("a cookie forged with the published default key is rejected")
 # Sanity: the same forgery against the real key would work, i.e. the check
 # above is testing signature verification and not something incidental.
 attacker2 = app.test_client()
-attacker2.set_cookie("session", forge_cookie(saved_key, {"user_id": vid}),
+attacker2.set_cookie(cookie_name, forge_cookie(saved_key, {"user_id": vid}),
                      domain="localhost")
 assert b"Academic Accelerate" in attacker2.get("/library").data
 ok("(control) a correctly signed cookie does reach the library")
@@ -190,7 +192,7 @@ FORM = {"program": "accelerate", "year": "Year 5", "subject": "Mathematics",
 
 r = user.post("/generate", data=dict(FORM))
 assert r.status_code == 400, f"no-token POST /generate returned {r.status_code}"
-assert b"did not come from Folio" in r.data, "no explanation shown to the user"
+assert b"did not come from FolioAI" in r.data, "no explanation shown to the user"
 ok("POST /generate with no token is rejected (400) and explained")
 
 r = user.post("/generate", data=dict(FORM, csrf_token="not-the-right-token"),
@@ -359,7 +361,8 @@ with app.test_request_context():
                              ("/etc/hostname", "/etc")])
 assert elsewhere.exists(), "deletion escaped the output directory"
 assert app.config["OUTPUT_DIR"].is_dir(), "deletion removed the whole output dir"
-assert Path("/etc/hostname").exists()
+if os.name != "nt":
+    assert Path("/etc/hostname").exists()
 ok("deletion only removes files inside the output directory")
 
 shutil.rmtree(_TMP, ignore_errors=True)

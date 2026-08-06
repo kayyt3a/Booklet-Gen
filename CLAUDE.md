@@ -1,4 +1,4 @@
-# Folio
+# FolioAI
 
 AI-generated practice booklet product for Years 1-10 (Australia). Parents/tutors
 generate PDF booklets: mini-lesson -> worked example -> practice questions ->
@@ -22,6 +22,13 @@ cumulative "Final Challenge", with a verified answer key.
 - **RAG**: ingested from `rag_sources/<Subject>/<Year>/<Tag>/` via
   `scripts/ingest_folder.py`. `rag_sources/` is gitignored (large + some
   content is copyrighted for personal use only, e.g. ACER scholarship papers).
+  Do not migrate the existing local store into the paid product. NAPLAN external
+  RAG is disabled in `programs.py`; it uses the original-authoring guide at
+  `booklet_gen/guidance/naplan_practice.txt` instead. Build a fresh production
+  store only from sources recorded as commercially approved under
+  `rag_sources/README.md`. `scripts/ingest_folder.py` requires an affirmative
+  entry in `rag_sources/source_rights.csv` and stamps approval provenance into
+  every chunk. The Postgres migration rejects stores without that provenance.
   Two store backends behind one interface (`rag/store.py`): Postgres+pgvector
   when `DATABASE_URL` is set, on-disk ChromaDB otherwise.
 - **Database**: one Postgres serves both accounts and the vector store, via
@@ -30,9 +37,11 @@ cumulative "Final Challenge", with a verified answer key.
   accounts on restart and has no RAG. `scripts/migrate_rag_to_postgres.py`
   moves an existing Chroma library up without re-embedding.
 - **Web app** (`booklet_gen/webapp/`): Flask, `db.py` (Postgres or SQLite),
-  dropdown generate form. Accounts (signup/login) gate access; generation is
-  free and unlimited (no pricing/credits/payments), with a per-account daily
-  cap as an abuse guard. Treat auth code with more care than the rest.
+  dropdown generate form. Accounts, email verification, credits, Stripe
+  Checkout, queued generation, private file storage, customer legal pages, and
+  an admin support console are implemented in the current working tree. Daily
+  caps remain as abuse guards. Treat auth and payment code with more care than
+  the rest.
 - **Exam papers**: `pipeline.run_exam()` + `formatter.render_exam_pdf()`
   produce a WACE-shaped Methods practice paper (calculator-free and
   calculator-assumed sections, marks, marking key). Separate path from
