@@ -6,6 +6,7 @@ Runs without an API key or database:
 """
 from __future__ import annotations
 
+import inspect
 import os
 from pathlib import Path
 
@@ -126,6 +127,31 @@ check("not an official curriculum document" in " ".join(acc_guide.split()),
       "the Accelerate guide does not claim endorsement")
 check("—" not in acc_guide and "–" not in acc_guide,
       "the Accelerate guide contains no em or en dash")
+
+# NAPLAN is sat in Years 3, 5, 7 and 9 only, and each of those years now has a
+# supplement narrowing the general guide. A year outside that set must fall
+# back to the base guide rather than error.
+print("\nEach NAPLAN year gets its own supplement")
+print("-" * 68)
+base_words = len((naplan.authoring_guidance() or "").split())
+for year, marker in (("Year 3", "10 000"), ("Year 5", "thousandths"),
+                     ("Year 7", "prime factorisation"), ("Year 9", "Pythagoras")):
+    supplemented = naplan.authoring_guidance(year) or ""
+    check(f"YEAR {year.split()[1]} SUPPLEMENT" in supplemented,
+          f"{year} loads its supplement")
+    check(len(supplemented.split()) > base_words + 300,
+          f"{year} adds substantial year-specific guidance")
+    check(marker in supplemented,
+          f"{year} pitches its numeracy at the right level")
+for year in ("Year 4", "Year 10"):
+    check(len((naplan.authoring_guidance(year) or "").split()) == base_words,
+          f"{year} falls back to the base guide, since NAPLAN is not sat then")
+
+# The supplement is worthless if the pipeline drops the year on the way in.
+# This is the wiring that would break silently.
+run_program_src = inspect.getsource(BookletPipeline.run_program)
+check("program.authoring_guidance(year_level)" in run_program_src,
+      "run_program passes the year level through to the guide")
 
 readme = Path("rag_sources/README.md").read_text(encoding="utf-8")
 check("Do not migrate that library into the paid product" in readme,
