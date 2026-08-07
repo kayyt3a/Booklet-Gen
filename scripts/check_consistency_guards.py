@@ -208,10 +208,22 @@ def _render_checks() -> list:
     diagrams.CACHE_DIR = tmp        # never read a cached PNG: we need the draw
     try:
         def labels(spec):
+            """The distinct labels drawn for one spec.
+
+            Distinct, not the raw sequence: render_diagram now draws a figure
+            more than once when the first attempt puts text on the page too
+            small to read (see _draw_legibly), so the same label legitimately
+            arrives several times. What this file is about is *which* strings
+            reach the page, and that is unchanged by how often they are drawn.
+            """
             drawn.clear()
             path = diagrams.render_diagram(dict(spec))
             assert path is not None and path.exists(), f"render failed: {spec}"
-            return list(drawn)
+            seen = []
+            for s in drawn:
+                if s not in seen:
+                    seen.append(s)
+            return seen
 
         # The shipped case, after reconciliation.
         spec, _ = reconcile_diagram_spec(

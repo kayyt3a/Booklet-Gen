@@ -7,18 +7,23 @@ into a fixed box on the page. Anything written inside the picture shrinks by
 that same factor, so a font size chosen while looking at the PNG says nothing
 about what a parent gets out of the printer.
 
-The compare composite got this wrong. It wrote its sub-diagram labels at a
-fixed 26px onto a canvas whose width depends on how many parts the sub-figures
-have, and the formatter then squeezed that canvas into a 6cm box. Two bar
-models landed the label at 7.7pt; a nine-part bar beside a three-part bar
-landed it at 4.5pt; a four-way compare reached 2.6pt. The shipped Year 5
-fractions booklet has "1/2" and "2/4" printed under two bar models at 7.7pt,
-which is smaller than the page numbers.
+Every renderer got this wrong, in the same way. The compare composite wrote
+its sub-diagram labels at a fixed 26px onto a canvas whose width depends on
+how many parts the sub-figures have: two bar models landed the label at
+7.7pt, a nine-part bar beside a three-part bar at 4.5pt, a four-way compare
+at 2.6pt. The matplotlib figures wrote theirs at a fixed 10pt or 11pt onto
+figures up to 4.9 inches wide that print 2.4 inches wide: the L-shape
+measurements landed at 4.9pt, the number line at 5.4pt, the cylinder at
+4.8pt, the "not to scale" caption at 4.1pt.
+
+Those numbers are the question. A Year 5 child working out the area of an
+L-shaped garden has to read "12 m" off the drawing, and at 4.9pt on a home
+printer they cannot.
 
 So this check does not assert that a label exists, or that some constant in
 the source has some value. It renders the picture, reads the PNG back off
 disk, puts it through the real formatter sizing code, and asserts the point
-size the label actually prints at.
+size the text actually prints at.
 
 Usage:  PYTHONPATH=. python scripts/check_diagram_legibility.py
 """
@@ -127,13 +132,108 @@ def rendered_label_pt(spec: dict, max_w: float, max_h: float):
     return font_px * scale, (png_w, png_h), font_px
 
 
+# The single-figure renderers, with the specs the shipped Year 5 booklet used
+# where it had one. These are matplotlib figures, so their text is measured
+# differently from the compare composite's Pillow labels.
+FIGURE_CASES = [
+    ("rectangle 7cm x 3cm (page 7)",
+     {"type": "rectangle", "length": 7, "width": 3, "unit": "cm"}),
+    ("L-shape 12m x 10m (page 8)",
+     {"type": "l_shape", "outer_length": 12, "outer_width": 10,
+      "cut_length": 4, "cut_width": 3, "unit": "m"}),
+    ("L-shape 10m x 8m (page 29)",
+     {"type": "l_shape", "outer_length": 10, "outer_width": 8,
+      "cut_length": 4, "cut_width": 3, "unit": "m"}),
+    ("number line 300 to 400 (page 12)",
+     {"type": "number_line", "from": 300, "to": 400, "divisions": 10,
+      "mark_at": [347], "label_at": ["347"]}),
+    ("number line 0 to 1 in quarters",
+     {"type": "number_line", "from": 0, "to": 1, "divisions": 4,
+      "mark_at": [0.75], "label_at": ["3/4"]}),
+    ("cuboid 5x3x4",
+     {"type": "cuboid", "length": 5, "width": 3, "height": 4, "unit": "cm"}),
+    ("a long thin cuboid",
+     {"type": "cuboid", "length": 20, "width": 4, "height": 3, "unit": "cm"}),
+    ("cylinder r3 h8",
+     {"type": "cylinder", "radius": 3, "height": 8, "unit": "cm"}),
+    ("rectangle with a hidden side and its caption",
+     {"type": "rectangle", "length": 6, "width": 4, "unit": "cm",
+      "unknown": ["length"]}),
+    ("cuboid with a hidden side and its caption",
+     {"type": "cuboid", "length": 4, "width": 3, "height": 2,
+      "unit": "blocks", "unknown": ["height"]}),
+]
+
+
+def rendered_figure_pt(spec: dict, max_w: float, max_h: float):
+    """What a matplotlib figure's text prints at, in points.
+
+    Returns (smallest measurement label, smallest caption or None, png size).
+    Sizes come from the draw calls, not from what the sizing code claims about
+    itself. Measurements go through Axes.text and the "not to scale" caption
+    through Axes.annotate, which is how the two are told apart, and they carry
+    different floors: a measurement is the question, a caption is a footnote.
+
+    The figure is drawn more than once when the first attempt lands too small,
+    so savefig marks the pass boundary and only the last pass counts, that
+    being the one left on disk.
+    """
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+
+    labels: list[float] = []
+    notes: list[float] = []
+    passes: list[tuple[list[float], list[float]]] = []
+    o_text, o_annotate, o_save = Axes.text, Axes.annotate, Figure.savefig
+
+    def spy_text(self, x, y, s, *args, **kwargs):
+        if kwargs.get("fontsize"):
+            labels.append(float(kwargs["fontsize"]))
+        return o_text(self, x, y, s, *args, **kwargs)
+
+    def spy_annotate(self, text, *args, **kwargs):
+        if kwargs.get("fontsize"):
+            notes.append(float(kwargs["fontsize"]))
+        return o_annotate(self, text, *args, **kwargs)
+
+    def spy_save(self, *args, **kwargs):
+        result = o_save(self, *args, **kwargs)
+        passes.append((list(labels), list(notes)))
+        labels.clear()
+        notes.clear()
+        return result
+
+    for stale in diagrams.CACHE_DIR.glob("*.png"):
+        stale.unlink()
+    Axes.text, Axes.annotate, Figure.savefig = spy_text, spy_annotate, spy_save
+    try:
+        path = diagrams.render_diagram(dict(spec))
+    finally:
+        Axes.text, Axes.annotate, Figure.savefig = o_text, o_annotate, o_save
+    if path is None or not path.exists() or not passes:
+        return None, None, None
+    drawn_labels, drawn_notes = passes[-1]
+    if not drawn_labels:
+        return None, None, None
+    png_w, png_h = PILImage.open(path).size
+    flowable = formatter._make_image(str(path), max_w=max_w, max_h=max_h)
+    if flowable is None:
+        return None, None, (png_w, png_h)
+    # A point in the figure is 1/72 inch, which at the figure's DPI is
+    # DPI/72 pixels, which the formatter then places at drawWidth/png_w
+    # points per pixel.
+    per_pt = (diagrams.DPI / 72) * (flowable.drawWidth / png_w)
+    smallest_note = min(drawn_notes) * per_pt if drawn_notes else None
+    return min(drawn_labels) * per_pt, smallest_note, (png_w, png_h)
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="folio-legibility-"))
     old_cache = diagrams.CACHE_DIR
     diagrams.CACHE_DIR = tmp        # never read a cached PNG from an old run
     try:
         print("== the box the composite is sized for matches the formatter ==")
-        assumed_w, assumed_h = diagrams.COMPARE_PRINT_BOX_PT
+        assumed_w, assumed_h = diagrams.DIAGRAM_PRINT_BOX_PT
         # The worked-example box is the smaller of the two the formatter uses,
         # so sizing for it covers the question box as well. If the formatter
         # ever shrinks a box below what diagrams.py assumes, every label size
@@ -142,7 +242,7 @@ def main() -> int:
               and assumed_h <= formatter.WE_IMG_HEIGHT + 0.01
               and assumed_w <= formatter.MAX_IMG_WIDTH + 0.01
               and assumed_h <= formatter.MAX_IMG_HEIGHT + 0.01,
-              "diagrams.COMPARE_PRINT_BOX_PT is no bigger than any print box",
+              "diagrams.DIAGRAM_PRINT_BOX_PT is no bigger than any print box",
               f"assumed {assumed_w:.1f}x{assumed_h:.1f}pt, formatter smallest "
               f"{formatter.WE_IMG_WIDTH:.1f}x{formatter.WE_IMG_HEIGHT:.1f}pt")
         check(diagrams.MIN_COMPARE_LABEL_PT >= MIN_PT,
@@ -164,6 +264,39 @@ def main() -> int:
                       f"{name}: prints at {pt:.1f}pt",
                       f"{pt:.2f}pt is below the {MIN_PT}pt floor "
                       f"(png {png[0]}x{png[1]}px, font {font_px}px)")
+
+        for box_name, max_w, max_h in [
+            ("worked example box", formatter.WE_IMG_WIDTH, formatter.WE_IMG_HEIGHT),
+            ("question box", formatter.MAX_IMG_WIDTH, formatter.MAX_IMG_HEIGHT),
+        ]:
+            print(f"\n== measurements on single figures in the {box_name} ==")
+            for name, spec in FIGURE_CASES:
+                pt, note_pt, png = rendered_figure_pt(spec, max_w, max_h)
+                if pt is None:
+                    check(False, name, f"did not render (png={png})")
+                    continue
+                extra = f", caption {note_pt:.1f}pt" if note_pt else ""
+                check(pt >= MIN_PT,
+                      f"{name}: measurements print at {pt:.1f}pt{extra}",
+                      f"{pt:.2f}pt is below the {MIN_PT}pt floor "
+                      f"(png {png[0]}x{png[1]}px)")
+                if note_pt is not None:
+                    check(note_pt >= diagrams.MIN_DIAGRAM_NOTE_PT,
+                          f"{name}: the caption prints at {note_pt:.1f}pt",
+                          f"{note_pt:.2f}pt is below the "
+                          f"{diagrams.MIN_DIAGRAM_NOTE_PT}pt caption floor")
+
+        print("\n== every figure still fits the print box ==")
+        for name, spec in FIGURE_CASES:
+            path = diagrams.render_diagram(dict(spec))
+            flow = path and formatter._make_image(
+                str(path), max_w=formatter.WE_IMG_WIDTH,
+                max_h=formatter.WE_IMG_HEIGHT)
+            check(flow is not None
+                  and flow.drawWidth <= formatter.WE_IMG_WIDTH + 0.01
+                  and flow.drawHeight <= formatter.WE_IMG_HEIGHT + 0.01,
+                  f"{name}: fits",
+                  f"{flow.drawWidth:.1f}x{flow.drawHeight:.1f}pt" if flow else "no image")
 
         print("\n== the composite still fits and still says what it should ==")
         for name, spec in CASES:
