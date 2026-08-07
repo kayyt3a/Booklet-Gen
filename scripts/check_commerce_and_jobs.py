@@ -141,6 +141,58 @@ assert b"reached today" in response.data
 assert len(db.list_jobs(user_id)) == before_retry_count
 passed("customer retries cannot bypass the daily booklet abuse guard")
 
+# The cap has to hold when the requests arrive together, not only when they
+# arrive one at a time. views._quota_allows counts on a plain cursor and then
+# enqueues in a separate transaction, so concurrent posts all read the same
+# pre-insert total and every one of them was admitted.
+import threading  # noqa: E402
+
+race_user = db.create_user("race@test.com", "correct-horse-battery")
+race_results: list[bool] = []
+race_lock = threading.Lock()
+RACE_LIMIT, RACE_POSTS = 3, 12
+
+
+def _race_enqueue(n: int) -> None:
+    ok = db.enqueue_job(f"race-{n}", race_user, "Race", 1, {"program": "accelerate"},
+                        False, daily_limit=RACE_LIMIT, global_daily_limit=10_000)
+    with race_lock:
+        race_results.append(ok)
+
+
+threads = [threading.Thread(target=_race_enqueue, args=(n,))
+           for n in range(RACE_POSTS)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+assert sum(race_results) == RACE_LIMIT, (
+    f"{sum(race_results)} of {RACE_POSTS} concurrent requests cleared a "
+    f"limit of {RACE_LIMIT}")
+assert db.booklets_started_last_24h(race_user) == RACE_LIMIT
+passed("the daily cap holds when requests arrive concurrently")
+
+# A slow job that the stale sweep has already failed and refunded must not be
+# resurrected by the worker finishing later. It used to be: the customer kept
+# the refunded credits and the booklet, which for a term plan is A$39 of
+# product given away, self-serve and repeatable.
+stale_user = db.create_user("stale@test.com", "correct-horse-battery")
+db.grant_credits(stale_user, 10, reason="test", reference="stale-seed")
+stale_start = db.credit_balance(stale_user)
+assert db.enqueue_job("stale-job", stale_user, "Term plan", 10,
+                      {"program": "accelerate", "is_term": True}, True)
+assert db.credit_balance(stale_user) == stale_start - 10
+db.claim_job("stale-job")
+with db._cursor() as _cur:
+    _cur.execute(db._q("UPDATE jobs SET created_at=? WHERE id=?"),
+                 (int(time.time()) - 99_999, "stale-job"))
+assert db.fail_stale_running_jobs(2700) == 1
+assert db.credit_balance(stale_user) == stale_start, "the sweep should refund"
+assert db.finish_job("stale-job", path="/tmp/whatever.pdf") is False, (
+    "finish_job must refuse a job that was already settled and refunded")
+assert db.get_job("stale-job")["status"] == "error"
+passed("a refunded stale job is not resurrected by the worker finishing late")
+
 import stripe  # noqa: E402
 
 webhook_calls = []

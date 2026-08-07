@@ -173,7 +173,9 @@ def generate():
                 is_exam=is_exam)
     if not db.enqueue_job(
             job_id, g.user["id"], label, units, args,
-            reserve_credits=payments_enabled()):
+            reserve_credits=payments_enabled(),
+            daily_limit=DAILY_BOOKLET_LIMIT,
+            global_daily_limit=GLOBAL_DAILY_BOOKLET_LIMIT):
         flash("You need more booklet credits for that selection.")
         return redirect(url_for("payments.pricing"))
     _dispatch_job(job_id, args)
@@ -313,7 +315,9 @@ def retry(job_id: str):
     new_id = uuid.uuid4().hex
     if not db.enqueue_job(
             new_id, g.user["id"], original["label"], units,
-            args, reserve_credits=payments_enabled()):
+            args, reserve_credits=payments_enabled(),
+            daily_limit=DAILY_BOOKLET_LIMIT,
+            global_daily_limit=GLOBAL_DAILY_BOOKLET_LIMIT):
         flash("You need more booklet credits to retry that job.")
         return redirect(url_for("payments.pricing"))
     _dispatch_job(new_id, args)

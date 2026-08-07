@@ -562,10 +562,26 @@ def create_job(job_id: str, user_id: int, label: str, units: int = 1) -> None:
 
 
 def enqueue_job(job_id: str, user_id: int, label: str, units: int,
-                request_data: dict, reserve_credits: bool) -> bool:
-    """Atomically reserve credits and create a queued generation job."""
+                request_data: dict, reserve_credits: bool,
+                daily_limit: int | None = None,
+                global_daily_limit: int | None = None) -> bool:
+    """Atomically reserve credits and create a queued generation job.
+
+    The abuse caps are counted here, inside the same transaction as the
+    insert, and not only in the caller. views._quota_allows reads the counts
+    on a plain cursor and then enqueues separately, so concurrent requests all
+    saw the same pre-insert total: twelve simultaneous posts cleared a limit of
+    three. That caller stays, because it produces the specific message a
+    customer should see, but it is a courtesy check rather than the guard.
+
+    The global ceiling matters most. It is the only thing bounding how much
+    Gemini spend a single day can produce, and during the launch window
+    DEPLOY.md recommends running with payments off, where no credit reservation
+    stands in the way either.
+    """
     now = int(time.time())
     units = max(1, int(units))
+    since = now - 86400
     with _cursor(transaction=True) as cur:
         if reserve_credits:
             if is_postgres():
@@ -575,6 +591,21 @@ def enqueue_job(job_id: str, user_id: int, label: str, units: int,
                 (user_id,),
             )
             if _scalar(cur) < units:
+                return False
+        if daily_limit is not None:
+            cur.execute(
+                _q("""SELECT COALESCE(SUM(units),0) AS n FROM jobs
+                    WHERE user_id=? AND created_at>=?"""),
+                (user_id, since),
+            )
+            if _scalar(cur) + units > daily_limit:
+                return False
+        if global_daily_limit is not None:
+            cur.execute(
+                _q("SELECT COALESCE(SUM(units),0) AS n FROM jobs WHERE created_at>=?"),
+                (since,),
+            )
+            if _scalar(cur) + units > global_daily_limit:
                 return False
         cur.execute(
             _q("""INSERT INTO jobs
@@ -628,14 +659,29 @@ def claim_job(job_id: str):
     return _claim_where(_q("status='queued' AND id=?"), (job_id,))
 
 
-def finish_job(job_id: str, *, path: str = None, dir: str = None) -> None:
+def finish_job(job_id: str, *, path: str = None, dir: str = None) -> bool:
+    """Mark a job done. False when it had already been settled.
+
+    The status guard is load-bearing, not defensive. `fail_stale_running_jobs`
+    runs in the web process and refunds any job older than FOLIO_JOB_TIMEOUT,
+    but it cannot tell the worker to stop, and in production it is a different
+    dyno entirely. Without the guard a slow job was refunded by the sweep and
+    then flipped to 'done' by the worker minutes later, so the customer kept
+    the credits and the booklet. A ten-week term plan is both the job most
+    likely to run long and the A$39 one.
+
+    Losing the output of a job that overran is the correct trade: the credits
+    are already back, so the customer can simply generate again.
+    """
     now = int(time.time())
     with _cursor() as cur:
         cur.execute(
             _q("""UPDATE jobs SET status='done', path=?, dir=?, error=NULL,
-                internal_error=NULL, completed_at=? WHERE id=?"""),
+                internal_error=NULL, completed_at=?
+                WHERE id=? AND status IN ('queued','running')"""),
             (path, dir, now, job_id),
         )
+        return (cur.rowcount or 0) > 0
 
 
 def _refund_row(cur, row, now: int) -> None:

@@ -282,12 +282,20 @@ ok("the boot sweep fails only jobs older than the timeout")
 assert db.fail_job_if_running("stuck-2", "second attempt") is False
 ok("the watchdog will not re-fail a job that already settled")
 
+# This used to assert the opposite: that a late finisher still ended up done,
+# so a customer who waited was not punished for a slow job. That was a
+# deliberate kindness, but it was written before credits existed and it never
+# settled them. The watchdog refunds when it fails a job, so delivering the
+# booklet afterwards handed over the product and the money back. On a ten-week
+# term plan that is A$39, self-serve and repeatable.
+#
+# The credit is already returned, so the customer has lost time and nothing
+# else, and the error text tells them to try again.
 db.create_job("stuck-4", sid, "Late finisher")
 db.fail_job_if_running("stuck-4", "timed out")
-db.finish_job("stuck-4", path="/tmp/x.pdf")
-assert db.get_job("stuck-4")["status"] == "done"
-assert not db.get_job("stuck-4")["error"]
-ok("a job that finishes after the watchdog fired still ends up done")
+assert db.finish_job("stuck-4", path="/tmp/x.pdf") is False
+assert db.get_job("stuck-4")["status"] == "error"
+ok("a job that finishes after the watchdog refunded it is not resurrected")
 
 zombie = app.test_client()
 signup(zombie, "zombie@test.com")

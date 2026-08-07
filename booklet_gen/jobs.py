@@ -33,7 +33,12 @@ def _clear_target(target: Path) -> None:
 
 def _finish_and_clean(job_id: str, target: Path) -> None:
     """Settle the durable copy, then remove ephemeral worker output."""
-    db.finish_job(job_id)
+    if not db.finish_job(job_id):
+        # The stale sweep already failed and refunded this job while it was
+        # still running. Do not resurrect it: the credits have gone back, so
+        # completing it now would hand over the booklet for nothing.
+        log.warning("job %s finished after it was already settled, "
+                    "leaving it failed and refunded", job_id)
     _clear_target(target)
 
 
