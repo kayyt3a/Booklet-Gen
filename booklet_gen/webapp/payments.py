@@ -157,7 +157,21 @@ def webhook():
     }:
         try:
             fulfil_checkout(event["data"]["object"]["id"])
+        except ValueError:
+            # Permanent: no usable user reference, a deleted account, an
+            # unknown product, or a price that is not ours. Retrying cannot
+            # change any of those. Stripe retries a 5xx for about three days
+            # and then disables the endpoint, which would silently stop
+            # fulfilling everyone else's real purchases, so this is an
+            # operational problem to chase from the log rather than something
+            # to hand back to Stripe.
+            log.exception("Stripe fulfilment permanently failed, event=%s",
+                          event["id"])
+            return {"received": True, "fulfilled": False}, 200
         except Exception:
-            log.exception("Stripe fulfilment failed")
+            # Transient: the database or network was unavailable. Ask Stripe
+            # to try again, which is exactly what a 5xx means to it.
+            log.exception("Stripe fulfilment failed, will retry, event=%s",
+                          event["id"])
             return {"received": True, "fulfilled": False}, 500
     return {"received": True}, 200

@@ -219,9 +219,33 @@ try:
     assert client.post(
         "/stripe/webhook", data=payload, content_type="application/json",
     ).status_code == 400
+
+    # A permanent failure must not be handed back to Stripe as a 5xx. Stripe
+    # retries a 5xx for about three days and then disables the endpoint, which
+    # would silently stop fulfilling everyone else's real purchases. A price
+    # mismatch or a deleted account can never succeed on retry.
+    def _permanent(_session_id):
+        raise ValueError("Checkout price does not match the FolioAI product.")
+
+    payments.fulfil_checkout = _permanent
+    assert client.post(
+        "/stripe/webhook", data=payload, content_type="application/json",
+        headers={"Stripe-Signature": header},
+    ).status_code == 200, "a permanent fulfilment failure must not ask Stripe to retry"
+
+    # A transient failure still must, because retrying is exactly the fix.
+    def _transient(_session_id):
+        raise ConnectionError("database unavailable")
+
+    payments.fulfil_checkout = _transient
+    assert client.post(
+        "/stripe/webhook", data=payload, content_type="application/json",
+        headers={"Stripe-Signature": header},
+    ).status_code == 500, "a transient fulfilment failure must ask Stripe to retry"
 finally:
     payments.fulfil_checkout = real_fulfil
 passed("the Stripe webhook is CSRF-exempt but rejects an invalid signature")
+passed("permanent fulfilment failures do not burn Stripe's retry budget")
 
 assert client.get("/healthz").status_code == 200
 assert client.get("/pricing").status_code == 200
