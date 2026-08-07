@@ -1942,6 +1942,17 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                             story.append(CondPageBreak(3.5 * cm))
                         story.append(band)
                         story.append(Spacer(1, 0.25 * cm))
+                        if j:
+                            # The session starts part way through this
+                            # subtopic, so the heading was printed pages back
+                            # under an earlier session. Without this the child
+                            # sits down on Wednesday to "Session 2 of 2"
+                            # followed by "2. Write 0.305 in words", with no
+                            # sign of what the work is about or where question
+                            # one went.
+                            story.append(Paragraph(
+                                _escape(f"{section.subtopic} (continued)"),
+                                styles["subtopic"]))
                     if j == 0:
                         story.extend(headings)
                     counter["n"] += 1

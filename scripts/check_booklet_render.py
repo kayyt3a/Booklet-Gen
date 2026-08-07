@@ -1348,6 +1348,36 @@ check(answer_unit("A tap fills a tank. What is the flow rate in litres per "
                   "minute?") is None,
       "no half a compound unit is guessed for a rate")
 
+
+# ---------------------------------------------------------------------------
+# A homework session that starts mid-subtopic says what it is
+#
+# year5-maths-sample.pdf page 10 opens "Session 2 of 2 | 9 questions | about
+# 12 min" and the next line is "2. Write 0.305 in words." No topic, no
+# question 1. The child sits down days later on a page that starts in the
+# middle of a list they cannot see.
+# ---------------------------------------------------------------------------
+print("\nA session starting mid-subtopic")
+
+cont = BookletData(
+    subject="Mathematics", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic="Decimals", subtopic="Place value in decimals", questions=[],
+        homework_questions=[
+            vq(f"Write the value of the digit 5 in {j}.305 as a fraction.",
+               difficulty="easy") for j in range(1, 15)])])
+cont_plan = homework_session_plan(cont)
+cont_pages = read(render_pdf(cont, tmp / "continued.pdf"))[0]
+cont_body = "\n".join(cont_pages[:key_page(cont_pages)])
+mid = [p for p in cont_plan[1:] if p["start"] > 0]
+check(len(cont_plan) > 1 and bool(mid),
+      "the fixture splits into more than one session",
+      str([p["start"] for p in cont_plan]))
+if mid:
+    check("(continued)" in cont_body,
+          "a session opening part way through a subtopic names it",
+          cont_body[cont_body.find("Session 2"):][:90].replace("\n", " | "))
+
 print(f"\nPDFs written to {tmp}")
 
 
