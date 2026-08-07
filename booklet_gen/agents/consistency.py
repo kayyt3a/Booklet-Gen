@@ -363,6 +363,59 @@ def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
 
 
 # --------------------------------------------------------------------------
+# 3b. A flat shape drawn for a solid question, or the reverse
+# --------------------------------------------------------------------------
+
+# Dimensionality is the one thing a child must read correctly off a maths
+# figure. Area and perimeter live on a flat shape; volume, capacity and
+# surface area live on a solid. Drawing a rectangle beside "find the volume"
+# teaches that a box is a square, which is worse than drawing nothing, and it
+# is the confusion this stage of primary maths exists to undo.
+_SOLID_TYPES = frozenset({"cuboid", "cylinder"})
+_FLAT_TYPES = frozenset({"rectangle", "l_shape", "circle_slices", "bar_model"})
+
+# "Volume", "capacity" and "surface area" need a solid. Note surface area is
+# deliberately here and not below: it is a property of a 3D object.
+_NEEDS_SOLID_RE = re.compile(
+    r"\b(?:volume|capacity|surface\s+area|cubic|holds?\s+\d|"
+    r"how\s+(?:much|many)\s+(?:water|sand|liquid|cubes?|blocks?)|"
+    r"litres?|millilitres?|cuboid|prism|cylinder)\b",
+    re.IGNORECASE,
+)
+
+# "Area" and "perimeter" need a flat shape. Guarded so "surface area" does not
+# match here, since that one belongs above.
+_NEEDS_FLAT_RE = re.compile(
+    r"\b(?:perimeter|(?<!surface\s)area|square\s+(?:cm|m|metres?|centimetres?)|"
+    r"how\s+far\s+around|fence|border)\b",
+    re.IGNORECASE,
+)
+
+
+def diagram_dimensionality_matches(spec: dict, question_text: str) -> bool:
+    """False when a solid question carries a flat figure, or the reverse.
+
+    Only judges when the question is unambiguous. A question naming both
+    ("find the area of the base, then the volume") is left alone rather than
+    risk dropping a good figure.
+    """
+    if not spec or not isinstance(spec, dict):
+        return True
+    kind = str(spec.get("type", "")).lower()
+    if kind not in _SOLID_TYPES and kind not in _FLAT_TYPES:
+        return True          # compare, number_line and anything unrecognised
+
+    text = question_text or ""
+    wants_solid = bool(_NEEDS_SOLID_RE.search(text))
+    wants_flat = bool(_NEEDS_FLAT_RE.search(text))
+    if wants_solid == wants_flat:
+        return True          # neither, or both: not our call to make
+    if wants_solid:
+        return kind in _SOLID_TYPES
+    return kind in _FLAT_TYPES
+
+
+# --------------------------------------------------------------------------
 # 4. Text pointing at a picture that was never drawn
 # --------------------------------------------------------------------------
 

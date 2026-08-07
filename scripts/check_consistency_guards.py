@@ -31,7 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 logging.disable(logging.CRITICAL)
 
 from booklet_gen.agents.consistency import (          # noqa: E402
-    answer_is_trustworthy, reconcile_diagram_spec, refers_to_missing_figure)
+    answer_is_trustworthy, diagram_dimensionality_matches,
+    reconcile_diagram_spec, refers_to_missing_figure)
 
 # (answer, working, should_be_trusted)
 ANSWER_CASES = [
@@ -372,6 +373,41 @@ def _pipeline_checks() -> list:
     return checks
 
 
+# A figure with the wrong number of dimensions. The critic's complaint was the
+# absence of diagrams; this is the failure that arrives with them. A child who
+# reads "volume" off a flat rectangle learns that a box is a square.
+DIMENSION_CASES = [
+    ({"type": "rectangle", "length": 5, "width": 4},
+     "Find the volume of a box 5 cm long, 4 cm wide and 3 cm high.",
+     False, "a flat rectangle cannot show a volume"),
+    ({"type": "cuboid", "length": 5, "width": 4, "height": 3},
+     "Find the volume of a box 5 cm long, 4 cm wide and 3 cm high.",
+     True, "a cuboid can"),
+    ({"type": "cuboid", "length": 8, "width": 5, "height": 2},
+     "Find the area of a rectangle 8 cm long and 5 cm wide.",
+     False, "a solid cannot show a flat area"),
+    ({"type": "rectangle", "length": 8, "width": 5},
+     "What is the perimeter of a rectangle 8 cm long and 5 cm wide?",
+     True, "perimeter is flat"),
+    ({"type": "cuboid", "length": 3, "width": 3, "height": 3},
+     "Find the surface area of this cube.",
+     True, "surface area is a property of a solid"),
+    ({"type": "rectangle", "length": 3, "width": 3},
+     "Find the surface area of this cube.",
+     False, "and so cannot be drawn flat"),
+    ({"type": "cuboid", "length": 20, "width": 10, "height": 10},
+     "A tank holds 2 litres of water.",
+     True, "capacity is a solid"),
+    # Left alone rather than risk dropping a good figure.
+    ({"type": "circle_slices", "slices": 4, "shaded": 3},
+     "What fraction of the circle is shaded?",
+     True, "a question naming neither is not ours to judge"),
+    ({"type": "cuboid", "length": 5, "width": 4, "height": 3},
+     "Find the area of the base, then use it to find the volume.",
+     True, "a question naming both is not ours to judge"),
+]
+
+
 def main() -> int:
     failures = 0
 
@@ -383,6 +419,15 @@ def main() -> int:
         failures += not ok
         label = "trusted" if got else "rejected"
         print(f"  {'ok  ' if ok else 'FAIL'}  {label:8} {answer[:26]!r:30} {why or ''}")
+
+    print("\nDiagram dimensionality")
+    print("-" * 62)
+    for spec, question, want, note in DIMENSION_CASES:
+        got = diagram_dimensionality_matches(spec, question)
+        ok = got == want
+        failures += not ok
+        kept = "kept" if got else "dropped"
+        print(f"  {'ok  ' if ok else 'FAIL'}  {kept:8} {note}")
 
     print("\nDiagram reconciliation")
     print("-" * 62)
@@ -433,8 +478,9 @@ def main() -> int:
         failures += not ok
         print(f"  {'ok  ' if ok else 'FAIL'}  {line}")
 
-    total = (len(ANSWER_CASES) + len(DIAGRAM_CASES) + len(LEAK_CASES)
-             + len(FIGURE_CASES) + len(rendered) + len(wiring) + len(teaching))
+    total = (len(ANSWER_CASES) + len(DIMENSION_CASES) + len(DIAGRAM_CASES)
+             + len(LEAK_CASES) + len(FIGURE_CASES) + len(rendered)
+             + len(wiring) + len(teaching))
     print(f"\n{total - failures}/{total} behaved as expected")
     return 1 if failures else 0
 

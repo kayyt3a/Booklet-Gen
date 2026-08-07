@@ -1374,10 +1374,23 @@ class BookletPipeline:
                 log.info("pipeline.diagram_corrected",
                          extra={"type": spec.get("type")})
                 q.diagram_spec = spec
-            path = render_diagram(q.diagram_spec)
-            if path:
-                log.info("pipeline.diagram", extra={"type": q.diagram_spec.get("type")})
-                return path, None
+            # A flat shape beside a volume question, or a solid beside an area
+            # question, teaches the wrong thing. Dropping the figure is a real
+            # loss, but a child who reads "volume" off a rectangle learns that
+            # a box is a square, and undoing that is exactly what this stage of
+            # primary maths is for.
+            from .agents.consistency import diagram_dimensionality_matches
+            if not diagram_dimensionality_matches(q.diagram_spec, q.question):
+                log.warning("pipeline.diagram_wrong_dimension",
+                            extra={"type": q.diagram_spec.get("type"),
+                                   "question": q.question[:60]})
+                q.diagram_spec = None
+            else:
+                path = render_diagram(q.diagram_spec)
+                if path:
+                    log.info("pipeline.diagram",
+                             extra={"type": q.diagram_spec.get("type")})
+                    return path, None
         if q.image_query:
             from .visuals import fetch_image
             path, attr = fetch_image(q.image_query)
