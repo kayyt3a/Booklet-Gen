@@ -68,6 +68,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -336,6 +337,57 @@ def _bar_model(spec: dict, out: Path, f: _Fonts) -> None:
     plt.close(fig)
 
 
+_PLAIN_NUMBER = re.compile(r"^-?\d+(?:\.\d+)?$")
+_PLAIN_FRACTION = re.compile(r"^(-?\d+)\s*[/⁄]\s*(\d+)$")
+_MIXED_NUMBER = re.compile(r"^(-?\d+)\s+(\d+)\s*[/⁄]\s*(\d+)$")
+
+
+def _label_value(text: str) -> Optional[float]:
+    """The value a mark's label states, or None if it does not state one.
+
+    Only a label that is *entirely* a number counts: "347", "3.5", "3/4",
+    "1 1/2". Anything with words in it ("about 350", "x") is describing the
+    point rather than naming it, and is left alone.
+    """
+    s = str(text).strip()
+    if _PLAIN_NUMBER.match(s):
+        return float(s)
+    m = _MIXED_NUMBER.match(s)
+    if m and float(m.group(3)):
+        whole = float(m.group(1))
+        part = float(m.group(2)) / float(m.group(3))
+        return whole - part if whole < 0 else whole + part
+    m = _PLAIN_FRACTION.match(s)
+    if m and float(m.group(2)):
+        return float(m.group(1)) / float(m.group(2))
+    return None
+
+
+def _mark_label(text: str, mark: float) -> str:
+    """The text to print above a highlighted point, corrected if it lies.
+
+    A number line's mark is placed by its value, so the position is the fact
+    and the label is a claim about it. When the two disagree the figure
+    contradicts itself, and the child is asked to believe that the point
+    sitting between two ticks is a value it plainly is not.
+
+    This is not hypothetical. A Year 5 booklet teaching "round 347 to the
+    nearest 100" drew a line from 300 to 400, put the dot at 347, and wrote
+    "300" over it: the model labelled the mark with the answer instead of the
+    number being rounded. A prompt cannot be relied on to stop that, but the
+    spec contradicts itself in a way that is plain to read, so the position
+    wins and the label is set to the value actually marked.
+    """
+    stated = _label_value(text)
+    if stated is None:
+        return str(text)
+    if abs(stated - mark) <= max(1e-9, abs(mark) * 1e-9):
+        return str(text)
+    log.info("diagram.mark_label_corrected",
+             extra={"claimed": str(text)[:20], "marked": mark})
+    return _pretty_num(mark)
+
+
 def _number_line(spec: dict, out: Path, f: _Fonts) -> None:
     import matplotlib.pyplot as plt
     lo = float(spec.get("from", 0))
@@ -358,10 +410,16 @@ def _number_line(spec: dict, out: Path, f: _Fonts) -> None:
     # Highlighted marks with labels
     for i, m in enumerate(marks):
         mx = float(m)
+        # A point off the end of the line is clipped away by the axes limits,
+        # leaving its label floating over nothing. Drop the pair instead.
+        if mx < lo or mx > hi:
+            log.info("diagram.mark_off_the_line",
+                     extra={"mark": mx, "from": lo, "to": hi})
+            continue
         ax.plot([mx], [0], marker="o", markersize=9,
                 color=SHADE_COLOR, markeredgecolor=LINE_COLOR)
         if i < len(labels):
-            ax.text(mx, 0.22, str(labels[i]), ha="center", va="bottom",
+            ax.text(mx, 0.22, _mark_label(labels[i], mx), ha="center", va="bottom",
                     fontsize=f.label(10), color=LINE_COLOR)
     ax.set_xlim(lo - (hi - lo) * 0.05, hi + (hi - lo) * 0.05)
     ax.set_ylim(-0.5, 0.5)

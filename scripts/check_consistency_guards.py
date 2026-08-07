@@ -261,6 +261,48 @@ def _render_checks() -> list:
              "unknown": ["height"]})
         out.append((path is not None and path.exists(),
                     "a spec with an unknown side still renders a PNG"))
+
+        # A number line places its mark by value, so the position is the fact
+        # and the label is a claim about it. The shipped Year 5 booklet taught
+        # "round 347 to the nearest 100" with a line from 300 to 400, the dot
+        # at 347, and "300" written over the dot: the answer, printed on the
+        # point it is not. The position wins.
+        got = labels({"type": "number_line", "from": 300, "to": 400,
+                      "divisions": 10, "mark_at": [347], "label_at": ["300"]})
+        out.append(("347" in got and "300" in got and got.count("300") == 1,
+                    f"number line: the mark labelled '300' at 347 reads {got} "
+                    f"('300' survives only as the left endpoint)"))
+
+        # A label that already agrees is untouched, in every form a label
+        # legitimately takes.
+        got = labels({"type": "number_line", "from": 0, "to": 1,
+                      "divisions": 4, "mark_at": [0.75], "label_at": ["3/4"]})
+        out.append(("3/4" in got,
+                    f"number line: a correct fraction label is kept: {got}"))
+
+        got = labels({"type": "number_line", "from": 0, "to": 4,
+                      "divisions": 8, "mark_at": [1.5], "label_at": ["1 1/2"]})
+        out.append(("1 1/2" in got,
+                    f"number line: a correct mixed number is kept: {got}"))
+
+        # Words describe the point rather than naming it, so they are left be.
+        got = labels({"type": "number_line", "from": 0, "to": 100,
+                      "divisions": 10, "mark_at": [47], "label_at": ["just under half"]})
+        out.append(("just under half" in got,
+                    f"number line: a worded label is left alone: {got}"))
+
+        # A fraction label that disagrees is corrected like any other.
+        got = labels({"type": "number_line", "from": 0, "to": 1,
+                      "divisions": 4, "mark_at": [0.75], "label_at": ["1/2"]})
+        out.append(("1/2" not in got,
+                    f"number line: a fraction label naming the wrong point goes: {got}"))
+
+        # A mark off the end of the line is clipped away by the axes, so its
+        # label would float over empty space. Both go.
+        got = labels({"type": "number_line", "from": 0, "to": 10,
+                      "divisions": 10, "mark_at": [50], "label_at": ["50"]})
+        out.append(("50" not in got,
+                    f"number line: a mark past the end is dropped, label and all: {got}"))
     finally:
         Axes.text = original
         diagrams.CACHE_DIR = old_cache
