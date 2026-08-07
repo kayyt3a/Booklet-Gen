@@ -55,6 +55,16 @@ ANSWER_CASES = [
     ("6", "My mistake, the answer is 6.", False),
     # A fraction answer contradicted by its own working.
     ("5/8", "3/8 + 2/8 = 6/8. So the answer is 6/8.", False),
+
+    # Self-correction in the ANSWER rather than the working. This slipped
+    # through: the contradiction check only judges a single-valued answer, and
+    # "75. Wait, recalculating: 80" reads as two numbers, so it was skipped
+    # while the working alone looked consistent.
+    ("75. Wait, recalculating: 80", "New volume = 5 x 4 x 4 = 80.", False),
+    ("20. Correction: 24", "6 x 4 = 24.", False),
+    ("Actually, my mistake, it is 14", "7 + 7 = 14.", False),
+    # An answer that merely discusses a student's error must keep its mark.
+    ("He added the denominators", "2/5 + 1/5 = 3/5, not 3/10.", True),
 ]
 
 # (spec, question, expect_changed, note)

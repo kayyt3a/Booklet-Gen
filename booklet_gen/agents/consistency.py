@@ -141,6 +141,11 @@ def answer_is_trustworthy(answer: str, working: str) -> tuple[bool, Optional[str
     """(ok, reason). Used to strip a verified mark that was not earned."""
     if has_self_correction(working):
         return False, "working contains model self-correction"
+    # The same tell in the answer field. It slips past the contradiction check
+    # below, because "75. Wait, recalculating: 80" reads as two numbers and
+    # that check only judges a single-valued answer.
+    if has_self_correction(answer):
+        return False, "answer contains model self-correction"
     if working_contradicts_answer(answer, working):
         return False, "stated answer does not appear anywhere in the working"
     return True, None
