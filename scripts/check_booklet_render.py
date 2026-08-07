@@ -43,7 +43,8 @@ from reportlab.lib.units import cm                              # noqa: E402
 
 from booklet_gen import schemas as S                            # noqa: E402
 from booklet_gen.formatter import (                             # noqa: E402
-    CHROME_MARGIN, HOMEWORK_MIN_START_CM, PAGE_MARGIN, SPELLING_TEST_SPACES,
+    CHROME_MARGIN, HOMEWORK_MIN_START_CM, MULTIPLY, PAGE_MARGIN,
+    SPELLING_TEST_SPACES,
     _escape, _lesson_html, _make_styles, _prettify_fractions, _register_fonts,
     answer_line_labels, answer_unit, written_response_rules,
     apply_bold_markup, key_answer, ordered_questions, part_counts, part_labels,
@@ -672,8 +673,12 @@ for q in ("Homework 0.0", "Question 0.0", "Subtopic 4"):
 cover = " ".join(pages[0].split())    # the claim wraps across lines
 check("symbolically" not in cover.lower(),
       "the cover claims no symbolic proof it cannot show per answer")
-check("checked for accuracy" in cover,
-      "it claims what is true of every answer instead")
+# "checked for accuracy" was an absolute, and a booklet with an unticked
+# answer in its key contradicts it in its own notation. The claim now tracks
+# what the key actually shows, so this asserts the honest wording rather than
+# the old blanket one.
+check("has been checked" in cover,
+      "it claims only the checking the key can evidence")
 # "Show your working" belongs on a maths cover only; there is no working in an
 # English booklet.
 check("show your working" in cover,
@@ -1160,7 +1165,7 @@ e_cover = " ".join(e_pages[0].split())
 check("show your working" not in e_cover,
       "an English cover does not ask for working it has no room for")
 check("symbolically" not in e_cover.lower()
-      and "checked for accuracy" in e_cover,
+      and "has been checked" in e_cover,
       "and claims the same accuracy check the maths cover does")
 check((e_key_start + 1) % 2 == 1,
       "the English key also starts on the front of a fresh sheet",
@@ -1377,6 +1382,73 @@ if mid:
     check("(continued)" in cont_body,
           "a session opening part way through a subtopic names it",
           cont_body[cont_body.find("Session 2"):][:90].replace("\n", " | "))
+
+
+# ---------------------------------------------------------------------------
+# Markdown emphasis must never print, and must not become multiplication
+#
+# A real booklet printed "multiply the numerator and the denominator by the
+# x same x number" inside the highlighted box its topic is named after.
+# _STAR_MULT_RE read the model's *same* emphasis markers as multiplication,
+# because the \s* either side of the asterisk swallowed the space that was
+# supposed to protect them.
+# ---------------------------------------------------------------------------
+print("\nMarkdown emphasis")
+for raw, want, note in [
+    ("multiply the numerator and denominator by the *same* number",
+     "multiply the numerator and denominator by the same number",
+     "the shipped case"),
+    ("This is **really** important.", "This is **really** important.",
+     "double asterisks are left for apply_bold_markup"),
+    ("Calculate 15 * 4 + 7.", "Calculate 15 " + MULTIPLY + " 4 + 7.",
+     "real multiplication survives"),
+    ("Volume = 7 * 4 * 2", "Volume = 7 " + MULTIPLY + " 4 " + MULTIPLY + " 2",
+     "a chain of multiplications survives"),
+    ("Area = length * width", "Area = length " + MULTIPLY + " width",
+     "multiplication between words survives"),
+]:
+    got = _escape(raw)
+    check(got == want, f"emphasis: {note}", f"{got!r}")
+
+# ---------------------------------------------------------------------------
+# The cover claim must match the key it points at
+#
+# A real booklet promised "every answer in the key at the back has been checked
+# for accuracy" on page 1, then printed ten of ninety-nine answers with no tick
+# beside them. That tells a parent, in the product's own notation, that the
+# cover is false.
+# ---------------------------------------------------------------------------
+print("\nThe cover claims only what the key delivers")
+
+
+def vq2(text, verified):
+    return ValidatedQuestion(
+        question=Question(question=text, answer="24", working="8 x 3 = 24",
+                          difficulty="easy"),
+        verified=verified)
+
+
+def cover_text(all_verified):
+    d = BookletData(
+        subject="Mathematics", year_level="Year 5", student_name="Sam",
+        sections=[SubtopicOutput(
+            topic="Number", subtopic="Multiplying",
+            questions=[vq("What is 6 times 7?"),
+                       vq2("And 8 times 3?", all_verified)],
+            homework_questions=[])])
+    pages = read(render_pdf(d, tmp / f"cover-{all_verified}.pdf"))[0]
+    return " ".join(pages[0].split())
+
+
+all_ok = cover_text(True)
+some_unchecked = cover_text(False)
+check("Every answer in the key at the back has been checked" in all_ok,
+      "a fully verified booklet still says so")
+check("Every answer" not in some_unchecked,
+      "a booklet with an unchecked answer drops the absolute claim",
+      some_unchecked[:120])
+check("a tick marks an answer that has been checked" in some_unchecked,
+      "and points at the tick instead")
 
 print(f"\nPDFs written to {tmp}")
 

@@ -361,8 +361,28 @@ def _tidy_units(text: str) -> str:
 MULTIPLY = "×"
 DIVIDE = "÷"
 
-# "15 * 4", "2 * (7 + 4)", "5 * side". Emphasis asterisks (*like this*) have a
-# space on the outside, so neither lookaround matches and they survive.
+# Markdown emphasis, which models emit constantly and which must never reach a
+# printed page. Stripped before any notation rule runs, because _STAR_MULT_RE
+# below would otherwise read the markers as multiplication: a real booklet
+# printed "multiply the numerator and the denominator by the × same × number"
+# in the highlighted box the whole topic is named after.
+#
+# An emphasis marker hugs its text (no space on the inside) and is free on the
+# outside, which is exactly the opposite of a multiplication asterisk. That
+# asymmetry is what separates them, and it is why "4 * 3" is untouched.
+# Single asterisks only. A **double** pair is deliberate markup that
+# apply_bold_markup turns into a real bold run later, and it has to survive
+# this step intact.
+_EMPHASIS_RE = re.compile(
+    r"(?<![\w*])\*(?!\*)(?=\S)([^*\n]{1,80}?)(?<=\S)\*(?!\*)(?![\w])")
+
+
+def _strip_emphasis(text: str) -> str:
+    return _EMPHASIS_RE.sub(r"\1", text)
+
+
+# "15 * 4", "2 * (7 + 4)", "5 * side". Emphasis asterisks are already gone by
+# the time this runs, so the greedy \s* either side is safe.
 _STAR_MULT_RE = re.compile(r"(?<=[0-9A-Za-z\)])\s*\*\s*(?=[0-9A-Za-z\(])")
 
 # "1 x 3", "5x3", "40 x 20 x 10", "l x w x h". Both sides must be a number or a
@@ -648,7 +668,7 @@ def _strip_step_prefix(text: str) -> str:
 
 def _escape(text: str) -> str:
     return _prettify_fractions(_tidy_units(_normalise_notation(
-        _dedash(text)
+        _strip_emphasis(_dedash(text))
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
@@ -1756,10 +1776,20 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # and it devalues the mark on the answers where it is earned. Until the
     # mark distinguishes the two, the cover claims only what is true of all of
     # them.
+    # The claim has to match the key it points at. A real booklet said "every
+    # answer has been checked for accuracy" on page 1 and then printed ten
+    # answers out of ninety-nine with no tick beside them, which tells a parent
+    # in the product's own notation that the cover is false. Being told that is
+    # worse than never claiming it: they do not have to find a wrong answer to
+    # want their money back.
+    every_answer_checked = all(vq.verified for vq in all_questions(data))
     story.append(Paragraph(
         "Work through it in order"
         + (" and show your working." if only_maths else ".")
-        + " Every answer in the key at the back has been checked for accuracy.",
+        + (" Every answer in the key at the back has been checked."
+           if every_answer_checked else
+           " In the key at the back, a tick marks an answer that has been"
+           " checked."),
         styles["footer_note"],
     ))
     story.append(PageBreak())
