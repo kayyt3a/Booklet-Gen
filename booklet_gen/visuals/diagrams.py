@@ -82,6 +82,29 @@ LINE_WIDTH = 1.8
 
 UNKNOWN_LABEL = "?"
 
+# A compare composite is built at pixel scale and then scaled bodily into the
+# page by the formatter, so a label written at a fixed pixel size lands at
+# whatever point size that scaling leaves it. The wider the composite, the
+# harder the squeeze: two bar models printed a 26px label at 7.7pt, and a
+# nine-part bar beside a three-part bar printed the same label at 4.5pt, which
+# no child reads. The label size is therefore derived from the print box
+# rather than fixed.
+#
+# COMPARE_PRINT_BOX_PT is the *smallest* box the formatter scales a diagram
+# into (WE_IMG_WIDTH x WE_IMG_HEIGHT in formatter.py, 6cm x 4cm). Question
+# figures get a larger box and so come out larger still.
+# scripts/check_diagram_legibility.py asserts these two stay in agreement.
+COMPARE_PRINT_BOX_PT = (6 * 72 / 2.54, 4 * 72 / 2.54)
+# Body text in the booklet is around 10pt. A sub-diagram label is read at a
+# glance, not in a paragraph, so 9pt is a floor rather than a target.
+MIN_COMPARE_LABEL_PT = 9.0
+# Where the search for a label size starts and stops. The ceiling only binds
+# on a composite so wide that no font size can be both legible and in
+# proportion; growing without bound there would push the figures themselves
+# down to nothing.
+_COMPARE_LABEL_PX_MIN = 26
+_COMPARE_LABEL_PX_MAX = 160
+
 
 def _dim_label(spec: dict, key: str, value: float, unit_suffix: str) -> str:
     """The text drawn against one side: the measurement, or "?" if unknown.
@@ -465,13 +488,45 @@ def _pretty_num(x: float) -> str:
     return f"{x:g}"
 
 
+def _label_font(size_px: int):
+    """A bold sans face at `size_px`, wherever the font happens to live.
+
+    The formatter finds DejaVu Sans through matplotlib's font manager rather
+    than by path, because matplotlib bundles the font and is already a hard
+    dependency. Do the same here: an absolute /usr/share path is a Linux-only
+    assumption, and the booklet is generated on Windows too, where it would
+    silently drop to Pillow's bitmap default and print labels smaller still.
+    """
+    from PIL import ImageFont
+
+    try:
+        from matplotlib import font_manager
+
+        prop = font_manager.FontProperties()
+        prop.set_family("DejaVu Sans")
+        prop.set_weight("bold")
+        return ImageFont.truetype(
+            font_manager.findfont(prop, fallback_to_default=False), size_px)
+    except Exception:
+        pass
+    try:
+        return ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size_px)
+    except Exception:
+        pass
+    try:
+        return ImageFont.load_default(size=size_px)
+    except Exception:
+        return ImageFont.load_default()
+
+
 def _compare(spec: dict, out: Path) -> None:
     """Render 2-4 sub-diagrams side by side, each with a label underneath.
 
     We render each sub-spec through the normal render_diagram path (so caching
     and validation apply), then compose them into a single PNG with Pillow.
     """
-    from PIL import Image as PILImage, ImageDraw, ImageFont
+    from PIL import Image as PILImage, ImageDraw
 
     items = spec.get("items") or []
     if not (2 <= len(items) <= 4):
@@ -499,29 +554,58 @@ def _compare(spec: dict, out: Path) -> None:
             img = img.resize((int(img.width * ratio), target_h), PILImage.LANCZOS)
         resized.append((img, label))
 
-    gap = 40
-    label_h = 44
     pad = 20
-    total_w = pad * 2 + sum(img.width for img, _ in resized) + gap * (len(resized) - 1)
-    total_h = pad * 2 + target_h + label_h
+    box_w, box_h = COMPARE_PRINT_BOX_PT
+    ruler = ImageDraw.Draw(PILImage.new("RGBA", (1, 1)))
+
+    def layout(font_px: int):
+        """Geometry for one candidate label size, plus the resulting scale.
+
+        `scale` is exactly what formatter._make_image will apply: points per
+        pixel once the composite is fitted into the print box. The label
+        therefore prints at font_px * scale points.
+        """
+        font = _label_font(font_px)
+        widths = []
+        for img, label in resized:
+            bbox = ruler.textbbox((0, 0), label, font=font)
+            # A label wider than its own figure would otherwise run into the
+            # neighbouring one, so the column, not the figure, sets the width.
+            widths.append(max(img.width, (bbox[2] - bbox[0]) + 8))
+        gap = max(40, int(font_px * 0.8))
+        total_w = pad * 2 + sum(widths) + gap * (len(resized) - 1)
+        total_h = pad * 2 + target_h + font_px + 18
+        scale = min(box_w / total_w, box_h / total_h, 1.0)
+        return font, widths, total_w, total_h, scale
+
+    # Grow the label until it clears the floor at print size. Raising it
+    # widens the columns and deepens the label band, which shrinks the scale
+    # again, so this iterates; it converges because the floor is small next to
+    # the print box, and the ceiling stops it either way.
+    font_px = _COMPARE_LABEL_PX_MIN
+    font, widths, total_w, total_h, scale = layout(font_px)
+    for _ in range(8):
+        needed = math.ceil(MIN_COMPARE_LABEL_PT / scale)
+        if needed <= font_px:
+            break
+        nxt = min(needed, _COMPARE_LABEL_PX_MAX)
+        if nxt <= font_px:
+            log.info("diagram.compare_label_capped",
+                     extra={"items": len(resized), "font_px": font_px})
+            break
+        font_px = nxt
+        font, widths, total_w, total_h, scale = layout(font_px)
 
     canvas = PILImage.new("RGBA", (total_w, total_h), (255, 255, 255, 255))
-    try:
-        font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26,
-        )
-    except Exception:
-        font = ImageFont.load_default()
-
     draw = ImageDraw.Draw(canvas)
     x = pad
-    for img, label in resized:
-        canvas.paste(img, (x, pad), img)
+    for (img, label), col_w in zip(resized, widths):
+        canvas.paste(img, (x + (col_w - img.width) // 2, pad), img)
         bbox = draw.textbbox((0, 0), label, font=font)
         tw = bbox[2] - bbox[0]
-        draw.text((x + img.width / 2 - tw / 2, pad + target_h + 6),
+        draw.text((x + col_w / 2 - tw / 2, pad + target_h + 6),
                   label, fill=(31, 58, 95, 255), font=font)
-        x += img.width + gap
+        x += col_w + max(40, int(font_px * 0.8))
 
     canvas.save(out, "PNG")
 
