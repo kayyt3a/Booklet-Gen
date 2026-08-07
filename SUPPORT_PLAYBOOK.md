@@ -76,11 +76,27 @@ Reply template:
    require a remedy.
 4. Issue approved refunds to the original payment method through Stripe.
 5. Record the Stripe refund id in the private support log.
-6. Where credits from a refunded pack remain unused, make the corresponding
-   ledger adjustment through a dedicated audited tool before public launch.
+6. Confirm the credits came back on their own. A Stripe refund or chargeback
+   reverses the credits it granted automatically, in proportion to the amount
+   returned, and the payment row moves to refunded, partially_refunded or
+   disputed. Check the balance rather than assume it.
 
-Until a negative credit-adjustment tool exists, do not manually edit the
-database. Escalate any refund that also requires unused credits to be removed.
+A balance can be negative. That is correct when a customer generated booklets
+and the money then went back, and it stops the account generating again until
+it is settled. Do not zero it out to make it look tidy.
+
+Use the admin credit adjustment, positive or negative, for the cases the
+webhook cannot judge:
+
+- a dispute closed in our favour, where the credits should be restored
+- a refund issued outside Stripe
+- a correction to an earlier adjustment
+
+A removal must state a specific reason, such as the Stripe refund or dispute
+id. The reason and the admin account are written into the credit ledger and
+the server log, so the adjustment stays auditable afterwards. Do not edit the
+database by hand: the ledger is the balance, and a direct edit leaves no
+record of who made it or why.
 
 ## Account access and privacy
 

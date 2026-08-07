@@ -4,7 +4,7 @@
 <div class="card">
   <p class="eyebrow">Owner tools</p>
   <h1>FolioAI support console</h1>
-  <p class="sub">Grant a support adjustment or inspect the latest generation jobs.</p>
+  <p class="sub">Adjust a booklet balance or inspect the latest generation jobs.</p>
   <form class="adminCreditForm" method="post" action="{{ url_for('admin.credits') }}">
     {{ csrf_field() }}
     <div>
@@ -13,14 +13,19 @@
     </div>
     <div>
       <label for="units">Credits</label>
-      <input id="units" name="units" type="number" min="1" max="100" value="1" required>
+      <input id="units" name="units" type="number" min="-100" max="100" value="1" required>
     </div>
     <div>
       <label for="reason">Reason</label>
       <input id="reason" name="reason" type="text" maxlength="120" value="support adjustment" required>
     </div>
-    <button type="submit">Add credits</button>
+    <button type="submit">Apply adjustment</button>
   </form>
+  <p class="muted">A negative number removes credits and needs a specific
+    reason for the record, such as the Stripe refund or dispute id. Refunds
+    and chargebacks reverse their own credits automatically; this is for the
+    cases they cannot judge. Every adjustment is recorded against this admin
+    account.</p>
 </div>
 
 <div class="card">

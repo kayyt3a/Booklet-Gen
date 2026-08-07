@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 import os
 import uuid
 
@@ -10,6 +11,7 @@ from flask import Blueprint, abort, flash, g, redirect, render_template, request
 
 from . import db
 
+log = logging.getLogger(__name__)
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
@@ -40,22 +42,63 @@ def index():
     return render_template("admin.html", jobs=db.list_recent_jobs(100))
 
 
+# The most an adjustment may move a balance in one go, either way. A refund
+# of the largest pack is ten, so this is generous; it exists so a slipped key
+# cannot strand an account at minus nine hundred.
+MAX_ADJUSTMENT = 100
+# A negative adjustment takes something a customer paid for, so the ledger
+# entry has to say why in words a stranger could audit later. The default
+# placeholder does not.
+DEFAULT_REASON = "support adjustment"
+MIN_REMOVAL_REASON = 8
+
+
 @bp.route("/credits", methods=["POST"])
 @admin_required
 def credits():
+    """Move a customer's balance either way, on the record.
+
+    Removal used to be impossible: this clamped to a positive 1 to 100 and
+    called grant_credits, which refuses anything else. So when a refund left
+    unused credits behind, or a chargeback needed correcting by hand, there
+    was nothing to do it with, and SUPPORT_PLAYBOOK.md had to tell the
+    operator not to touch the database at all. The webhook now reverses
+    automatically, but the manual path still has to exist for the cases a
+    webhook cannot judge: a dispute we won, a refund issued outside Stripe, a
+    correction to an earlier mistake.
+
+    Audited means three things, all of them here: the ledger entry carries the
+    reason and a reference naming the admin account that made it, a removal
+    must state a reason rather than accept the placeholder, and the server log
+    records who moved what for whom.
+    """
     email = (request.form.get("email") or "").strip().lower()
-    reason = (request.form.get("reason") or "support adjustment").strip()[:120]
+    reason = (request.form.get("reason") or DEFAULT_REASON).strip()[:120]
     try:
         units = int(request.form.get("units") or "0")
     except ValueError:
         units = 0
     user = db.get_user_by_email(email)
-    if user is None or units < 1 or units > 100:
-        flash("Enter an existing account and between 1 and 100 credits.")
-    else:
-        reference = f"admin:{g.user['id']}:{uuid.uuid4().hex}"
-        db.grant_credits(user["id"], units, reason, reference)
-        flash(f"Added {units} booklet credits to {email}.")
+
+    if user is None or units == 0 or abs(units) > MAX_ADJUSTMENT:
+        flash(f"Enter an existing account and a non-zero adjustment between "
+              f"-{MAX_ADJUSTMENT} and {MAX_ADJUSTMENT} credits.")
+        return redirect(url_for("admin.index"))
+    if units < 0 and (len(reason) < MIN_REMOVAL_REASON
+                      or reason.lower() == DEFAULT_REASON):
+        flash("Removing credits needs a specific reason for the record, such "
+              "as the Stripe refund or dispute id.")
+        return redirect(url_for("admin.index"))
+
+    reference = f"admin:{g.user['id']}:{uuid.uuid4().hex}"
+    db.adjust_credits(user["id"], units,
+                      f"{reason} (admin {g.user['email']})", reference)
+    balance = db.credit_balance(user["id"])
+    log.warning("admin %s adjusted user=%s by %+d credits to %d: %s",
+                g.user["email"], user["id"], units, balance, reason)
+    flash(f"{'Added' if units > 0 else 'Removed'} {abs(units)} booklet "
+          f"credits {'to' if units > 0 else 'from'} {email}. "
+          f"Their balance is now {balance}.")
     return redirect(url_for("admin.index"))
 
 @bp.route("/retry/<job_id>", methods=["POST"])

@@ -301,5 +301,88 @@ check(any(e["reference"].startswith("refund:") for e in entries)
 check(all(e["reason"] for e in entries),
       "and every one of them carries a reason")
 
+# --------------------------------------------------------------------------
+print("\n== the audited manual adjustment ==")
+# The webhook cannot judge every case: a dispute we won, a refund issued
+# outside Stripe, a correction to an earlier mistake. Before this there was no
+# way to remove a credit at all, so SUPPORT_PLAYBOOK.md had to tell the
+# operator not to touch the database.
+os.environ["FOLIO_ADMIN_EMAILS"] = "owner@example.com"
+owner = new_buyer("owner@example.com")
+client.post("/logout", data={"csrf_token": csrf("/account")})
+client.post("/login", data={"email": "owner@example.com",
+                            "password": "password123",
+                            "csrf_token": csrf("/login")})
+check(client.get("/admin").status_code == 200, "the owner reaches the console")
+
+
+def adjust(email: str, units, reason: str):
+    return client.post("/admin/credits", data={
+        "email": email, "units": units, "reason": reason,
+        "csrf_token": csrf("/admin")}, follow_redirects=True)
+
+
+target = "chargeback@example.com"
+target_id = int(db.get_user_by_email(target)["id"])
+before = db.credit_balance(target_id)
+adjust(target, -5, "wrote off dispute dp_1 after review")
+check(db.credit_balance(target_id) == before - 5,
+      f"a negative adjustment removes credits "
+      f"(balance {db.credit_balance(target_id)}, was {before})",
+      "the console clamped to a positive 1 to 100, so this was impossible")
+
+before = db.credit_balance(target_id)
+adjust(target, -5, "support adjustment")
+check(db.credit_balance(target_id) == before,
+      "a removal with only the placeholder reason is refused")
+adjust(target, -5, "short")
+check(db.credit_balance(target_id) == before,
+      "and so is a removal with a reason too thin to audit")
+
+adjust(target, -101, "way past the cap on a slipped key")
+check(db.credit_balance(target_id) == before,
+      "an adjustment past the cap is refused in the negative direction too")
+adjust(target, 0, "nothing at all")
+check(db.credit_balance(target_id) == before, "a zero adjustment is refused")
+adjust("nobody@example.com", -5, "an account that does not exist")
+check(db.credit_balance(target_id) == before,
+      "an unknown account is refused")
+
+adjust(target, 3, "goodwill after the review")
+check(db.credit_balance(target_id) == before + 3,
+      f"adding still works (balance {db.credit_balance(target_id)})")
+
+with db._cursor() as cur:
+    cur.execute(db._q(
+        "SELECT delta,reason,reference FROM credit_ledger WHERE user_id=? "
+        "AND reference LIKE 'admin:%' ORDER BY id"), (target_id,))
+    admin_entries = [dict(row) for row in cur.fetchall()]
+check(len(admin_entries) == 2
+      and any(e["delta"] == -5 for e in admin_entries)
+      and all(f"admin:{owner}:" in e["reference"] for e in admin_entries)
+      and all("owner@example.com" in e["reason"] for e in admin_entries),
+      f"every adjustment names the admin who made it and why: "
+      f"{[(e['delta'], e['reason']) for e in admin_entries]}")
+
+# The console is the only way in, and it is not open to customers.
+client.post("/logout", data={"csrf_token": csrf("/account")})
+client.post("/login", data={"email": target, "password": "password123",
+                            "csrf_token": csrf("/login")})
+check(client.get("/admin").status_code == 404,
+      "a customer cannot see the console")
+victim = int(db.get_user_by_email("goodwill@example.com")["id"])
+before_self = db.credit_balance(target_id)
+before_victim = db.credit_balance(victim)
+# A token from a page they can reach, so this tests the admin gate and not
+# only the CSRF layer sitting in front of it.
+response = client.post("/admin/credits", data={
+    "email": "goodwill@example.com", "units": -50,
+    "reason": "stripping someone else's account",
+    "csrf_token": csrf("/account")}, follow_redirects=True)
+check(response.status_code == 404, f"and cannot post to it ({response.status_code})")
+check(db.credit_balance(victim) == before_victim
+      and db.credit_balance(target_id) == before_self,
+      "no balance moved")
+
 print(f"\n{PASSED}/{TOTAL} behaved as expected")
 raise SystemExit(0 if PASSED == TOTAL else 1)
