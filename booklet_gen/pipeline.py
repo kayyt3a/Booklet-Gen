@@ -806,6 +806,24 @@ class BookletPipeline:
         cut = self._passage_safe_split(validated, self._n_classwork)
         classwork = validated[:cut]
         homework = validated[cut:]
+        # A guided example that works through a question about one of this
+        # section's readings prints above that reading, so it hands over the
+        # answer before the student has read a word. Guided examples are
+        # optional, so dropping one costs the lesson little. The worked example
+        # is the lesson, so it is kept and logged rather than removed.
+        if teaching is not None and passages:
+            from .agents.consistency import example_spoils_passage
+            kept = [g for g in (teaching.guided_examples or [])
+                    if not example_spoils_passage(g, passages)]
+            if len(kept) != len(teaching.guided_examples or []):
+                log.warning("pipeline.guided_example_spoiled_passage",
+                            extra={"subtopic": subtopic.name,
+                                   "dropped": len(teaching.guided_examples) - len(kept)})
+                teaching.guided_examples = kept
+            if example_spoils_passage(teaching.worked_example, passages):
+                log.warning("pipeline.worked_example_spoils_passage",
+                            extra={"subtopic": subtopic.name})
+
         raw_min = section_minutes(
             len(classwork), teaching is not None, subtopic.difficulty_hint,
         )

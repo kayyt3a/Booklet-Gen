@@ -416,6 +416,49 @@ def diagram_dimensionality_matches(spec: dict, question_text: str) -> bool:
 
 
 # --------------------------------------------------------------------------
+# 3c. A lesson example that answers a reading the student has not reached
+# --------------------------------------------------------------------------
+
+
+def _quoted_titles(text: str) -> set:
+    """Titles the text names, however they are quoted."""
+    found = set()
+    for m in re.finditer(r"['\"‘’“”]([^'\"‘’“”]{4,90})"
+                         r"['\"‘’“”]", text or ""):
+        found.add(m.group(1).strip().lower())
+    return found
+
+
+def example_spoils_passage(example, passages) -> bool:
+    """True when a lesson example gives away an answer about a booklet reading.
+
+    The mini-lesson prints above the questions, and a passage prints with the
+    question group that uses it. So an example naming one of this section's
+    readings hands the student a worked answer about a story printed further
+    down the same page, before they have read a word of it.
+
+    The prompt already tells the lesson to carry its own two to four sentence
+    excerpt instead. This catches the case where it does not.
+    """
+    titles = {(getattr(p, "title", "") or "").strip().lower()
+              for p in (passages or [])}
+    titles.discard("")
+    if not titles:
+        return False
+    text = " ".join(filter(None, [
+        getattr(example, "question", "") or "",
+        getattr(example, "answer", "") or "",
+    ]))
+    named = _quoted_titles(text)
+    if titles & named:
+        return True
+    # An unquoted mention still gives it away, but only match a title long
+    # enough that a coincidence is implausible.
+    low = text.lower()
+    return any(len(t) >= 12 and t in low for t in titles)
+
+
+# --------------------------------------------------------------------------
 # 4. Text pointing at a picture that was never drawn
 # --------------------------------------------------------------------------
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from types import SimpleNamespace
 import tempfile
 from pathlib import Path
 
@@ -32,7 +33,8 @@ logging.disable(logging.CRITICAL)
 
 from booklet_gen.agents.consistency import (          # noqa: E402
     answer_is_trustworthy, diagram_dimensionality_matches,
-    reconcile_diagram_spec, refers_to_missing_figure)
+    example_spoils_passage, reconcile_diagram_spec,
+    refers_to_missing_figure)
 
 # (answer, working, should_be_trusted)
 ANSWER_CASES = [
@@ -408,6 +410,29 @@ DIMENSION_CASES = [
 ]
 
 
+# A lesson example that answers a question about a reading printed below it.
+# year5-english-sample.pdf page 11: "Let's do this one together, In 'The Last
+# Bus to Mullaloo', what can you infer is in the warm paper bag? Answer: Hot
+# food she bought with her bus money" with the story starting in the box
+# immediately underneath.
+# (example question, example answer, should_be_dropped, note)
+SPOILER_CASES = [
+    ("In 'The Last Bus to Mullaloo', what can you infer is in the paper bag?",
+     "Hot food she bought with her bus money", True,
+     "the shipped case: a quoted title"),
+    ("In The Last Bus to Mullaloo, how does Tess feel?", "Anxious", True,
+     "an unquoted title still gives it away"),
+    ("What does 'From the Diary of Alice Weir' suggest about the town?",
+     "That it is failing", True, "the second reading, quoted"),
+    ("Read this: 'The dog barked twice, then sat.' What can you infer?",
+     "It had heard something", False, "the lesson carrying its own excerpt"),
+    ("In 'A Walk to School', what happens first?", "She misses the bus", False,
+     "a title this section does not define"),
+    ("What does the word steadily suggest?", "Calmness", False,
+     "no title named at all"),
+]
+
+
 def main() -> int:
     failures = 0
 
@@ -419,6 +444,18 @@ def main() -> int:
         failures += not ok
         label = "trusted" if got else "rejected"
         print(f"  {'ok  ' if ok else 'FAIL'}  {label:8} {answer[:26]!r:30} {why or ''}")
+
+    print("\nLesson examples that spoil a reading")
+    print("-" * 62)
+    passages = [SimpleNamespace(title="The Last Bus to Mullaloo"),
+                SimpleNamespace(title="From the Diary of Alice Weir")]
+    for question, answer, want, note in SPOILER_CASES:
+        example = SimpleNamespace(question=question, answer=answer)
+        got = example_spoils_passage(example, passages)
+        ok = got == want
+        failures += not ok
+        verdict = "dropped" if got else "kept"
+        print(f"  {'ok  ' if ok else 'FAIL'}  {verdict:8} {note}")
 
     print("\nDiagram dimensionality")
     print("-" * 62)
@@ -478,7 +515,7 @@ def main() -> int:
         failures += not ok
         print(f"  {'ok  ' if ok else 'FAIL'}  {line}")
 
-    total = (len(ANSWER_CASES) + len(DIMENSION_CASES) + len(DIAGRAM_CASES)
+    total = (len(ANSWER_CASES) + len(SPOILER_CASES) + len(DIMENSION_CASES) + len(DIAGRAM_CASES)
              + len(LEAK_CASES) + len(FIGURE_CASES) + len(rendered)
              + len(wiring) + len(teaching))
     print(f"\n{total - failures}/{total} behaved as expected")
