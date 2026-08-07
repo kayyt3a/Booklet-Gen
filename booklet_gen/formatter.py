@@ -2036,6 +2036,25 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # the page lookup, because several questions now print as "3".
             story.append(_answer_block(styles, shown(acount["n"]), vq, page))
 
+    def render_section_answers(section, questions):
+        """Answers for one subtopic, with each reading named above its group.
+
+        Numbering restarts at 1 under every passage, exactly as the student
+        page numbers it. Flattening the groups printed two runs of "1" to "5"
+        under a single subtopic heading with nothing between them, so whoever
+        was marking beside the student had no way to tell which reading the
+        second run belonged to and marked against the wrong one.
+        """
+        groups = passage_groups(questions, section_passages(section))
+        for passage, qs in groups:
+            if passage is not None and len(groups) > 1:
+                title = getattr(passage, "title", None)
+                story.append(Paragraph(
+                    _escape(f"Questions on '{title}'" if title
+                            else "Questions on the next reading"),
+                    styles["passage_label"]))
+            render_answers(qs)
+
     if data.recap_questions:
         story.append(_key_part_heading(styles, "Warm-up Recap", "#6b7280"))
         render_answers(data.recap_questions)
@@ -2055,8 +2074,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # Grouping questions under their passage changes the printed order, so
         # the key has to be walked in the same order or every number after the
         # first passage points at the wrong question.
-        render_answers(ordered_questions(section.questions,
-                                         section_passages(section)))
+        render_section_answers(section, section.questions)
 
     if has_homework:
         story.append(_key_part_heading(styles, "Homework", "#8B1E3F"))
@@ -2066,8 +2084,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                 continue
             subject_topic_headers(section, state)
             story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
-            render_answers(ordered_questions(section.homework_questions,
-                                             section_passages(section)))
+            render_section_answers(section, section.homework_questions)
 
     if data.challenge_questions:
         story.append(_key_part_heading(styles, "Final Challenge", "#8B1E3F"))

@@ -1349,6 +1349,51 @@ check(answer_unit("A tap fills a tank. What is the flow rate in litres per "
       "no half a compound unit is guessed for a rate")
 
 print(f"\nPDFs written to {tmp}")
+
+
+# ---------------------------------------------------------------------------
+# Two readings under one subtopic: the key must say which is which
+#
+# year5-english-sample.pdf, key pages 19-20: "Making inferences" appeared once,
+# then answers 1 to 5 for 'The Last Bus to Mullaloo', then immediately another
+# run of 1 to 5 for 'From the Diary of Alice Weir' with nothing between them.
+# Numbering restarts under each passage, exactly as the student page numbers
+# it, so whoever was marking beside the student had no way to tell where the
+# second reading began and marked against the wrong set.
+# ---------------------------------------------------------------------------
+print("\nAnswer key: two readings in one subtopic")
+
+two_readings = BookletData(
+    subject="English", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic="Comprehension", subtopic="Making inferences",
+        passages=[P1, P2],
+        questions=[pq("Why did the kitten hide?", "p1", answer="It was afraid"),
+                   pq("What did she find?", "p1", answer="A collar"),
+                   pq("How does the crew feel?", "p2", answer="Frightened"),
+                   pq("What warned them?", "p2", answer="The falling glass")],
+        homework_questions=[])])
+tr_pages = read(render_pdf(two_readings, tmp / "two-readings.pdf"))[0]
+tr_key = "\n".join(tr_pages[key_page(tr_pages):])
+check(P1.title in tr_key and P2.title in tr_key,
+      "the key names both readings, so a restarted 1 is not ambiguous",
+      f"{P1.title in tr_key}/{P2.title in tr_key}")
+check(tr_key.index(P1.title) < tr_key.index(P2.title),
+      "and names them in the order the student met them")
+
+# One reading needs no label: the subtopic heading already says what it is.
+one_reading = BookletData(
+    subject="English", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic="Comprehension", subtopic="Making inferences",
+        passages=[P1],
+        questions=[pq("Why did the kitten hide?", "p1", answer="It was afraid"),
+                   pq("What did she find?", "p1", answer="A collar")],
+        homework_questions=[])])
+or_pages = read(render_pdf(one_reading, tmp / "one-reading.pdf"))[0]
+or_key = "\n".join(or_pages[key_page(or_pages):])
+check("Questions on" not in or_key,
+      "a subtopic with a single reading is not labelled needlessly")
 if failures:
     print(f"\n{len(failures)} FAILED:")
     for f in failures:
