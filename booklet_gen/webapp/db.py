@@ -108,9 +108,13 @@ CREATE TABLE IF NOT EXISTS payments (
     amount_total         INTEGER,
     currency             TEXT,
     status               TEXT NOT NULL,
+    payment_intent_id    TEXT,
+    reversed_units       INTEGER NOT NULL DEFAULT 0,
     created_at           BIGINT NOT NULL,
     updated_at           BIGINT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS payments_intent_idx
+    ON payments (payment_intent_id);
 CREATE INDEX IF NOT EXISTS payments_user_created_idx
     ON payments (user_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS rate_limits (
@@ -186,10 +190,14 @@ CREATE TABLE IF NOT EXISTS payments (
     amount_total         INTEGER,
     currency             TEXT,
     status               TEXT NOT NULL,
+    payment_intent_id    TEXT,
+    reversed_units       INTEGER NOT NULL DEFAULT 0,
     created_at           INTEGER NOT NULL,
     updated_at           INTEGER NOT NULL,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
+CREATE INDEX IF NOT EXISTS payments_intent_idx
+    ON payments (payment_intent_id);
 CREATE INDEX IF NOT EXISTS payments_user_created_idx
     ON payments (user_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS rate_limits (
@@ -229,6 +237,8 @@ def init_db() -> None:
                 "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS credit_units INTEGER NOT NULL DEFAULT 0",
                 "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS request_json TEXT",
                 "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS storage_key TEXT",
+                "ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_intent_id TEXT",
+                "ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversed_units INTEGER NOT NULL DEFAULT 0",
             )
             for statement in migrations:
                 conn.execute(statement)
@@ -259,6 +269,10 @@ def init_db() -> None:
             "request_json": "TEXT",
         })
         _sqlite_add_columns(conn, "job_files", {"storage_key": "TEXT"})
+        _sqlite_add_columns(conn, "payments", {
+            "payment_intent_id": "TEXT",
+            "reversed_units": "INTEGER NOT NULL DEFAULT 0",
+        })
         conn.execute(
             """INSERT OR IGNORE INTO credit_ledger
                (user_id, delta, reason, reference, created_at)
@@ -476,55 +490,90 @@ def credit_balance(user_id: int) -> int:
         return _scalar(cur)
 
 
-def grant_credits(user_id: int, units: int, reason: str, reference: str) -> bool:
-    if int(units) <= 0:
-        raise ValueError("Credit grants must be positive.")
+def adjust_credits(user_id: int, delta: int, reason: str, reference: str) -> bool:
+    """Move a balance by `delta`, once per reference. True if it moved.
+
+    The ledger has always held negative entries (a queued job reserves its
+    credits with one), but nothing outside job reservation could write one, so
+    a refunded or charged-back purchase left its credits behind. This is the
+    single writer for a correction in either direction, and every entry keeps
+    the reason and reference that produced it.
+
+    A balance is allowed to go below zero. A customer who bought ten booklets,
+    generated all ten, and then charged the payment back has taken ten
+    booklets they did not pay for, and zeroing them out would quietly write
+    that off; the negative balance is the debt, and enqueue_job will not start
+    new work until it is settled.
+    """
+    delta = int(delta)
+    if delta == 0:
+        raise ValueError("A credit adjustment must be non-zero.")
     now = int(time.time())
     with _cursor(transaction=True) as cur:
-        if is_postgres():
-            cur.execute(
-                """INSERT INTO credit_ledger
-                   (user_id, delta, reason, reference, created_at)
-                   VALUES (%s,%s,%s,%s,%s)
-                   ON CONFLICT (user_id, reference) DO NOTHING RETURNING id""",
-                (user_id, int(units), reason, reference, now),
-            )
-            return cur.fetchone() is not None
+        return _adjust_credits_in(cur, user_id, delta, reason, reference, now)
+
+
+def _adjust_credits_in(cur, user_id: int, delta: int, reason: str,
+                       reference: str, now: int) -> bool:
+    """The ledger write itself, for callers already holding a transaction."""
+    if is_postgres():
         cur.execute(
-            """INSERT OR IGNORE INTO credit_ledger
+            """INSERT INTO credit_ledger
                (user_id, delta, reason, reference, created_at)
-               VALUES (?,?,?,?,?)""",
-            (user_id, int(units), reason, reference, now),
+               VALUES (%s,%s,%s,%s,%s)
+               ON CONFLICT (user_id, reference) DO NOTHING RETURNING id""",
+            (user_id, int(delta), reason, reference, now),
         )
-        return bool(cur.rowcount)
+        return cur.fetchone() is not None
+    cur.execute(
+        """INSERT OR IGNORE INTO credit_ledger
+           (user_id, delta, reason, reference, created_at)
+           VALUES (?,?,?,?,?)""",
+        (user_id, int(delta), reason, reference, now),
+    )
+    return bool(cur.rowcount)
+
+
+def grant_credits(user_id: int, units: int, reason: str, reference: str) -> bool:
+    """Add credits. Kept positive-only so no existing caller can subtract."""
+    if int(units) <= 0:
+        raise ValueError("Credit grants must be positive.")
+    return adjust_credits(user_id, int(units), reason, reference)
 
 
 def record_payment_and_credit(session_id: str, user_id: int, product_key: str,
                               units: int, amount_total: int | None,
-                              currency: str | None) -> bool:
-    """Fulfil one Stripe checkout exactly once, even under concurrent webhooks."""
+                              currency: str | None,
+                              payment_intent_id: str | None = None) -> bool:
+    """Fulfil one Stripe checkout exactly once, even under concurrent webhooks.
+
+    The payment intent is stored because a later refund or chargeback arrives
+    as a charge event, which names the intent and never the checkout session.
+    Without it there is no way back from "this money was taken back" to "these
+    credits were granted" that does not cost another call to Stripe.
+    """
     now = int(time.time())
     with _cursor(transaction=True) as cur:
         if is_postgres():
             cur.execute(
                 """INSERT INTO payments
                    (checkout_session_id,user_id,product_key,units,amount_total,
-                    currency,status,created_at,updated_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,'paid',%s,%s)
+                    currency,status,payment_intent_id,created_at,updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,'paid',%s,%s,%s)
                    ON CONFLICT (checkout_session_id) DO NOTHING
                    RETURNING checkout_session_id""",
                 (session_id, user_id, product_key, units, amount_total,
-                 currency, now, now),
+                 currency, payment_intent_id, now, now),
             )
             inserted = cur.fetchone() is not None
         else:
             cur.execute(
                 """INSERT OR IGNORE INTO payments
                    (checkout_session_id,user_id,product_key,units,amount_total,
-                    currency,status,created_at,updated_at)
-                   VALUES (?,?,?,?,?,?,'paid',?,?)""",
+                    currency,status,payment_intent_id,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,'paid',?,?,?)""",
                 (session_id, user_id, product_key, units, amount_total,
-                 currency, now, now),
+                 currency, payment_intent_id, now, now),
             )
             inserted = bool(cur.rowcount)
         if not inserted:
@@ -545,6 +594,92 @@ def list_payments(user_id: int, limit: int = 50) -> list[dict]:
             (user_id, limit),
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+def find_payment(*, session_id: str | None = None,
+                 payment_intent_id: str | None = None) -> dict | None:
+    """The payment row for a checkout session or a Stripe payment intent."""
+    if session_id:
+        column, value = "checkout_session_id", session_id
+    elif payment_intent_id:
+        column, value = "payment_intent_id", payment_intent_id
+    else:
+        return None
+    with _cursor() as cur:
+        cur.execute(
+            _q(f"""SELECT * FROM payments WHERE {column}=?
+                   ORDER BY created_at LIMIT 1"""),
+            (value,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def attach_payment_intent(session_id: str, payment_intent_id: str) -> None:
+    """Backfill the intent on a payment recorded before it was stored."""
+    with _cursor() as cur:
+        cur.execute(
+            _q("""UPDATE payments SET payment_intent_id=?, updated_at=?
+                  WHERE checkout_session_id=? AND payment_intent_id IS NULL"""),
+            (payment_intent_id, int(time.time()), session_id),
+        )
+
+
+def reverse_payment_credits(session_id: str, reversed_total: int,
+                            status: str, reason: str, reference: str) -> int:
+    """Take back credits from a payment whose money went back. Units removed.
+
+    `reversed_total` is the total that should stand reversed for this payment,
+    not an increment, because Stripe redelivers webhooks and a partial refund
+    can be followed by another one. Only the difference is written, so a
+    repeated delivery of the same event does nothing.
+
+    Reversal only ever goes up. Restoring credits after a dispute is won is
+    deliberately not automatic: it is a decision about a customer who filed a
+    chargeback, and it belongs to a person, through the audited admin
+    adjustment, not to a webhook.
+    """
+    now = int(time.time())
+    with _cursor(transaction=True) as cur:
+        if is_postgres():
+            cur.execute(
+                "SELECT * FROM payments WHERE checkout_session_id=%s FOR UPDATE",
+                (session_id,),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM payments WHERE checkout_session_id=?", (session_id,),
+            )
+        row = cur.fetchone()
+        if row is None:
+            return 0
+        payment = dict(row)
+        units = int(payment["units"])
+        already = int(payment.get("reversed_units") or 0)
+        target = max(0, min(int(reversed_total), units))
+        # Status still moves on a full-value dispute that a refund had already
+        # covered, so the row says what happened even when no credit moves.
+        if target <= already:
+            if status and status != payment["status"]:
+                cur.execute(
+                    _q("""UPDATE payments SET status=?, updated_at=?
+                          WHERE checkout_session_id=?"""),
+                    (status, now, session_id),
+                )
+            return 0
+        delta = target - already
+        wrote = _adjust_credits_in(
+            cur, int(payment["user_id"]), -delta, reason, reference, now)
+        if not wrote:
+            # The same reference has already been applied. Leave the counter
+            # alone rather than record a reversal that never hit the ledger.
+            return 0
+        cur.execute(
+            _q("""UPDATE payments SET reversed_units=?, status=?, updated_at=?
+                  WHERE checkout_session_id=?"""),
+            (target, status or payment["status"], now, session_id),
+        )
+        return delta
 
 
 # ---------- jobs ----------

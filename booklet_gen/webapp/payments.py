@@ -103,15 +103,133 @@ def fulfil_checkout(session_id: str) -> int | None:
     if product.price_id not in price_ids:
         raise ValueError("Checkout price does not match the FolioAI product.")
 
+    intent = getattr(session, "payment_intent", None)
+    intent_id = getattr(intent, "id", intent)
     db.record_payment_and_credit(
         session.id, user_id, product.key, product.units,
         getattr(session, "amount_total", None),
         getattr(session, "currency", None),
+        str(intent_id) if intent_id else None,
     )
+    if intent_id:
+        # Fulfilment may have happened on an earlier delivery, before the
+        # intent was stored at all. A refund can only be traced back to this
+        # payment through the intent, so make sure it is on the row.
+        db.attach_payment_intent(session.id, str(intent_id))
     customer = getattr(session, "customer", None)
     if customer and not user["stripe_customer_id"]:
         db.set_stripe_customer(user_id, str(customer))
     return user_id
+
+
+class UnknownPayment(Exception):
+    """A money-back event that names no FolioAI payment we can find."""
+
+
+def _field(obj, key: str, default=None):
+    """One field off a Stripe event object.
+
+    stripe.StripeObject looks like a dict and indexes like one, but it has no
+    .get: the attribute lookup falls through to __getattr__, which raises
+    AttributeError for the name "get". Using .get here reads fine, passes any
+    test written with plain dictionaries, and then throws on every real
+    webhook Stripe sends.
+    """
+    try:
+        return obj[key]
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return default
+
+
+def _payment_for_intent(payment_intent_id: str) -> dict:
+    """The payment row a charge belongs to, asking Stripe only if we must."""
+    payment = db.find_payment(payment_intent_id=payment_intent_id)
+    if payment is not None:
+        return payment
+    # Payments recorded before the intent was stored have nothing to match on.
+    # Stripe can still say which checkout session produced the intent, and
+    # once it has, the row is repaired so this costs nothing next time.
+    sessions = _stripe().checkout.Session.list(
+        payment_intent=payment_intent_id, limit=1)
+    for session in getattr(sessions, "data", []) or []:
+        found = db.find_payment(session_id=session.id)
+        if found is not None:
+            db.attach_payment_intent(session.id, payment_intent_id)
+            return found
+    raise UnknownPayment(payment_intent_id)
+
+
+def reverse_for_money_back(payment_intent_id: str, reversed_total: int,
+                           status: str, reason: str, reference: str) -> int:
+    """Claw back credits for a payment Stripe has taken the money back on."""
+    payment = _payment_for_intent(payment_intent_id)
+    removed = db.reverse_payment_credits(
+        payment["checkout_session_id"], reversed_total, status, reason, reference)
+    if removed:
+        log.warning(
+            "reversed %s booklet credits on user=%s payment=%s (%s)",
+            removed, payment["user_id"], payment["checkout_session_id"], status)
+    return removed
+
+
+def _units_to_reverse(payment: dict, amount: int | None,
+                      amount_returned: int | None) -> int:
+    """How many of a pack's credits a partial money-back covers.
+
+    Proportional and rounded to nearest, so a full refund takes the whole
+    pack, half a ten-pack takes five, and a small goodwill refund on top of a
+    delivered booklet takes nothing. Rounding up instead would let a five
+    percent gesture cost a customer a whole booklet.
+    """
+    units = int(payment["units"])
+    if not amount or amount <= 0:
+        return units
+    returned = max(0, min(int(amount_returned or 0), int(amount)))
+    if returned >= int(amount):
+        return units
+    return int((units * returned + int(amount) // 2) // int(amount))
+
+
+def handle_money_back(event) -> None:
+    """Apply a refund or dispute to the credits its payment granted."""
+    kind = event["type"]
+    obj = event["data"]["object"]
+    intent_id = _field(obj, "payment_intent")
+    if not intent_id:
+        raise UnknownPayment("event carries no payment intent")
+    intent_id = str(intent_id)
+
+    if kind == "charge.refunded":
+        payment = _payment_for_intent(intent_id)
+        units = _units_to_reverse(
+            payment, _field(obj, "amount"), _field(obj, "amount_refunded"))
+        status = "refunded" if units >= int(payment["units"]) else "partially_refunded"
+        reverse_for_money_back(
+            intent_id, units, status,
+            f"Stripe refund on {payment['product_key']}",
+            f"refund:{_field(obj, 'id') or intent_id}:{units}")
+        return
+
+    if kind == "charge.dispute.created":
+        # The money is already gone from the account when this arrives, and a
+        # chargeback is for the whole charge, so the whole pack comes back.
+        payment = _payment_for_intent(intent_id)
+        reverse_for_money_back(
+            intent_id, int(payment["units"]), "disputed",
+            f"Stripe chargeback on {payment['product_key']}",
+            f"dispute:{_field(obj, 'id') or intent_id}")
+        return
+
+    if kind == "charge.dispute.closed":
+        # Deliberately no automatic restore. If the dispute was won the money
+        # stayed, and whether to hand the credits back to someone who filed a
+        # chargeback is a judgement for a person, using the audited admin
+        # adjustment. Logged so it is not silently forgotten.
+        payment = _payment_for_intent(intent_id)
+        log.warning(
+            "dispute closed as %s on user=%s payment=%s: credits stay reversed "
+            "until an admin adjustment says otherwise",
+            _field(obj, "status"), payment["user_id"], payment["checkout_session_id"])
 
 
 @bp.route("/checkout/success")
@@ -150,6 +268,30 @@ def webhook():
             getattr(stripe, "error", stripe),
             "SignatureVerificationError", ValueError)):
         abort(400)
+
+    if event["type"] in {
+        "charge.refunded",
+        "charge.dispute.created",
+        "charge.dispute.closed",
+    }:
+        try:
+            handle_money_back(event)
+        except UnknownPayment:
+            # A charge we have no record of. Nothing to reverse, and no retry
+            # can produce one, so do not spend Stripe's retry budget on it.
+            # Logged loudly because the alternative reading is that a payment
+            # of ours failed to record, which is worth a look.
+            log.exception("money-back event names no known payment, event=%s",
+                          event["id"])
+            return {"received": True, "reversed": False}, 200
+        except Exception:
+            # The database or Stripe was unavailable. Ask for a retry: unlike
+            # fulfilment, dropping this one leaves credits with someone whose
+            # money has already gone back.
+            log.exception("credit reversal failed, will retry, event=%s",
+                          event["id"])
+            return {"received": True, "reversed": False}, 500
+        return {"received": True}, 200
 
     if event["type"] in {
         "checkout.session.completed",
