@@ -937,6 +937,90 @@ if boundary_section:
           "the session band sits above the subtopic heading it starts on",
           f"session {n} / Part {part}")
 
+# ---------------------------------------------------------------------------
+# The Homework band's total must be the sum of the sittings printed under it
+#
+# A shipped Year 5 Maths booklet said "Split into 4 sessions, about 179 min in
+# total" over sittings of 31, 31, 31 and 29 min. Fifty-seven minutes were
+# unaccounted for: the band was quoting the whole homework half, including the
+# Final Challenge that has its own band and its own estimate below, and
+# including the mini-lessons of subtopics whose practice had moved to Homework,
+# which the sitting estimates did not count at all. A parent who plans a
+# Tuesday evening around 31 minutes and loses an hour does not buy again.
+# ---------------------------------------------------------------------------
+print("\nThe homework band adds up")
+
+trimmed_data = BookletData(
+    subject="Mathematics", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic=f"Topic {i}", subtopic=f"Subtopic {i + 1}", teaching=teaching(2),
+        # The last two subtopics did not fit the hour, so their practice moved
+        # to Homework and their mini-lessons print down there with it.
+        questions=[] if i >= 3 else [
+            vq(f"Question {i}.{j}: a box is {j + 2} cm long, 2 cm wide and 3 cm "
+               "high. What is its volume in cubic centimetres?")
+            for j in range(4)],
+        homework_questions=[
+            vq(f"Set {i} item {j}: calculate {j + 1}/12 + {j + 1}/12 and give "
+               "your answer in its lowest terms.", difficulty="easy")
+            for j in range(10)]) for i in range(5)],
+    challenge_questions=[
+        vq(f"Challenge {k}: a pool is 10 m by 5 m by 1.5 m. What is its volume "
+           "in cubic metres?", difficulty="hard") for k in range(8)])
+
+trimmed_plan = homework_session_plan(trimmed_data)
+trimmed_times = booklet_timing(trimmed_data)
+trimmed_pages = read(render_pdf(trimmed_data, tmp / "trimmed.pdf"))[0]
+trimmed_body = " ".join(
+    " ".join(trimmed_pages[:key_page(trimmed_pages)]).split())
+
+check(len(trimmed_plan) >= 2 and bool(trimmed_data.challenge_questions),
+      "the fixture splits into sittings and has a Final Challenge",
+      f"{len(trimmed_plan)} sessions")
+band_total = re.search(r"Split into \d+ sessions, about (\d+) min in total",
+                       trimmed_body)
+check(band_total is not None, "the Homework band states a total",
+      trimmed_body[trimmed_body.find("lock it in"):][:150])
+printed_sessions = [int(m) for m in re.findall(
+    r"Session \d+ of \d+ \| \d+ questions? \| about (\d+) min", trimmed_body)]
+check(len(printed_sessions) == len(trimmed_plan),
+      "every sitting prints its own estimate", str(printed_sessions))
+if band_total and printed_sessions:
+    check(int(band_total.group(1)) == sum(printed_sessions),
+          "the Homework total is exactly the sittings underneath it added up",
+          f"band {band_total.group(1)} vs sittings "
+          f"{' + '.join(str(m) for m in printed_sessions)} "
+          f"= {sum(printed_sessions)}")
+# And the Final Challenge is named as extra, not folded into that total.
+challenge_note = re.search(r"Final Challenge at the end adds about (\d+) min",
+                           trimmed_body)
+check(challenge_note is not None
+      and int(challenge_note.group(1)) == trimmed_times["challenge_minutes"],
+      "the Final Challenge is quoted separately, not inside the homework total",
+      trimmed_body[trimmed_body.find("lock it in"):][:170])
+if band_total:
+    check(int(band_total.group(1)) + trimmed_times["challenge_minutes"]
+          <= trimmed_times["homework_minutes"] + 3,
+          "and the two together are the homework half, give or take rounding",
+          f"{band_total.group(1)} + {trimmed_times['challenge_minutes']} vs "
+          f"{trimmed_times['homework_minutes']}")
+
+# A subtopic whose practice moved down reprints its mini-lesson in Homework, so
+# the sitting that holds it has to be charged for it.
+no_lesson = BookletData(
+    subject="Mathematics", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic=s.topic, subtopic=s.subtopic,
+        teaching=s.teaching if s.questions else None,
+        questions=list(s.questions),
+        homework_questions=list(s.homework_questions))
+        for s in trimmed_data.sections])
+check(sum(p["minutes"] for p in trimmed_plan)
+      > sum(p["minutes"] for p in homework_session_plan(no_lesson)) + 2,
+      "a moved subtopic's mini-lesson is charged to the sitting that prints it",
+      f"{sum(p['minutes'] for p in trimmed_plan)} min with the lessons, "
+      f"{sum(p['minutes'] for p in homework_session_plan(no_lesson))} without")
+
 print("\nWarm-up working space")
 
 

@@ -1913,13 +1913,23 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # is too little room left to be worth starting Homework here.
         story.append(CondPageBreak(HOMEWORK_MIN_START_CM * cm))
         sessions = homework_session_plan(data)
+        # The number on this band has to be the number the page underneath it
+        # adds up to. It used to be the whole homework half, Final Challenge and
+        # all, printed over four sittings of 31, 31, 31 and 29 min: a parent who
+        # planned around "179 min in total" was 57 minutes out. The sitting
+        # bands are what a parent counts, so the total is their sum, and the
+        # Final Challenge keeps its own estimate on its own band below.
         hw_sub = ("Do these through the week to lock it in. "
-                  f"About {times['homework_minutes']} min.") \
-            if times["homework_minutes"] else "Do these through the week to lock it in."
+                  f"About {times['homework_only_minutes']} min.") \
+            if times["homework_only_minutes"] \
+            else "Do these through the week to lock it in."
         if sessions:
             hw_sub = ("Do these through the week to lock it in. "
-                      f"Split into {len(sessions)} sessions, "
-                      f"about {times['homework_minutes']} min in total.")
+                      f"Split into {len(sessions)} sessions, about "
+                      f"{sum(s['minutes'] for s in sessions)} min in total.")
+        if data.challenge_questions and times["challenge_minutes"]:
+            hw_sub += (" The Final Challenge at the end adds about "
+                       f"{times['challenge_minutes']} min.")
         story.append(_part_band(styles, "Homework", "#8B1E3F", hw_sub))
         story.append(Spacer(1, 0.3 * cm))
 
