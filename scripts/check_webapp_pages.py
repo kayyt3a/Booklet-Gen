@@ -95,6 +95,22 @@ finally:
 check(b"WACE" in with_exams,
       "and does advertise them once the exam program is allowlisted")
 
+# The hero promised "practice questions sized for an hour". Only the class work
+# is trimmed to CLASSWORK_CAP_MINUTES; the booklet also carries a week of
+# homework and a Final Challenge, and one real Year 5 Maths booklet printed
+# "about 245 minutes" on its cover. A parent who bought an hour and printed
+# four is a refund. So the page may never call something an hour without
+# saying, right there, that the hour is the class work.
+_hero = body.decode()
+_hour_claims = [_hero[max(0, m.start() - 110):m.end() + 110]
+                for m in re.finditer(r"\bhour\b", _hero)]
+check(bool(_hour_claims)
+      and all("class work" in c.lower() for c in _hour_claims),
+      "an hour is only ever claimed for the class work, not the booklet",
+      f"{len(_hour_claims)} mentions of an hour")
+check(b"for the rest of the week" in body,
+      "and the page says the homework runs on past that hour")
+
 check(b"sample-page.png" in body,
       "it shows a real page out of a booklet, not just a description")
 check(b"No credit card" in body, "it says what signing up costs")

@@ -12,9 +12,14 @@
        thing nobody could buy. #}
     <span class="eyebrow">First booklet free &middot; Years 1 to 10{% if exam_programs %}, plus WACE exams{% endif %}</span>
     <h1>Practice booklets your kid will actually finish.</h1>
+    {# Only the class work is trimmed to an hour (CLASSWORK_CAP_MINUTES). The
+       booklet as a whole is a week of work: one real Year 5 Maths booklet
+       printed "about 245 minutes" on its cover, so promising an hour of
+       practice here set a parent up for a shock at the printer. #}
     <p class="sub">Pick a subject and a year level. FolioAI writes a printable PDF
-      in about two minutes: a mini-lesson, a worked example, practice questions
-      sized for an hour, and an answer key with the working shown.</p>
+      in about two minutes: a mini-lesson, a worked example, about an hour of
+      class work, homework split into sittings for the rest of the week, and an
+      answer key with the working shown.</p>
     <div class="heroCta">
       <a class="btn" href="{{ url_for('auth.signup') }}">Create a free account</a>
       <a class="btn secondary" href="#sample">See a sample</a>
