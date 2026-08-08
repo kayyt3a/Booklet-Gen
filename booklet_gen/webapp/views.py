@@ -101,7 +101,8 @@ def index():
     programs = customer_programs()
     customer_exam_programs = EXAM_PROGRAMS.intersection(programs)
     if not g.user:
-        return render_template("landing.html", programs=programs)
+        return render_template("landing.html", programs=programs,
+                               exam_programs=customer_exam_programs)
     return render_template(
         "generate.html",
         programs=programs, years=YEARS, subjects=ACCELERATE_SUBJECTS,

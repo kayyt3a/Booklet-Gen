@@ -6,7 +6,11 @@
 <section class="hero">
   {{ scatter() }}
   <div class="heroInner">
-    <span class="eyebrow">First booklet free &middot; Years 1 to 10, plus WACE exams</span>
+    {# Driven from customer_programs(), never written out by hand. This line
+       advertised "plus WACE exams" for weeks while methods_exam was held back
+       from the customer menu, so the one thing the eyebrow named was the one
+       thing nobody could buy. #}
+    <span class="eyebrow">First booklet free &middot; Years 1 to 10{% if exam_programs %}, plus WACE exams{% endif %}</span>
     <h1>Practice booklets your kid will actually finish.</h1>
     <p class="sub">Pick a subject and a year level. FolioAI writes a printable PDF
       in about two minutes: a mini-lesson, a worked example, practice questions

@@ -26,6 +26,7 @@ os.environ.pop("DATABASE_URL", None)
 from booklet_gen.webapp import create_app                        # noqa: E402
 from booklet_gen.webapp import db                                # noqa: E402
 from booklet_gen.programs import (                               # noqa: E402
+    EXAM_PROGRAMS,
     PROGRAMS,
     customer_programs,
 )
@@ -73,6 +74,27 @@ for p in offered.values():
 for p in withheld.values():
     check(p.label.encode() not in body,
           f"and does not advertise {p.label}, which is not on sale yet")
+
+# The hero eyebrow said "Years 1 to 10, plus WACE exams" in hand-written copy
+# while methods_exam sat outside DEFAULT_WEB_PROGRAMS, so the headline named
+# the one product the site would refuse to sell. It is now driven from
+# customer_programs(), which is what this pair of checks pins: silent when the
+# exam program is withheld, and back when it is offered.
+check((b"WACE" in body) == bool(EXAM_PROGRAMS & set(offered)),
+      "it advertises WACE exams only when an exam program is on sale",
+      f"offered {sorted(offered)}, WACE named: {b'WACE' in body}")
+_saved_allowlist = os.environ.get("FOLIO_WEB_PROGRAM_ALLOWLIST")
+os.environ["FOLIO_WEB_PROGRAM_ALLOWLIST"] = "naplan,accelerate,methods_exam"
+try:
+    with_exams = client.get("/").data
+finally:
+    if _saved_allowlist is None:
+        os.environ.pop("FOLIO_WEB_PROGRAM_ALLOWLIST", None)
+    else:
+        os.environ["FOLIO_WEB_PROGRAM_ALLOWLIST"] = _saved_allowlist
+check(b"WACE" in with_exams,
+      "and does advertise them once the exam program is allowlisted")
+
 check(b"sample-page.png" in body,
       "it shows a real page out of a booklet, not just a description")
 check(b"No credit card" in body, "it says what signing up costs")
