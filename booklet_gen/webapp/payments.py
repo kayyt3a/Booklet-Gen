@@ -40,6 +40,9 @@ def pricing():
         products=products(),
         payments_enabled=payments_enabled(),
         credits=db.credit_balance(g.user["id"]) if g.user else None,
+        # A paid page may not imply files are kept for ever. Read live so the
+        # pricing page, the library and support all quote the one number.
+        retention=db.FILE_RETENTION_PER_USER,
     )
 
 

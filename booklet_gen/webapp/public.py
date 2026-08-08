@@ -31,4 +31,10 @@ def terms():
 
 @bp.route("/support")
 def support():
-    return render_template("support.html", business=_business())
+    # Support told customers FolioAI keeps "only your most recent generated
+    # files" with no number, while pricing implied they were kept for ever.
+    # Both now quote db.FILE_RETENTION_PER_USER, which is what the cleanup in
+    # db.save_job_file actually enforces.
+    from .db import FILE_RETENTION_PER_USER
+    return render_template("support.html", business=_business(),
+                           retention=FILE_RETENTION_PER_USER)

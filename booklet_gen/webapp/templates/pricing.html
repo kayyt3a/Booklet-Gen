@@ -28,7 +28,10 @@
       <ul class="priceFeatures">
         <li>{{ check(18) }}<span>{{ product.units }} booklet credit{{ '' if product.units == 1 else 's' }}</span></li>
         <li>{{ check(18) }}<span>Printable PDF with a worked answer key</span></li>
-        <li>{{ check(18) }}<span>Saved in My booklets for later download</span></li>
+        {# "Saved in My booklets for later download" read as "kept for ever" on
+           a page taking money. Only the newest FILE_RETENTION_PER_USER files
+           stay downloadable, so the page says so, with the real number. #}
+        <li>{{ check(18) }}<span>Saved in My booklets: your {{ retention }} most recent files stay downloadable</span></li>
       </ul>
       {% if not g.user %}
         <a class="btn" href="{{ url_for('auth.signup') }}">Start with a free booklet</a>

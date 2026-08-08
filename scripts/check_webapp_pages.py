@@ -214,6 +214,29 @@ check(b"two business days" in support and b"not usable" in support,
       "support gives a response target and quality path")
 check(b"first name or nickname only" in privacy and b"accounting records" in privacy,
       "privacy copy minimises child data and explains residual legal records")
+
+# ---------------------------------------------------------------------------
+print("\nEvery page tells the same truth about how long files are kept")
+print("-" * 62)
+# Pricing promised "Saved in My booklets for later download" on a page taking
+# money, while support said FolioAI "keeps only your most recent generated
+# files" with no number, and the library quoted a number neither of them did.
+# db.save_job_file keeps the newest FILE_RETENTION_PER_USER files per account
+# and clears the rest, so that is the number all three must print. The value is
+# monkeypatched to something no other page would say by accident, which also
+# proves the pages read it live rather than hard-coding today's default.
+_real_retention = db.FILE_RETENTION_PER_USER
+db.FILE_RETENTION_PER_USER = 7
+try:
+    retention_pages = {p: client.get(p).data for p in
+                       ("/pricing", "/support", "/library")}
+finally:
+    db.FILE_RETENTION_PER_USER = _real_retention
+for path, page in retention_pages.items():
+    check(b"7 most recent" in page,
+          f"{path} states the real number of files kept", str(b"7 most recent" in page))
+check(b"Saved in My booklets for later download" not in retention_pages["/pricing"],
+      "and pricing no longer implies a booklet is kept for ever")
 prog = client.get("/progress/pages-job")
 check(prog.status_code == 200 and b"bar" in prog.data,
       "the progress page renders")
