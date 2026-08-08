@@ -745,6 +745,11 @@ class BookletPipeline:
                 log.info("pipeline.drop_missing_figure_recap",
                          extra={"subject": subject, "phrase": orphan})
                 continue
+            absurd = self._absurd_quantity(q.question)
+            if absurd:
+                log.info("pipeline.drop_absurd_quantity_recap",
+                         extra={"subject": subject, "reason": absurd})
+                continue
             out.append(ValidatedQuestion(
                 question=q, verified=self._trusted(q, r.verified),
                     validator_notes=r.notes,
@@ -1240,6 +1245,12 @@ class BookletPipeline:
                          extra={"subject": subject, "subtopic": subtopic.name,
                                 "phrase": orphan})
                 continue
+            absurd = self._absurd_quantity(q.question)
+            if absurd:
+                log.info("pipeline.drop_absurd_quantity",
+                         extra={"subject": subject, "subtopic": subtopic.name,
+                                "reason": absurd})
+                continue
             # The one atomic claim, made only once the question is going to be
             # kept. Losing it means a concurrent subtopic wrote the same text
             # first while we were retrying; the retry loop above is
@@ -1328,6 +1339,11 @@ class BookletPipeline:
                 log.info("pipeline.drop_missing_figure_challenge",
                          extra={"subject": subject, "phrase": orphan})
                 continue
+            absurd = self._absurd_quantity(q.question)
+            if absurd:
+                log.info("pipeline.drop_absurd_quantity_challenge",
+                         extra={"subject": subject, "reason": absurd})
+                continue
             # Claim only once it is going to be kept, so a question dropped as
             # broken or figureless does not block a sound one later.
             if not seen.add(norm):
@@ -1378,6 +1394,22 @@ class BookletPipeline:
         """
         from .agents.consistency import refers_to_missing_figure
         return refers_to_missing_figure(text or "", bool(image_path))
+
+    @staticmethod
+    def _absurd_quantity(text: str) -> str | None:
+        """The reason a stated real-world quantity is impossible, or None.
+
+        A shipped Year 5 booklet taught "reading and writing numbers up to
+        millions" with the distance from Perth to Melbourne given as 3,421,000
+        km, a stadium holding 9,900,009 spectators and a Queensland national
+        park covering five million square kilometres, which is three times the
+        state. The judge marks the arithmetic, and the arithmetic is fine; it
+        is the world that is wrong. Callers drop the question rather than
+        rewrite it: the answer key was written against the number, so changing
+        the number silently breaks the key.
+        """
+        from .agents.consistency import implausible_magnitude
+        return implausible_magnitude(text or "")
 
     def _resolve_visual(self, q):
         """Return (path, attribution) for whichever optional visual the LLM asked for."""

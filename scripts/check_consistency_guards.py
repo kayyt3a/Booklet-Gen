@@ -33,7 +33,7 @@ logging.disable(logging.CRITICAL)
 
 from booklet_gen.agents.consistency import (          # noqa: E402
     answer_is_trustworthy, diagram_dimensionality_matches,
-    example_spoils_passage, reconcile_diagram_spec,
+    example_spoils_passage, implausible_magnitude, reconcile_diagram_spec,
     refers_to_missing_figure)
 
 # (answer, working, should_be_trusted)
@@ -181,6 +181,73 @@ FIGURE_CASES = [
      "'image' in the English sense"),
     ("Look at the image below and describe the setting.", False, True,
      "'image' WITH a position word is a real reference"),
+]
+
+
+# A real-world quantity that is absurd by orders of magnitude. Page 10 of a
+# shipped Year 5 Maths booklet, in a subtopic called "Reading and writing
+# numbers up to millions", told a child that Perth is 3,421,000 km from
+# Melbourne, that a stadium holds 9,900,009 people and that a Queensland
+# national park is three times the size of Queensland.
+#
+# The keep cases matter more than the drop cases here. This guard deletes
+# customer content, and most of the keeps are real questions from the same
+# booklet, one of them on the very next page.
+# (question, should_be_dropped, note)
+MAGNITUDE_CASES = [
+    # The three shipped defects, in the wording they shipped in.
+    ("The distance from Perth to Melbourne is approximately 3,421,000 "
+     "kilometres. Write this distance in words.", True, "page 10, the shipped case"),
+    ("A large stadium can hold 9,900,009 spectators. Write this capacity in "
+     "words.", True, "page 11, the shipped case"),
+    ("A national park in Queensland covers an area of five million, seven "
+     "hundred and two km squared. Write this area in numerals.", True,
+     "page 11, written out in words"),
+    ("A national park in Queensland covers an area of 5,702,000 square "
+     "kilometres.", True, "the same claim in numerals"),
+    ("The population of a small country town is 2,050,100 people. Write this "
+     "number in words.", True, "page 10: a small town the size of Brisbane"),
+    ("The distance between Sydney and Brisbane is 912,000,000 metres.", True,
+     "wrong in metres is still wrong"),
+    ("The MCG is an oval that seats 9,900,009 people.", True,
+     "the capacity phrase can come either way round"),
+
+    # Real questions from the same booklet, which must survive untouched.
+    ("The distance from Perth to Adelaide is approximately 2695 kilometres. "
+     "Round this distance to the nearest 100 kilometres.", False,
+     "page 13, correct, and the second number is a rounding instruction"),
+    ("A game company sold 10,000,000 copies of its new release. Write this "
+     "number in words.", False, "page 11: no rule covers copies sold"),
+    ("A popular online video has been viewed six million, ninety-five "
+     "thousand, and forty-two times.", False, "page 11: views are unbounded"),
+    ("Write the number 'Four million, one hundred and twenty thousand, five "
+     "hundred and three' in numerals.", False, "page 10: no real-world claim"),
+    ("A charity event raised seven million, eight thousand, and sixteen "
+     "dollars.", False, "page 10: dollars are not in the table"),
+
+    # Correct versions of the flagged claims, and near neighbours.
+    ("The distance from Perth to Melbourne is about 3,400 km.", False,
+     "the truth passes"),
+    ("The distance from Perth to Melbourne is about 3,400,000 metres. Write "
+     "this in kilometres.", False, "a unit conversion is not an error"),
+    ("A large stadium can hold 100,000 spectators.", False, "about the MCG"),
+    ("Kakadu National Park covers about 19,800 km2.", False,
+     "the largest national park in the country"),
+    ("The area of Western Australia is 2,527,013 km squared.", False, ""),
+    ("The population of Australia is about 27,000,000 people.", False, ""),
+    ("The population of a town is 12,500 people. Round it to the nearest 1000.",
+     False, "a town the size of a town"),
+    ("The distance from the Earth to the Sun is about 150,000,000 kilometres.",
+     False, "both ends must be Australian towns, and one of these is a star"),
+    ("Light travels 9,460,000,000,000 kilometres in a year.", False,
+     "no rule claims to know how far light goes"),
+
+    # Sums and running totals are not claims about how big one thing is.
+    ("The distance from Perth to Melbourne is about 3,400 km. A truck makes "
+     "30 return trips, covering 204,000 km altogether.", False,
+     "the second figure is a total, and it is in another sentence"),
+    ("The stadium sold 2,000,000 seats over the season.", False,
+     "a season's sales are not a capacity"),
 ]
 
 
@@ -376,6 +443,12 @@ def _pipeline_checks() -> list:
     questions = [
         Question(question="How many cubes are needed to build this object?",
                  answer="12", working="3 layers of 4."),
+        # Verified, correctly worked, and impossible. The judge marks the
+        # arithmetic and the arithmetic is right; only the world is wrong.
+        Question(question="A large stadium can hold 9,900,009 spectators. "
+                          "Write this capacity in words.",
+                 answer="Nine million, nine hundred thousand and nine",
+                 working="Read the digits in groups of three."),
         Question(question="Calculate 3/8 + 2/8.", answer="5/8",
                  working="3 + 2 = 5, keep the denominator."),
         Question(question="A storage box is built using 24 cubic blocks. The base "
@@ -415,8 +488,11 @@ def _pipeline_checks() -> list:
     kept = [vq.question.question for vq in out]
     checks = [(
         len(out) == 2 and not any("this object" in k for k in kept),
-        f"{len(out)} of 3 questions kept: the one pointing at a missing "
+        f"{len(out)} of 4 questions kept: the one pointing at a missing "
         "figure was dropped",
+    ), (
+        not any("9,900,009" in k for k in kept),
+        "and the stadium holding ten million people never reaches the page",
     )]
 
     box = [vq for vq in out if "storage box" in vq.question.question]
@@ -555,6 +631,17 @@ def main() -> int:
         print(f"  {'ok  ' if ok else 'FAIL'}  {label:26} "
               f"{note or text[:40]}")
 
+    print("\nImpossible real-world quantities")
+    print("-" * 62)
+    for text, want_drop, note in MAGNITUDE_CASES:
+        reason = implausible_magnitude(text)
+        ok = bool(reason) == want_drop
+        failures += not ok
+        label = "drop" if reason else "keep"
+        print(f"  {'ok  ' if ok else 'FAIL'}  {label:5} {note or text[:44]}")
+        if reason and not ok:
+            print(f"          {reason}")
+
     wiring = _pipeline_checks()
     print("\nPipeline wiring")
     print("-" * 62)
@@ -570,8 +657,8 @@ def main() -> int:
         print(f"  {'ok  ' if ok else 'FAIL'}  {line}")
 
     total = (len(ANSWER_CASES) + len(SPOILER_CASES) + len(DIMENSION_CASES) + len(DIAGRAM_CASES)
-             + len(LEAK_CASES) + len(FIGURE_CASES) + len(rendered)
-             + len(wiring) + len(teaching))
+             + len(LEAK_CASES) + len(FIGURE_CASES) + len(MAGNITUDE_CASES)
+             + len(rendered) + len(wiring) + len(teaching))
     print(f"\n{total - failures}/{total} behaved as expected")
     return 1 if failures else 0
 
