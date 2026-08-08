@@ -113,8 +113,6 @@ CREATE TABLE IF NOT EXISTS payments (
     created_at           BIGINT NOT NULL,
     updated_at           BIGINT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS payments_intent_idx
-    ON payments (payment_intent_id);
 CREATE INDEX IF NOT EXISTS payments_user_created_idx
     ON payments (user_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS rate_limits (
@@ -196,8 +194,6 @@ CREATE TABLE IF NOT EXISTS payments (
     updated_at           INTEGER NOT NULL,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
-CREATE INDEX IF NOT EXISTS payments_intent_idx
-    ON payments (payment_intent_id);
 CREATE INDEX IF NOT EXISTS payments_user_created_idx
     ON payments (user_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS rate_limits (
@@ -239,6 +235,7 @@ def init_db() -> None:
                 "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS storage_key TEXT",
                 "ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_intent_id TEXT",
                 "ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversed_units INTEGER NOT NULL DEFAULT 0",
+                "CREATE INDEX IF NOT EXISTS payments_intent_idx ON payments (payment_intent_id)",
             )
             for statement in migrations:
                 conn.execute(statement)
@@ -273,6 +270,8 @@ def init_db() -> None:
             "payment_intent_id": "TEXT",
             "reversed_units": "INTEGER NOT NULL DEFAULT 0",
         })
+        conn.execute("CREATE INDEX IF NOT EXISTS payments_intent_idx "
+                     "ON payments (payment_intent_id)")
         conn.execute(
             """INSERT OR IGNORE INTO credit_ledger
                (user_id, delta, reason, reference, created_at)

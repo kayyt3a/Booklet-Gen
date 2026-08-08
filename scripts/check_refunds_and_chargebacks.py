@@ -384,5 +384,57 @@ check(db.credit_balance(victim) == before_victim
       and db.credit_balance(target_id) == before_self,
       "no balance moved")
 
+# --------------------------------------------------------------------------
+print("\n== upgrading a database that predates the reversal columns ==")
+# The deployed database already exists, so a new column only arrives through
+# the migration list. Creating its index alongside the CREATE TABLE looks
+# right and works perfectly on an empty database, then fails on every real one
+# with "column payment_intent_id does not exist", because CREATE TABLE IF NOT
+# EXISTS does nothing when the table is already there. init_db raises, and the
+# app does not start.
+import sqlite3                                                   # noqa: E402
+
+legacy_db = tmp / "legacy.db"
+with sqlite3.connect(legacy_db) as conn:
+    conn.execute("""CREATE TABLE payments (
+        checkout_session_id TEXT PRIMARY KEY,
+        user_id             INTEGER NOT NULL,
+        product_key         TEXT NOT NULL,
+        units               INTEGER NOT NULL,
+        amount_total        INTEGER,
+        currency            TEXT,
+        status              TEXT NOT NULL,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL)""")
+    conn.execute(
+        "INSERT INTO payments VALUES ('cs_old',1,'term',10,3900,'aud','paid',1,1)")
+
+original_path = db.DB_PATH
+try:
+    db.DB_PATH = legacy_db
+    started = True
+    try:
+        db.init_db()
+        db.init_db()          # a redeploy runs it again
+    except Exception as exc:                    # noqa: BLE001
+        started = False
+        check(False, "init_db upgrades an existing database", str(exc))
+    if started:
+        check(True, "init_db upgrades an existing database, twice over")
+        with sqlite3.connect(legacy_db) as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(payments)")}
+            indexes = {row[1] for row in conn.execute("PRAGMA index_list(payments)")}
+            kept = conn.execute(
+                "SELECT units,reversed_units FROM payments "
+                "WHERE checkout_session_id='cs_old'").fetchone()
+        check({"payment_intent_id", "reversed_units"} <= columns,
+              f"the new columns arrive on the existing table ({sorted(columns)})")
+        check("payments_intent_idx" in indexes,
+              f"and so does the index the refund lookup needs ({sorted(indexes)})")
+        check(kept == (10, 0),
+              f"the payment already in the table is intact and unreversed ({kept})")
+finally:
+    db.DB_PATH = original_path
+
 print(f"\n{PASSED}/{TOTAL} behaved as expected")
 raise SystemExit(0 if PASSED == TOTAL else 1)
