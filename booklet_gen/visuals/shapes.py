@@ -1248,6 +1248,77 @@ def expand(spec: dict, out: Path, f: _Fonts) -> None:
     _save_pixel(fig, out)
 
 
+def factor_pair(spec: dict, out: Path, f: _Fonts) -> None:
+    """The factor diamond, for factorising a quadratic (Years 9-10).
+
+    Product on top, sum underneath, the two numbers on the sides. A Year 9
+    lesson defined factorising as "two numbers that multiply to give the
+    constant term and add to give the coefficient of the middle term" and drew
+    nothing, so the student had to hold four related numbers in their head with
+    no place to put them. This is where they go, and it is the working the
+    method actually needs.
+
+    Not the expansion arcs run backwards: expanding is about which term meets
+    which, and factorising is about a pair of numbers satisfying two conditions
+    at once. Different question, different picture.
+
+    Leave `factors` out and both sides print "?", which is the form a practice
+    question takes.
+    """
+    import matplotlib.pyplot as plt
+
+    if "product" not in spec or "sum" not in spec:
+        raise ValueError("a factor diamond needs a product and a sum")
+    product = float(spec["product"])
+    total = float(spec["sum"])
+    factors = spec.get("factors") or []
+    if factors:
+        if len(factors) != 2:
+            raise ValueError(f"a factor pair is two numbers, got {len(factors)}")
+        a, b = float(factors[0]), float(factors[1])
+        # The whole point of the figure is that these four numbers agree. A
+        # diamond whose sides do not multiply to its top teaches the method
+        # wrong and marks a correct student incorrect.
+        if abs(a * b - product) > 1e-9:
+            raise ValueError(f"{a} x {b} is not {product}")
+        if abs(a + b - total) > 1e-9:
+            raise ValueError(f"{a} + {b} is not {total}")
+        left, right = _pretty_num(a), _pretty_num(b)
+    else:
+        left = right = UNKNOWN_LABEL
+
+    r = 1.0
+    fig, ax = plt.subplots(figsize=(2.5, 2.5), dpi=DPI)
+    ax.plot([0, r, 0, -r, 0], [r, 0, -r, 0, r], color=LINE_COLOR,
+            linewidth=LINE_WIDTH)
+    ax.plot([-r, r], [0, 0], color=LINE_COLOR, linewidth=LINE_WIDTH * 0.7)
+    ax.plot([0, 0], [-r, r], color=LINE_COLOR, linewidth=LINE_WIDTH * 0.7)
+
+    # Every cell centre sits on one of the two diagonals, so a number written
+    # there is struck through by the line that makes the cell. Masking is the
+    # only fix that keeps the number centred where it belongs.
+    def cell(x: float, y: float, text: str, colour: str) -> None:
+        ax.text(x, y, text, ha="center", va="center", fontsize=f.label(12),
+                color=colour, zorder=3,
+                bbox=dict(boxstyle="round,pad=0.16", facecolor="white",
+                          edgecolor="none"))
+
+    cell(0, r * 0.46, _pretty_num(product), LINE_COLOR)
+    cell(0, -r * 0.46, _pretty_num(total), LINE_COLOR)
+    cell(-r * 0.46, 0, left, ACCENT_COLOR)
+    cell(r * 0.46, 0, right, ACCENT_COLOR)
+    # The operators, not the sentence. "multiply to" printed wider than the
+    # diamond it was describing; the symbols say the same thing in one glyph
+    # and are what a textbook puts there.
+    ax.text(0, r * 1.06, "×", ha="center", va="bottom",
+            fontsize=f.label(11), color=LINE_COLOR)
+    ax.text(0, -r * 1.06, "+", ha="center", va="top",
+            fontsize=f.label(11), color=LINE_COLOR)
+    ax.set_xlim(-r * 1.2, r * 1.2)
+    ax.set_ylim(-r * 1.45, r * 1.45)
+    _finish(fig, ax, out)
+
+
 def _save_pixel(fig, out: Path) -> None:
     import matplotlib.pyplot as plt
 
@@ -1257,6 +1328,7 @@ def _save_pixel(fig, out: Path) -> None:
 
 RENDERERS = {
     "expand": expand,
+    "factor_pair": factor_pair,
     "angle": angle,
     "triangle": triangle,
     "right_triangle": right_triangle,

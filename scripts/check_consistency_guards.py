@@ -33,8 +33,8 @@ logging.disable(logging.CRITICAL)
 
 from booklet_gen.agents.consistency import (          # noqa: E402
     answer_is_trustworthy, diagram_dimensionality_matches,
-    example_spoils_passage, implausible_magnitude, reconcile_diagram_spec,
-    refers_to_missing_figure)
+    example_spoils_passage, implausible_magnitude, question_states_its_answer,
+    reconcile_diagram_spec, refers_to_missing_figure)
 
 # (answer, working, should_be_trusted)
 ANSWER_CASES = [
@@ -579,6 +579,56 @@ CAPTION_CASES = [
      False, "the same rule for solids"),
 ]
 
+# (question, answer, should be dropped, note)
+#
+# A question that hands over its own answer. The judge cannot catch these: it
+# checks that a question can be answered, and being answerable from the
+# question alone is the fault rather than the test. Dropping a question is
+# invisible to the reader, so the false-positive cases below carry as much
+# weight as the true ones.
+SELF_ANSWERING_CASES = [
+    ("Use the place value blocks to identify the number shown. There are "
+     "2 hundreds, 5 tens, and 3 ones.", "253", True,
+     "the shipped Year 3 case: the parts spell out the answer"),
+    ("What number is shown? There are 2 hundreds, 3 tens and 4 ones.", "234",
+     True, "and the same in a shorter form"),
+    ("A rectangle is 8 cm long and 5 cm wide. What is its width?", "5 cm",
+     True, "the answer restated verbatim with its unit"),
+    ("A solid object is made by stacking 4 cubes in a single column. How many "
+     "cubes are in the stack?", "4", True,
+     "the case the prompt has named for months"),
+
+    ("What is 4 x 5?", "20", False, "plain computation"),
+    ("A box holds 12 blocks. If 5 are removed, how many are left?", "7", False,
+     "a two step word problem states neither the answer nor its parts"),
+    ("Round 347 to the nearest 100.", "300", False,
+     "the 100 in the question is not the 300 in the answer"),
+    ("Zara has 12 stickers shared among 3 friends. How many does each get?",
+     "4", False, "sharing: 4 appears nowhere"),
+    ("A rectangle is 8 cm by 5 cm. What is its area?", "40 square cm", False,
+     "both givens are stated and neither is the answer"),
+    ("A square has a perimeter of 24 cm. What is one side?", "6 cm", False,
+     "working backwards from a stated total"),
+    ("Show that the area of a 5 cm by 4 cm rectangle is 20 square cm.",
+     "20 square cm", False,
+     "a show-that question restates the answer by design"),
+    ("Explain why 3/6 equals 1/2.", "1/2", False,
+     "and so does an explain-why question"),
+    ("What is the value of the number 427 in a place value chart?",
+     "The number 427 is made of 400, 20, and 7.", False,
+     "an answer that is a sentence, not a quantity, is not judged"),
+    ("The circle is divided into 4 equal parts with 1 shaded. What fraction "
+     "is shaded?", "1/4", False,
+     "both digits of the answer appear, but the answer does not"),
+    ("What time is shown on the clock?", "7:20", False, "reading a figure"),
+    ("Read the scale. What mass is shown?", "450 g", False,
+     "reading an instrument"),
+    ("A shop sells 3 pens for $6. How much for 5 pens?", "$10", False,
+     "unit pricing"),
+    ("Find the perimeter of a rectangle 7 m by 3 m.", "20 m", False,
+     "perimeter from two given sides"),
+]
+
 DIMENSION_CASES = [
     ({"type": "rectangle", "length": 5, "width": 4},
      "Find the volume of a box 5 cm long, 4 cm wide and 3 cm high.",
@@ -719,6 +769,15 @@ def main() -> int:
         failures += not ok
         print(f"  {'ok  ' if ok else 'FAIL'}  hidden={str(got):<12} {note or question[:44]}")
 
+    print("\nQuestions that answer themselves")
+    print("-" * 62)
+    for question, answer, want, note in SELF_ANSWERING_CASES:
+        got = question_states_its_answer(question, answer)
+        ok = bool(got) == want
+        failures += not ok
+        print(f"  {'ok  ' if ok else 'FAIL'}  "
+              f"{'dropped ' if got else 'kept    '} {note}")
+
     print("\nDiagram captions that answer the question")
     print("-" * 62)
     for spec, question, want, note in CAPTION_CASES:
@@ -771,7 +830,8 @@ def main() -> int:
         print(f"  {'ok  ' if ok else 'FAIL'}  {line}")
 
     total = (len(ANSWER_CASES) + len(SPOILER_CASES) + len(DIMENSION_CASES) + len(DIAGRAM_CASES)
-             + len(LEAK_CASES) + len(CAPTION_CASES) + len(FIGURE_CASES)
+             + len(LEAK_CASES) + len(CAPTION_CASES) + len(SELF_ANSWERING_CASES)
+             + len(FIGURE_CASES)
              + len(MAGNITUDE_CASES)
              + len(rendered) + len(wiring) + len(teaching))
     print(f"\n{total - failures}/{total} behaved as expected")

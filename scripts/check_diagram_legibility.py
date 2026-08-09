@@ -477,6 +477,10 @@ CURRICULUM_CASES = [
      "an expansion with the products written on the arcs"),
     ({"type": "expand", "left": ["x", "+2"],
       "right": ["x²", "+3x", "-1"]}, "expanding by a trinomial"),
+    ({"type": "factor_pair", "product": 10, "sum": 7, "factors": [2, 5]},
+     "factorising a quadratic"),
+    ({"type": "factor_pair", "product": -8, "sum": 2},
+     "a factor diamond posed as a question"),
     # Years 9-10
     ({"type": "coordinate_plane", "x_range": [-4, 4], "y_range": [-5, 6],
       "curves": [{"a": 1, "b": 0, "c": -4}]}, "quadratic graphs"),
@@ -563,6 +567,11 @@ REFUSAL_CASES = [
     ({"type": "expand", "left": ["x", "+3"], "right": ["x", "+5"],
       "labels": ["F", "O"]},
      "an expansion labelling only half its arcs"),
+    ({"type": "factor_pair", "product": 10, "sum": 7, "factors": [3, 4]},
+     "a factor diamond whose sides do not multiply to its top"),
+    ({"type": "factor_pair", "product": 12, "sum": 9, "factors": [2, 6]},
+     "a factor diamond whose sides do not add to its bottom"),
+    ({"type": "factor_pair", "sum": 7}, "a factor diamond with no product"),
 ]
 
 

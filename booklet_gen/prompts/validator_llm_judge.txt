@@ -30,6 +30,7 @@ Verify TRUE only if ALL of the following hold:
 3. The working, if present, is consistent with the answer and free of arithmetic or reasoning errors. Working that reaches a different value from the stated answer fails, even when the stated answer is the correct one.
 4. The question suits the stated year level: not trivially below it, and not relying on a method taught in a later year.
 5. The question contains no domain errors (wrong formula, wrong term, misstated units, a stated fact that is not true).
+6. The question does not give away its own answer. Criterion 1 asks whether a student COULD answer it from the text; this asks whether the text does the answering for them. "Use the place value blocks to identify the number shown. There are 2 hundreds, 5 tens, and 3 ones" asks for 253 and supplies 253. So does "A solid is made by stacking 4 cubes in a column, how many cubes are in the stack?". Both are answerable, correct and worthless. This does not apply to a question whose task IS to justify or check a stated value ("show that", "explain why", "is this correct?"), where restating it is the point.
 
 If any of these fail, output false and a brief reason.
 

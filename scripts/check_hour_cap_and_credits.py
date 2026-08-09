@@ -27,6 +27,7 @@ from PIL import Image as PILImage
 
 from booklet_gen.formatter import image_credits, image_is_usable, render_pdf
 from booklet_gen.pipeline import (BookletPipeline, CLASSWORK_CAP_MINUTES,
+                                  MIN_CLASSWORK_TOPICS, MIN_NOW_YOU_TRY,
                                   MIN_CLASSWORK_SUBTOPICS)
 from booklet_gen.schemas import (BookletData, Question, SubtopicOutput,
                                  SubtopicTeaching, ValidatedQuestion,
@@ -108,6 +109,7 @@ print("-" * 62)
 sections = overloaded_sections()
 before_minutes = session_minutes(sections)
 before_questions = question_count(sections)
+before_per_subtopic = min(len(s.questions) for s in sections)
 
 check(before_minutes > CLASSWORK_CAP_MINUTES * 1.5,
       "the fixture really is over the cap before trimming",
@@ -116,9 +118,36 @@ check(before_minutes > CLASSWORK_CAP_MINUTES * 1.5,
 BookletPipeline._fit_classwork_to_cap(sections)
 after_minutes = session_minutes(sections)
 
-check(after_minutes <= CLASSWORK_CAP_MINUTES,
-      "an overloaded booklet is trimmed to the cap",
-      f"{after_minutes:.1f} min")
+# This used to assert `after_minutes <= CLASSWORK_CAP_MINUTES` flatly, and it
+# was right until the product floors existed. The hour is no longer the thing
+# that wins: a credit buys at least MIN_CLASSWORK_TOPICS topics and at least
+# MIN_NOW_YOU_TRY questions under each mini-lesson, and the shipped Year 3
+# booklet showed what happens when the hour outranks them. It printed six
+# mini-lessons with ONE question after each, because thinning practice was
+# always cheaper than dropping a subtopic.
+#
+# So the assertion becomes: trim as far as the floors allow, and overrun only
+# when a floor is the thing stopping it. An overrun with room still to give is
+# still a bug.
+def a_floor_binds(secs) -> str:
+    live = in_session(secs)
+    if len(live) <= MIN_CLASSWORK_SUBTOPICS:
+        return f"at the {MIN_CLASSWORK_SUBTOPICS}-subtopic floor"
+    if len({s.topic for s in live}) <= MIN_CLASSWORK_TOPICS:
+        return f"at the {MIN_CLASSWORK_TOPICS}-topic floor"
+    if all(len(s.questions) <= BookletPipeline._floor_questions(s) for s in live):
+        return f"every subtopic at the {MIN_NOW_YOU_TRY}-question floor"
+    return ""
+
+
+bound_by = a_floor_binds(sections)
+check(after_minutes <= CLASSWORK_CAP_MINUTES or bound_by,
+      "an overloaded booklet is trimmed to the cap, or stops at a floor",
+      f"{after_minutes:.1f} min, {bound_by or 'and nothing was stopping it'}")
+check(all(len(s.questions) >= min(MIN_NOW_YOU_TRY, before_per_subtopic)
+          for s in in_session(sections)),
+      f"every subtopic still taught keeps {MIN_NOW_YOU_TRY} questions to try",
+      f"{[len(s.questions) for s in in_session(sections)]}")
 check(question_count(sections) == before_questions,
       "the surplus is moved to homework, never deleted",
       f"{before_questions} questions in, {question_count(sections)} out")
@@ -138,9 +167,17 @@ check(all(s.teaching is not None for s in sections),
 data = BookletData(subject="English", year_level="Year 5", student_name="Sam",
                    sections=sections)
 printed = booklet_timing(data)["classwork_minutes"]
-check(printed <= CLASSWORK_CAP_MINUTES,
-      "and the number PRINTED on the page is within the hour",
-      f"Class Work says about {printed} min")
+# Before the product floors this asserted `printed <= CLASSWORK_CAP_MINUTES`.
+# Now that a floor can hold the session over the hour, the guarantee that
+# matters is not the size of the number but its honesty: whatever the session
+# really costs, that is what the cover says. A booklet running 68 minutes and
+# printing 68 is fine. One running 68 and printing 60 is the original
+# complaint, a booklet lying about its own workload.
+# classwork_minutes is rounded to the nearest 5 for the cover, so agreement
+# means within half a step, not exact.
+check(abs(printed - after_minutes) <= 3,
+      "and the number PRINTED on the page is the real one, overrun included",
+      f"Class Work says about {printed} min, really {after_minutes:.1f} min")
 
 # A booklet that already fits is left alone: the cap must not trim for its own
 # sake and hand a parent a thinner booklet than they paid for.
@@ -160,6 +197,71 @@ check(session_minutes(many) <= CLASSWORK_CAP_MINUTES
       "when teaching alone busts the hour, whole subtopics move out",
       f"{len(in_session(many))} of 12 subtopics taught, "
       f"{session_minutes(many):.0f} min")
+
+
+# ---------------------------------------------------------------------------
+# What one credit buys
+#
+# The fixture above puts every subtopic under one topic, so it cannot tell a
+# three-topic booklet from a three-subtopics-of-Number booklet. These do.
+# ---------------------------------------------------------------------------
+print("\nThe floors a credit buys")
+print("-" * 62)
+
+
+def spread(topics: list[str], per_topic: int = 2, per: int = 8):
+    """Subtopics spread across named topics, all far over the hour."""
+    out = []
+    for t in topics:
+        for i in range(per_topic):
+            out.append(SubtopicOutput(
+                topic=t, subtopic=f"{t}-{i}",
+                teaching=teaching(f"{t} skill {i}"),
+                questions=[vq(f"CLASSWORK {t}.{i}.{j}: work this one out and "
+                              "show every step.", difficulty="hard")
+                           for j in range(per)],
+                homework_questions=[vq(f"HOMEWORK {t}.{i}.{j}.")
+                                    for j in range(2)]))
+    return out
+
+
+wide = spread(["Number", "Algebra", "Measurement", "Statistics"])
+BookletPipeline._fit_classwork_to_cap(wide)
+live_topics = {s.topic for s in in_session(wide)}
+check(len(live_topics) >= MIN_CLASSWORK_TOPICS,
+      f"an overloaded booklet still covers {MIN_CLASSWORK_TOPICS} topics",
+      f"{sorted(live_topics)}")
+check(all(len(s.questions) >= MIN_NOW_YOU_TRY for s in in_session(wide)),
+      f"and every one of them keeps {MIN_NOW_YOU_TRY} questions to try",
+      f"{[len(s.questions) for s in in_session(wide)]}")
+
+# The hard case: exactly three topics, one subtopic each, and far too long for
+# the hour. There is nothing left that can be dropped without breaking the
+# topic floor, so the session has to run long instead. This is the case that
+# would silently fall to two topics if the drop loops only counted subtopics.
+tight = spread(["Number", "Algebra", "Measurement"], per_topic=1, per=10)
+BookletPipeline._fit_classwork_to_cap(tight)
+check({s.topic for s in in_session(tight)} ==
+      {"Number", "Algebra", "Measurement"},
+      "three topics with one subtopic each are all kept, cap or no cap",
+      f"{sorted(s.topic for s in in_session(tight))}, "
+      f"{session_minutes(tight):.0f} min")
+check(all(len(s.questions) >= MIN_NOW_YOU_TRY for s in in_session(tight)),
+      "and none of them is thinned below the practice floor",
+      f"{[len(s.questions) for s in in_session(tight)]}")
+
+# A booklet the model gave only two topics for must not reach the customer.
+# The outline parser is where that is caught, since nothing downstream can
+# invent a third topic.
+import inspect  # noqa: E402
+from booklet_gen.agents.outline_parser import OutlineParserAgent  # noqa: E402
+
+src = inspect.getsource(OutlineParserAgent.parse)
+check("self._min_topics" in src and "raise ValueError" in src,
+      "the outline parser rejects an outline with too few topics")
+check("min_topics=MIN_CLASSWORK_TOPICS" in
+      inspect.getsource(BookletPipeline.__init__),
+      "and the pipeline hands it the real floor")
 
 
 # ---------------------------------------------------------------------------

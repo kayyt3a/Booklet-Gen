@@ -851,6 +851,102 @@ def _claim_window(text: str, start: int, end: int) -> str:
     return text[left:right]
 
 
+# --------------------------------------------------------------------------
+# A question that answers itself
+# --------------------------------------------------------------------------
+
+# From a shipped Year 3 booklet: "Use the place value blocks to identify the
+# number shown. There are 2 hundreds, 5 tens, and 3 ones." The student is asked
+# for 253 and handed 253 in the same breath. The judge passes it, because the
+# arithmetic is fine and the question is answerable; being answerable from the
+# question alone is exactly the fault.
+#
+# The prompt has forbidden this for months. It is here because a prompt
+# instruction is a request and this is a guarantee.
+#
+# Both rules below are deliberately narrow. Dropping a question is invisible to
+# the reader, so a false positive costs more than a miss, and "the answer is
+# implied somewhere in the wording" is not something a regex can judge. What is
+# left is the two shapes that recur and can be recognised exactly.
+
+_PLACE_VALUE_PART = re.compile(
+    r"(\d+)\s+(hundred|ten|one|thousand)s?\b", re.IGNORECASE)
+_PLACE_VALUE_UNIT = {"thousand": 1000, "hundred": 100, "ten": 10, "one": 1}
+
+# Questions that legitimately restate their own answer: the task is to justify
+# or check a value, not to find one.
+_RESTATES_BY_DESIGN = re.compile(
+    r"\b(?:show\s+that|prove|verify|check\s+(?:that|whether|if)|explain\s+why|"
+    r"justify|is\s+(?:this|that|the\s+\w+)\s+correct|why\s+is|true\s+or\s+false)\b",
+    re.IGNORECASE,
+)
+_ASKS_FOR_A_VALUE = re.compile(
+    # "what NUMBER is shown" and "what FRACTION is shaded" are the common
+    # forms, so the noun between "what" and the verb has to be allowed for.
+    r"\b(?:what(?:\s+\w+){0,2}\s+(?:is|are)|what'?s|how\s+many|how\s+much|"
+    r"how\s+long|how\s+far|find|calculate|work\s+out|determine|state|give|"
+    r"write|identify|name|read)\b",
+    re.IGNORECASE,
+)
+# A whole answer that is one quantity: "253", "5 cm", "$12", "40%", "1.5 m".
+_SINGLE_QUANTITY = re.compile(
+    r"^\s*(?:\$\s*)?(\d[\d,]*(?:\.\d+)?)\s*(%|[a-zA-Z]{1,12}(?:\s?\^?\d)?)?\s*\.?\s*$")
+
+
+def _assembled_place_value(text: str) -> Optional[int]:
+    """The number a "2 hundreds, 5 tens and 3 ones" phrase spells out.
+
+    None unless at least two different place names appear, so "3 ones" on its
+    own or a stray "two tens" in prose is not treated as a spelled-out answer.
+    """
+    seen: dict[str, int] = {}
+    for count, name in _PLACE_VALUE_PART.findall(text or ""):
+        name = name.lower()
+        if name in seen:            # "2 tens ... 5 tens" is prose, not a number
+            return None
+        seen[name] = int(count)
+    if len(seen) < 2:
+        return None
+    return sum(_PLACE_VALUE_UNIT[n] * c for n, c in seen.items())
+
+
+def question_states_its_answer(question: str, answer: str) -> Optional[str]:
+    """The reason this question hands over its own answer, or None.
+
+    Callers drop the question. Rewriting it is not an option: the answer key
+    was written against it, and removing the giveaway would leave a question
+    the key no longer matches.
+    """
+    q = (question or "").strip()
+    a = (answer or "").strip()
+    if not q or not a:
+        return None
+    if _RESTATES_BY_DESIGN.search(q):
+        return None
+    if not _ASKS_FOR_A_VALUE.search(q):
+        return None
+
+    m = _SINGLE_QUANTITY.match(a)
+    if not m:
+        return None
+    number, unit = m.group(1).replace(",", ""), (m.group(2) or "").strip()
+
+    # 1. The answer spelled out in place-value words.
+    assembled = _assembled_place_value(q)
+    if assembled is not None and str(assembled) == number:
+        return (f"the question spells out its own answer as place value parts "
+                f"totalling {assembled}")
+
+    # 2. The answer restated verbatim, as a whole token rather than as digits
+    #    inside a longer number. "4" must not match the 4 in "24".
+    pattern = re.escape(m.group(1))
+    if unit:
+        pattern += r"\s*" + re.escape(unit)
+    if re.search(rf"(?<![\d.]){pattern}(?![\d.])", q, re.IGNORECASE):
+        return f"the question already states the answer, {a!r}"
+    return None
+
+
 def implausible_magnitude(text: str) -> Optional[str]:
     """A short reason when the text states a real-world quantity wrong by more
     than an order of magnitude, or None.

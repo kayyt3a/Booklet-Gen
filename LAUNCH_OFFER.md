@@ -37,8 +37,8 @@ available for development.
 
 Keep the existing introductory prices:
 
-- One booklet credit: A$7.90
-- Ten booklet credits: A$39.00
+- One booklet credit: A$6.90
+- Ten booklet credits: A$36.00
 - New-account welcome credit: one
 - Subscription: none during the paid beta
 - Credit expiry: none while the account remains active

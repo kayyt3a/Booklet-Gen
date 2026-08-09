@@ -28,7 +28,7 @@ def products() -> dict[str, Product]:
             label="One practice booklet",
             units=1,
             price_id=(os.environ.get("STRIPE_PRICE_SINGLE") or "").strip(),
-            display_price=(os.environ.get("FOLIO_PRICE_SINGLE_AUD") or "7.90").strip(),
+            display_price=(os.environ.get("FOLIO_PRICE_SINGLE_AUD") or "6.90").strip(),
             description="One personalised printable booklet with a worked answer key.",
         ),
         "term": Product(
@@ -36,7 +36,7 @@ def products() -> dict[str, Product]:
             label="10-week term plan",
             units=10,
             price_id=(os.environ.get("STRIPE_PRICE_TERM") or "").strip(),
-            display_price=(os.environ.get("FOLIO_PRICE_TERM_AUD") or "39.00").strip(),
+            display_price=(os.environ.get("FOLIO_PRICE_TERM_AUD") or "36.00").strip(),
             description="Ten progressively planned booklets in one ZIP download.",
         ),
     }

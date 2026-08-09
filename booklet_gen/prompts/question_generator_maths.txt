@@ -96,6 +96,9 @@ Statistics and probability
 - sets, "both", "neither", two-way classification -> venn
 
 Algebra and graphs
+- factorising a quadratic -> factor_pair. The lesson defines it as two
+  numbers that multiply to one thing and add to another, and that is a
+  diagram with four cells, not a sentence.
 - expanding brackets, binomial products, the distributive law -> expand. A
   question about expanding is a question about which term meets which, and
   that is a picture. Never write FOIL without drawing the arcs.
@@ -167,6 +170,11 @@ Supported spec types (use exactly these keys):
   teaching the mnemonic, and the four products when the working is being
   shown. LEAVE IT OUT on a practice question, because the products ARE the
   answer.
+- {"type":"factor_pair","product":10,"sum":7,"factors":[2,5]}
+  The factor diamond for factorising a quadratic: the product on top, the sum
+  underneath, the two numbers on the sides. Leave "factors" out and both sides
+  print "?", which is what a practice question needs. The renderer checks the
+  four numbers agree and refuses to draw a diamond that does not.
 - {"type":"factor_tree","value":60}
   The prime factorisation branched out. Give only the number: the tree is
   worked out by the renderer, so it cannot disagree with the arithmetic.

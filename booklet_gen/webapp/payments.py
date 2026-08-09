@@ -11,6 +11,7 @@ from .auth import login_required
 from .commerce import (
     payments_enabled, products, stripe_secret_key, stripe_webhook_secret,
 )
+from ..pipeline import MIN_CLASSWORK_TOPICS, MIN_NOW_YOU_TRY
 from .security import csrf_exempt
 from .security import enforce_rate_limit
 
@@ -43,6 +44,12 @@ def pricing():
         # A paid page may not imply files are kept for ever. Read live so the
         # pricing page, the library and support all quote the one number.
         retention=db.FILE_RETENTION_PER_USER,
+        # Read live from the pipeline for the same reason. A floor advertised
+        # on the page that the generator does not enforce is a promise to a
+        # paying customer that nothing keeps, and these two numbers have to
+        # move together or not at all.
+        min_topics=MIN_CLASSWORK_TOPICS,
+        min_practice=MIN_NOW_YOU_TRY,
     )
 
 

@@ -51,6 +51,8 @@ Populate `diagram_spec` only when a diagram is clearly helpful, and only ever wi
   Pythagoras and trigonometry. ALWAYS list the side being asked for in "unknown". "angle":37 marks the acute angle at the bottom right.
 - {"type":"shape_3d","solids":["cube","cone"]}, {"type":"net","solid":"cube","edge":4,"unit":"cm"}
   Naming solids, and the net for surface area.
+- {"type":"factor_pair","product":10,"sum":7,"factors":[2,5]}
+  The factor diamond for factorising a quadratic. Omit "factors" to print "?" on both sides, which is what a practice question needs.
 - {"type":"expand","left":["x","+3"],"right":["x","+5"]}
   Looping lines from each term of the first bracket to each term of the second, drawn over the expression. Use for expanding and for the distributive law (a single left term). `labels` writes the products on the arcs, so leave it out on a practice question: the products are the answer.
 - {"type":"coordinate_plane","x_range":[-5,5],"y_range":[-5,5],"points":[[2,3]],"labels":["A"],"lines":[{"m":2,"c":-1}],"curves":[{"a":1,"b":0,"c":-4}]}

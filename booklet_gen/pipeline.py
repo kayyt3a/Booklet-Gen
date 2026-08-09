@@ -37,6 +37,29 @@ CLASSWORK_CAP_MINUTES = int(os.environ.get("FOLIO_CLASSWORK_CAP_MINUTES", "60"))
 # tutor's time, and at that point the honest answer is a longer session.
 MIN_CLASSWORK_SUBTOPICS = int(os.environ.get("FOLIO_MIN_CLASSWORK_SUBTOPICS", "3"))
 
+# ---------------------------------------------------------------------------
+# What one credit buys
+#
+# These two are the product promise, printed on the pricing page, and the hour
+# cap gives way to them rather than the other way round.
+#
+# They exist because the shipped booklets did not keep either. A Year 3 maths
+# booklet taught six subtopics and printed "Now you try:" followed by ONE
+# question under every one of them, because the cap fitter's floor was a single
+# question and six mini-lessons filled the hour on their own. A mini-lesson
+# with one question after it is a demonstration, not practice.
+#
+# Holding a floor of four means fewer subtopics fit the hour, and that is the
+# trade being made deliberately: three things practised properly beat six
+# things shown once. The subtopics that no longer fit are not lost, they move
+# to Homework with their mini-lessons attached.
+MIN_NOW_YOU_TRY = int(os.environ.get("FOLIO_MIN_NOW_YOU_TRY", "4"))
+
+# Distinct top-level topics the class work must still cover. Three subtopics
+# all sitting under "Number" is not three topics, and MIN_CLASSWORK_SUBTOPICS
+# alone would allow exactly that.
+MIN_CLASSWORK_TOPICS = int(os.environ.get("FOLIO_MIN_CLASSWORK_TOPICS", "3"))
+
 # WACE ATAR examination shape: two sections, 35% calculator-free and 65%
 # calculator-assumed, 10 minutes reading plus 150 minutes working time.
 EXAM_SPEC = {
@@ -107,7 +130,9 @@ class BookletPipeline:
     def __init__(
         self,
         config: Optional[Config] = None,
-        questions_per_subtopic: int = 3,       # classwork "Now you try" per subtopic
+        # Classwork "Now you try" per subtopic. Matches MIN_NOW_YOU_TRY: asking
+        # for fewer than the floor guarantees the floor cannot be met.
+        questions_per_subtopic: int = MIN_NOW_YOU_TRY,
         homework_per_subtopic: int = 4,        # homework practice per subtopic
         recap_questions: int = 4,              # warm-up recap at the start (0 to disable)
         challenge_questions: int = 5,
@@ -118,7 +143,8 @@ class BookletPipeline:
     ):
         self._config = config or load_config()
         self._client = client or get_client(self._config)
-        self._parser = OutlineParserAgent(self._client, self._config.max_retries)
+        self._parser = OutlineParserAgent(self._client, self._config.max_retries,
+                                          min_topics=MIN_CLASSWORK_TOPICS)
         self._intro = IntroWriterAgent(self._client, self._config.max_retries)
         self._n_classwork = max(1, questions_per_subtopic)
         self._n_homework = max(0, homework_per_subtopic)
@@ -453,12 +479,40 @@ class BookletPipeline:
     def _floor_questions(section) -> int:
         """The fewest classwork questions this subtopic can be left with.
 
-        One, normally. All of them when the section is a single reading, since
-        a reading and its questions are never separated: such a section keeps
-        every question or leaves the session entirely.
+        MIN_NOW_YOU_TRY, normally. All of them when the section is a single
+        reading, since a reading and its questions are never separated: such a
+        section keeps every question or leaves the session entirely.
+
+        This used to be one, and one is what the booklets printed. Every "Now
+        you try:" in a shipped Year 3 booklet had a single question under it,
+        because six mini-lessons filled the hour and the fitter was allowed to
+        thin practice to nothing to make room.
         """
         n = BookletPipeline._tail_group_size(section)
-        return len(section.questions) if n >= len(section.questions) else 1
+        if n >= len(section.questions):
+            return len(section.questions)
+        return min(len(section.questions), MIN_NOW_YOU_TRY)
+
+    @staticmethod
+    def _topics_in_session(in_session) -> int:
+        """How many distinct top-level topics the hour still covers."""
+        return len({s.topic for s in in_session})
+
+    @staticmethod
+    def _may_drop(in_session) -> bool:
+        """Whether one more subtopic can leave the hour.
+
+        Two floors, and the topic one is not implied by the subtopic one:
+        three subtopics all under "Number" is one topic, not three.
+        """
+        if len(in_session) <= MIN_CLASSWORK_SUBTOPICS:
+            return False
+        if BookletPipeline._topics_in_session(in_session) > MIN_CLASSWORK_TOPICS:
+            return True
+        # At the topic floor, a subtopic may still leave as long as its topic
+        # keeps another one in the session.
+        per_topic = Counter(s.topic for s in in_session)
+        return any(per_topic[s.topic] > 1 for s in in_session)
 
     @staticmethod
     def _leaves_the_session(in_session):
@@ -564,7 +618,7 @@ class BookletPipeline:
         # moves keeps its questions as homework practice; only its mini-lesson
         # goes unread in the session.
         while (leanest() > CLASSWORK_CAP_MINUTES
-               and len(in_session()) > MIN_CLASSWORK_SUBTOPICS):
+               and BookletPipeline._may_drop(in_session())):
             dropped = BookletPipeline._leaves_the_session(in_session())
             dropped.homework_questions[:0] = dropped.questions
             dropped.questions = []
@@ -579,8 +633,15 @@ class BookletPipeline:
             # Sections that can give ground without splitting a reading go
             # first, so an English booklet loses a maths-shaped tail or a whole
             # spare reading before any comprehension is broken up.
-            movable = [s for s in in_session()
-                       if BookletPipeline._tail_group_size(s) < len(s.questions)]
+            # A section can give ground only while it stays above its floor.
+            # Without the second test the fitter thins every subtopic to a
+            # single question, which is exactly what the shipped booklets did.
+            movable = [
+                s for s in in_session()
+                if BookletPipeline._tail_group_size(s) < len(s.questions)
+                and (len(s.questions) - BookletPipeline._tail_group_size(s)
+                     >= BookletPipeline._floor_questions(s))
+            ]
             if movable:
                 biggest = max(movable, key=lambda s: len(s.questions))
                 BookletPipeline._move_tail_to_homework(biggest)
@@ -592,14 +653,17 @@ class BookletPipeline:
             # accept the overrun: a few minutes long beats a comprehension
             # broken in half.
             droppable = in_session()
-            if len(droppable) <= MIN_CLASSWORK_SUBTOPICS:
+            if not BookletPipeline._may_drop(droppable):
+                # The hour gives way here, not the product floor. A session a
+                # few minutes long is a smaller problem than a booklet that
+                # covers two topics or prints one question after a lesson.
                 log.warning(
                     "pipeline.classwork_over_cap",
                     extra={"minutes": round(total(), 1),
                            "cap": CLASSWORK_CAP_MINUTES,
                            "subtopics": len(droppable),
-                           "reason": "nothing left can give ground without "
-                                     "splitting a reading"})
+                           "topics": BookletPipeline._topics_in_session(droppable),
+                           "reason": "at the subtopic, topic or practice floor"})
                 break
             dropped = BookletPipeline._leaves_the_session(droppable)
             dropped.homework_questions[:0] = dropped.questions
@@ -744,6 +808,12 @@ class BookletPipeline:
             if orphan:
                 log.info("pipeline.drop_missing_figure_recap",
                          extra={"subject": subject, "phrase": orphan})
+                continue
+            self_answering = self._self_answering(q)
+            if self_answering:
+                log.info("pipeline.drop_self_answering_recap",
+                         extra={"reason": self_answering,
+                                "question": q.question[:70]})
                 continue
             absurd = self._absurd_quantity(q.question)
             if absurd:
@@ -1245,6 +1315,12 @@ class BookletPipeline:
                          extra={"subject": subject, "subtopic": subtopic.name,
                                 "phrase": orphan})
                 continue
+            self_answering = self._self_answering(q)
+            if self_answering:
+                log.info("pipeline.drop_self_answering",
+                         extra={"reason": self_answering,
+                                "question": q.question[:70]})
+                continue
             absurd = self._absurd_quantity(q.question)
             if absurd:
                 log.info("pipeline.drop_absurd_quantity",
@@ -1339,6 +1415,12 @@ class BookletPipeline:
                 log.info("pipeline.drop_missing_figure_challenge",
                          extra={"subject": subject, "phrase": orphan})
                 continue
+            self_answering = self._self_answering(q)
+            if self_answering:
+                log.info("pipeline.drop_self_answering_challenge",
+                         extra={"reason": self_answering,
+                                "question": q.question[:70]})
+                continue
             absurd = self._absurd_quantity(q.question)
             if absurd:
                 log.info("pipeline.drop_absurd_quantity_challenge",
@@ -1394,6 +1476,24 @@ class BookletPipeline:
         """
         from .agents.consistency import refers_to_missing_figure
         return refers_to_missing_figure(text or "", bool(image_path))
+
+    @staticmethod
+    def _self_answering(q) -> str | None:
+        """The reason this question gives away its own answer, or None.
+
+        A shipped Year 3 booklet asked "Use the place value blocks to identify
+        the number shown" and then wrote "There are 2 hundreds, 5 tens, and 3
+        ones" in the same question. Nothing caught it: the judge checks that a
+        question CAN be answered, and being answerable from the question alone
+        is the fault rather than the test.
+
+        Callers drop the item, as they do for an absurd quantity and a missing
+        figure, and for the same reason: the answer key was written against
+        this wording, so editing the giveaway out would leave a key that no
+        longer matches.
+        """
+        from .agents.consistency import question_states_its_answer
+        return question_states_its_answer(q.question or "", q.answer or "")
 
     @staticmethod
     def _absurd_quantity(text: str) -> str | None:

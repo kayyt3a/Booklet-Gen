@@ -11,9 +11,11 @@ log = logging.getLogger(__name__)
 
 
 class OutlineParserAgent:
-    def __init__(self, client: LLMClient, max_retries: int = 3):
+    def __init__(self, client: LLMClient, max_retries: int = 3,
+                 min_topics: int = 1):
         self._client = client
         self._max_retries = max_retries
+        self._min_topics = max(1, min_topics)
         self._system = load_prompt("outline_parser.txt")
 
     def parse(self, description: str) -> Outline:
@@ -28,6 +30,17 @@ class OutlineParserAgent:
             try:
                 data = extract_json(raw)
                 outline = Outline.model_validate(data)
+                # The topic floor is part of what a credit buys, so it is
+                # enforced here rather than asked for in the prompt and hoped
+                # for. Fed back as a validation error, which is the channel
+                # the retry loop already understands.
+                if len(outline.topics) < self._min_topics:
+                    raise ValueError(
+                        f"the outline has {len(outline.topics)} top-level "
+                        f"topics and every booklet must cover at least "
+                        f"{self._min_topics}. Add whole topics a full unit at "
+                        f"this year level would include, not more subtopics "
+                        f"under the ones you already have.")
                 log.info("outline_parser.success", extra={"attempt": attempt})
                 return outline
             except (ValueError, ValidationError) as e:

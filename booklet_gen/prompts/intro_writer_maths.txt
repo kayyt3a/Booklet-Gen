@@ -106,6 +106,11 @@ Supported spec types:
   teaching the mnemonic, and the four products when the working is being
   shown. LEAVE IT OUT on a practice question, because the products ARE the
   answer.
+- {"type":"factor_pair","product":10,"sum":7,"factors":[2,5]}
+  The factor diamond for factorising a quadratic: the product on top, the sum
+  underneath, the two numbers on the sides. Leave "factors" out and both sides
+  print "?", which is what a practice question needs. The renderer checks the
+  four numbers agree and refuses to draw a diamond that does not.
 - {"type":"factor_tree","value":60}
   Prime factorisation, worked out by the renderer from the number alone.
 - {"type":"coordinate_plane","x_range":[-5,5],"y_range":[-5,5],"points":[[2,3]],"labels":["A"],"lines":[{"m":2,"c":-1}],"curves":[{"a":1,"b":0,"c":-4}]}

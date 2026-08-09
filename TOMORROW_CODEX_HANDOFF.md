@@ -165,7 +165,7 @@ vector store and external retrieval disabled globally.
   without printing secrets.
 - `scripts/check_launch_readiness.py` verifies the auditor.
 - `FOUNDER_TODO.md` contains only irreducible founder actions.
-- `LAUNCH_OFFER.md` recommends A$7.90 for one credit, A$39.00 for ten credits,
+- `LAUNCH_OFFER.md` recommends A$6.90 for one credit, A$36.00 for ten credits,
   one welcome credit, and no subscription during beta.
 - `SUPPORT_PLAYBOOK.md` defines support, refund, security, and incident handling.
 - `PAID_BETA.md` defines beta entry conditions, test scenarios, feedback, and

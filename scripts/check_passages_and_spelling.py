@@ -144,11 +144,23 @@ _ENGLISH_LESSON = json.dumps({
     "guided_examples": [],
 })
 
+# Three topics because that is the floor a credit buys, and the outline parser
+# now rejects anything thinner. A one-topic outline used to be a convenient
+# stub here; it is no longer a shape the product can produce, so testing
+# against it would be testing something customers never receive.
 _OUTLINE = json.dumps({
     "subject": "English", "year_level": "Year 6",
-    "topics": [{"name": "Reading comprehension",
-                "subtopics": [{"name": "Inference", "difficulty_hint": "medium",
-                               "question_types": []}]}],
+    "topics": [
+        {"name": "Reading comprehension",
+         "subtopics": [{"name": "Inference", "difficulty_hint": "medium",
+                        "question_types": []}]},
+        {"name": "Language Conventions",
+         "subtopics": [{"name": "Apostrophes", "difficulty_hint": "easy",
+                        "question_types": []}]},
+        {"name": "Vocabulary and Word Study",
+         "subtopics": [{"name": "Prefixes and suffixes",
+                        "difficulty_hint": "easy", "question_types": []}]},
+    ],
 })
 
 MATHS_PAYLOAD = json.dumps({"questions": [
@@ -759,7 +771,11 @@ def spelling() -> None:
           "there is no next week to test and no previous week to test from")
     check(client.turns("spelling") == [],
           "and makes no spelling call")
-    check(len(single.sections) == 1 and single.sections[0].passages,
+    # Was `len(single.sections) == 1`, which only held while the stub outline
+    # had one topic. The point of the assertion is that turning spelling off
+    # does not turn passages off, so that is what it now says.
+    check(len(single.sections) == 3
+          and any(s.passages for s in single.sections),
           "while still producing its passages, so the two features are "
           "independent")
 
@@ -769,17 +785,22 @@ def spelling() -> None:
     client = StubClient(weeks=2)
     pipe = build_pipeline(client)
     naplan = pipe.run_term_plan("naplan", "Year 5", "Sam", weeks=2)
-    by_subject = {s.subject: s for s in naplan[0].sections}
+    # Grouped as lists, not a dict keyed by subject: with three topics per
+    # subject a dict keeps only the last section of each, and the passage
+    # quota does not have to land on that one.
+    by_subject: dict[str, list] = {}
+    for s in naplan[0].sections:
+        by_subject.setdefault(s.subject, []).append(s)
     check(all(b.spelling_list is not None for b in naplan)
           and naplan[1].spelling_test is not None,
           "a NAPLAN term plan gets spelling: its literacy half is English")
     check(set(naplan[1].spelling_test.words) <= set(naplan[0].spelling_list.words),
           "and week 2 is tested on week 1's list there too")
-    check(bool(by_subject.get("English") and by_subject["English"].passages)
-          and by_subject["Mathematics"].passages == [],
+    check(any(s.passages for s in by_subject.get("English", []))
+          and all(s.passages == [] for s in by_subject.get("Mathematics", [])),
           "the English half of a NAPLAN booklet carries passages and the maths "
           "half carries none",
-          str({k: len(v.passages) for k, v in by_subject.items()}))
+          str({k: [len(s.passages) for s in v] for k, v in by_subject.items()}))
 
 
 # --------------------------------------------------------------------------
