@@ -1,13 +1,13 @@
 """Shared Postgres connection handling.
 
-One database backs both halves of Folio: the web app's accounts and jobs
+One database backs both halves of FolioAI: the web app's accounts and jobs
 (`webapp/db.py`) and the RAG vector store (`rag/store.py`). Keeping the
 connection logic here means a single DATABASE_URL and one pool to tune.
 
 Set DATABASE_URL to a normal Postgres URL, e.g.
     postgresql://user:pass@host/dbname
 Managed providers (Neon, Supabase, Render) hand you one directly. When it is
-unset, Folio falls back to local storage: SQLite for accounts and an on-disk
+unset, FolioAI falls back to local storage: SQLite for accounts and an on-disk
 Chroma store for RAG, which is what a local dev checkout wants.
 """
 from __future__ import annotations

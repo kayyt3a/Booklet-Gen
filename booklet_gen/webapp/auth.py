@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 import re
 
 from flask import (
@@ -9,9 +10,11 @@ from flask import (
 )
 
 from . import db
-from .security import rotate_csrf_token, safe_redirect_target
+from . import mailer
+from .security import enforce_rate_limit, rotate_csrf_token, safe_redirect_target
 
 bp = Blueprint("auth", __name__)
+log = logging.getLogger(__name__)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -40,6 +43,7 @@ def _start_session(user_id: int) -> None:
     identity.
     """
     session.clear()
+    session.permanent = True
     session["user_id"] = user_id
     rotate_csrf_token()
 
@@ -47,16 +51,33 @@ def _start_session(user_id: int) -> None:
 @bp.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
+        enforce_rate_limit("signup", 8, 3600)
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
         if not _EMAIL_RE.match(email):
             flash("Please enter a valid email address.")
+        elif len(email) > 254:
+            flash("Email addresses cannot be longer than 254 characters.")
         elif len(password) < 8:
             flash("Password must be at least 8 characters.")
+        elif len(password) > 256:
+            flash("Password cannot be longer than 256 characters.")
         elif db.get_user_by_email(email):
             flash("An account with that email already exists. Try logging in.")
         else:
-            uid = db.create_user(email, password)
+            needs_verification = mailer.verification_required()
+            uid = db.create_user(
+                email, password, email_verified=not needs_verification,
+            )
+            if needs_verification:
+                try:
+                    mailer.send_verification(db.get_user(uid))
+                    return render_template("verify_sent.html", email=email)
+                except Exception:
+                    log.exception("could not send verification email")
+                    flash("Your account was created, but the verification email "
+                          "could not be sent. Try resending it below.")
+                    return redirect(url_for("auth.resend_verification"))
             _start_session(uid)
             return redirect(url_for("views.index"))
     return render_template("signup.html")
@@ -65,10 +86,22 @@ def signup():
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        enforce_rate_limit("login", 20, 900)
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
+        if len(email) > 254 or len(password) > 256:
+            flash("Incorrect email or password.")
+            return render_template("login.html")
         user = db.verify_login(email, password)
         if user:
+            if mailer.verification_required() and not bool(user["email_verified"]):
+                try:
+                    mailer.send_verification(user)
+                except Exception:
+                    log.exception("could not resend verification email during login")
+                flash("Verify your email before logging in. We sent a new link if "
+                      "email delivery is available.")
+                return redirect(url_for("auth.resend_verification"))
             # `next` comes from the query string of a link someone may have
             # sent the user, so it is attacker controlled. Only same-site
             # relative paths are honoured; anything else lands on the home
@@ -81,7 +114,82 @@ def login():
     return render_template("login.html")
 
 
-@bp.route("/logout")
+@bp.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     return redirect(url_for("views.index"))
+
+
+@bp.route("/verify/<token>")
+def verify_email(token: str):
+    payload = mailer.read_token("verify", token, max_age=86400)
+    if payload is None:
+        flash("That verification link is invalid or has expired.")
+        return redirect(url_for("auth.resend_verification"))
+    user = db.get_user(int(payload.get("uid", 0)))
+    if user is None or user["email"] != payload.get("email"):
+        flash("That verification link is not valid.")
+        return redirect(url_for("auth.resend_verification"))
+    if bool(user["email_verified"]):
+        flash("That email is already verified. Log in to continue.")
+        return redirect(url_for("auth.login"))
+    db.mark_email_verified(user["id"])
+    _start_session(user["id"])
+    flash("Your email is verified. Your free booklet credit is ready.")
+    return redirect(url_for("views.index"))
+
+
+@bp.route("/verify/resend", methods=["GET", "POST"])
+def resend_verification():
+    if request.method == "POST":
+        enforce_rate_limit("verify-resend", 6, 3600)
+        email = (request.form.get("email") or "").strip().lower()
+        user = db.get_user_by_email(email)
+        if user is not None and not bool(user["email_verified"]):
+            try:
+                mailer.send_verification(user)
+            except Exception:
+                log.exception("could not resend verification email")
+        flash("If that unverified account exists, a new link has been sent.")
+    return render_template("resend_verification.html")
+
+
+@bp.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        enforce_rate_limit("password-reset", 6, 3600)
+        email = (request.form.get("email") or "").strip().lower()
+        user = db.get_user_by_email(email)
+        if user is not None:
+            try:
+                mailer.send_password_reset(user)
+            except Exception:
+                log.exception("could not send password reset email")
+        flash("If that account exists, a password-reset link has been sent.")
+    return render_template("forgot_password.html")
+
+
+@bp.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token: str):
+    payload = mailer.read_token("reset", token, max_age=3600)
+    user = db.get_user(int(payload.get("uid", 0))) if payload else None
+    valid = bool(
+        user is not None
+        and payload.get("marker") == str(user["password_hash"])[-16:]
+    )
+    if not valid:
+        flash("That password-reset link is invalid or has expired.")
+        return redirect(url_for("auth.forgot_password"))
+    if request.method == "POST":
+        enforce_rate_limit("password-change", 10, 3600)
+        password = request.form.get("password") or ""
+        if len(password) < 8:
+            flash("Password must be at least 8 characters.")
+        elif len(password) > 256:
+            flash("Password cannot be longer than 256 characters.")
+        else:
+            db.update_password(user["id"], password)
+            _start_session(user["id"])
+            flash("Your password has been updated.")
+            return redirect(url_for("views.index"))
+    return render_template("reset_password.html", token=token)

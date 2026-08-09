@@ -25,6 +25,8 @@ def ingest(
     year_level: str,
     topics: list[str],
     source_name: str | None = None,
+    *,
+    rights_metadata: dict[str, str] | None = None,
 ) -> int:
     text = read_text(path)
     chunks = chunk_text(text)
@@ -34,6 +36,7 @@ def ingest(
     source_id = source_id_for(path)
     display_source = source_name or path.name
 
+    rights_metadata = dict(rights_metadata or {})
     metadatas = [
         {
             "source_id": source_id,
@@ -42,6 +45,7 @@ def ingest(
             "year_level": year_level,
             "topics": ",".join(topics),
             "ordinal": c.ordinal,
+            **rights_metadata,
         }
         for c in chunks
     ]

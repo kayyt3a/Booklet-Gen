@@ -200,16 +200,28 @@ def homework_minutes_in_order(data) -> list[float]:
     its passages free, so a sitting containing two whole texts was billed as
     though the child already knew them: a Year 5 English booklet promised 19
     minutes for a sitting holding about 3.5 minutes of unbilled reading.
+
+    A subtopic the hour could not fit prints its mini-lesson down here, and the
+    first of its homework questions carries that lesson exactly as it carries a
+    reading. `booklet_timing` has always charged Homework for those lessons, so
+    leaving them out here made the sitting estimates add up to less than the
+    total printed above them.
     """
     from .formatter import passage_groups, section_passages
     out: list[float] = []
     for s in data.sections:
+        # Only a subtopic whose practice moved to Homework reprints its lesson;
+        # one taught in the session does not.
+        lesson = teaching_minutes(s.teaching) if not s.questions else 0.0
+        first = True
         for passage, group in passage_groups(s.homework_questions,
                                              section_passages(s)):
             read = passage_minutes(passage) if passage is not None else 0.0
             for i, vq in enumerate(group):
                 out.append(question_minutes(vq.question, "homework")
-                           + (read if i == 0 else 0.0))
+                           + (read if i == 0 else 0.0)
+                           + (lesson if first else 0.0))
+                first = False
     return out
 
 
@@ -279,15 +291,13 @@ def booklet_timing(data) -> dict:
     section_raw = [classwork_section_minutes(s) if s.questions else 0.0
                    for s in data.sections]
     classwork_raw = sum(section_raw)
-    homework_raw = sum(
-        questions_minutes(s.homework_questions, "homework")
-        # The readings those questions are about. Class Work has always charged
-        # for a passage and Homework never did, so the same text was worth four
-        # minutes in the session and nothing at all a week later.
-        + section_passage_minutes(s, s.homework_questions)
-        # The lesson the student has to read before they can do that homework.
-        + (teaching_minutes(s.teaching) if not s.questions else 0.0)
-        for s in data.sections)
+    # One source of truth for the Homework half. This is the same list the
+    # sitting bands are cut from, so the total printed on the Homework band and
+    # the sittings printed underneath it cannot drift apart. It already counts
+    # the readings those questions are about (Class Work always charged for a
+    # passage and Homework never did) and the mini-lesson of any subtopic whose
+    # practice moved down here.
+    homework_raw = sum(homework_minutes_in_order(data))
     recap_raw = questions_minutes(data.recap_questions, "recap")
     challenge_raw = questions_minutes(data.challenge_questions, "challenge")
     # The Final Challenge is printed inside the Homework half, so its time
@@ -306,6 +316,13 @@ def booklet_timing(data) -> dict:
         "recap_minutes": round_display(recap_raw) if data.recap_questions else None,
         "classwork_minutes": round_display(classwork_raw) if data.sections else None,
         "homework_minutes": round_display(homework_total_raw) if homework_total_raw else None,
+        # The homework questions on their own, without the Final Challenge that
+        # is printed after them under its own band and its own estimate. The
+        # Homework band prints this one: a band that said "179 min in total"
+        # over sittings of 31, 31, 31 and 29 was counting the challenge, and the
+        # lessons, in a number the page then contradicted.
+        "homework_only_raw": homework_raw,
+        "homework_only_minutes": round_display(homework_raw) if homework_raw else None,
         "challenge_minutes": round_display(challenge_raw) if data.challenge_questions else None,
         "total_minutes": round_total(spelling_raw + recap_raw + classwork_raw
                                      + homework_total_raw),

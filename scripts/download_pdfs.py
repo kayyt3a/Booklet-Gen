@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Download every PDF linked on a web page into a target folder.
+"""Download linked PDFs for offline rights review, not automatic ingestion.
 
-Built for grabbing NAPLAN past papers off ACARA and syllabus PDFs off SCSA
-without clicking each link, but works on any listing page.
+Public availability is not permission for commercial RAG use. Past NAPLAN
+papers and many authority or textbook resources must not be ingested into the
+paid product without written permission. Follow rag_sources/README.md and keep
+downloads in quarantine until their rights have been reviewed.
 
 Usage:
     python scripts/download_pdfs.py <URL> --into <folder>

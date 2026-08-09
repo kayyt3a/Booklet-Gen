@@ -141,6 +141,11 @@ def answer_is_trustworthy(answer: str, working: str) -> tuple[bool, Optional[str
     """(ok, reason). Used to strip a verified mark that was not earned."""
     if has_self_correction(working):
         return False, "working contains model self-correction"
+    # The same tell in the answer field. It slips past the contradiction check
+    # below, because "75. Wait, recalculating: 80" reads as two numbers and
+    # that check only judges a single-valued answer.
+    if has_self_correction(answer):
+        return False, "answer contains model self-correction"
     if working_contradicts_answer(answer, working):
         return False, "stated answer does not appear anywhere in the working"
     return True, None
@@ -358,6 +363,102 @@ def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
 
 
 # --------------------------------------------------------------------------
+# 3b. A flat shape drawn for a solid question, or the reverse
+# --------------------------------------------------------------------------
+
+# Dimensionality is the one thing a child must read correctly off a maths
+# figure. Area and perimeter live on a flat shape; volume, capacity and
+# surface area live on a solid. Drawing a rectangle beside "find the volume"
+# teaches that a box is a square, which is worse than drawing nothing, and it
+# is the confusion this stage of primary maths exists to undo.
+_SOLID_TYPES = frozenset({"cuboid", "cylinder"})
+_FLAT_TYPES = frozenset({"rectangle", "l_shape", "circle_slices", "bar_model"})
+
+# "Volume", "capacity" and "surface area" need a solid. Note surface area is
+# deliberately here and not below: it is a property of a 3D object.
+_NEEDS_SOLID_RE = re.compile(
+    r"\b(?:volume|capacity|surface\s+area|cubic|holds?\s+\d|"
+    r"how\s+(?:much|many)\s+(?:water|sand|liquid|cubes?|blocks?)|"
+    r"litres?|millilitres?|cuboid|prism|cylinder)\b",
+    re.IGNORECASE,
+)
+
+# "Area" and "perimeter" need a flat shape. Guarded so "surface area" does not
+# match here, since that one belongs above.
+_NEEDS_FLAT_RE = re.compile(
+    r"\b(?:perimeter|(?<!surface\s)area|square\s+(?:cm|m|metres?|centimetres?)|"
+    r"how\s+far\s+around|fence|border)\b",
+    re.IGNORECASE,
+)
+
+
+def diagram_dimensionality_matches(spec: dict, question_text: str) -> bool:
+    """False when a solid question carries a flat figure, or the reverse.
+
+    Only judges when the question is unambiguous. A question naming both
+    ("find the area of the base, then the volume") is left alone rather than
+    risk dropping a good figure.
+    """
+    if not spec or not isinstance(spec, dict):
+        return True
+    kind = str(spec.get("type", "")).lower()
+    if kind not in _SOLID_TYPES and kind not in _FLAT_TYPES:
+        return True          # compare, number_line and anything unrecognised
+
+    text = question_text or ""
+    wants_solid = bool(_NEEDS_SOLID_RE.search(text))
+    wants_flat = bool(_NEEDS_FLAT_RE.search(text))
+    if wants_solid == wants_flat:
+        return True          # neither, or both: not our call to make
+    if wants_solid:
+        return kind in _SOLID_TYPES
+    return kind in _FLAT_TYPES
+
+
+# --------------------------------------------------------------------------
+# 3c. A lesson example that answers a reading the student has not reached
+# --------------------------------------------------------------------------
+
+
+def _quoted_titles(text: str) -> set:
+    """Titles the text names, however they are quoted."""
+    found = set()
+    for m in re.finditer(r"['\"‘’“”]([^'\"‘’“”]{4,90})"
+                         r"['\"‘’“”]", text or ""):
+        found.add(m.group(1).strip().lower())
+    return found
+
+
+def example_spoils_passage(example, passages) -> bool:
+    """True when a lesson example gives away an answer about a booklet reading.
+
+    The mini-lesson prints above the questions, and a passage prints with the
+    question group that uses it. So an example naming one of this section's
+    readings hands the student a worked answer about a story printed further
+    down the same page, before they have read a word of it.
+
+    The prompt already tells the lesson to carry its own two to four sentence
+    excerpt instead. This catches the case where it does not.
+    """
+    titles = {(getattr(p, "title", "") or "").strip().lower()
+              for p in (passages or [])}
+    titles.discard("")
+    if not titles:
+        return False
+    text = " ".join(filter(None, [
+        getattr(example, "question", "") or "",
+        getattr(example, "answer", "") or "",
+    ]))
+    named = _quoted_titles(text)
+    if titles & named:
+        return True
+    # An unquoted mention still gives it away, but only match a title long
+    # enough that a coincidence is implausible.
+    low = text.lower()
+    return any(len(t) >= 12 and t in low for t in titles)
+
+
+# --------------------------------------------------------------------------
 # 4. Text pointing at a picture that was never drawn
 # --------------------------------------------------------------------------
 
@@ -429,3 +530,254 @@ def refers_to_missing_figure(text: str, has_image: bool) -> Optional[str]:
     if has_image:
         return None
     return figure_reference(text)
+
+
+# --------------------------------------------------------------------------
+# 5. Real-world quantities that are absurd by orders of magnitude
+# --------------------------------------------------------------------------
+#
+# Page 10 of a shipped Year 5 Maths booklet asked the student to write out
+# "The distance from Perth to Melbourne is approximately 3,421,000 kilometres"
+# (it is about 3,400), then "A large stadium can hold 9,900,009 spectators"
+# (the MCG holds about 100,000), then "A national park in Queensland covers an
+# area of five million, seven hundred and two km squared" (the whole state is
+# 1.85 million). The subtopic those questions belong to is called "Reading and
+# writing numbers up to millions": a booklet teaching number sense taught a
+# child that a stadium and a country are the same size.
+#
+# This is a prompt-proof failure. The generator is asked for a seven-digit
+# number and a context to put it in, and it picks whichever context makes a
+# sentence, because nothing in its objective connects the digits to the world.
+# Another rule in a prompt already full of rules will not fix it.
+#
+# The guard is deliberately narrow, because it deletes customer content:
+#
+#   * a hard-coded table of quantities a Year 1 to 10 booklet actually uses,
+#     nothing inferred;
+#   * a quantity is only flagged when it exceeds the plausible maximum by more
+#     than an order of magnitude, so "the MCG holds 100,000 spectators" and
+#     "Perth to Adelaide is 2695 km" pass with room to spare;
+#   * only the too-large side is guarded. Too-small numbers are rarer, and an
+#     obvious low bound collides with legitimate small numbers in the same
+#     sentence, e.g. "Round this distance to the nearest 100 kilometres";
+#   * a quantity must carry a unit the rule recognises, and must sit in the
+#     same clause as the thing it describes. A bare number, or a number in the
+#     next sentence, is never judged.
+#
+# Callers drop the question. Rewriting it means inventing a replacement number
+# and hoping the rest of the sentence still means something, and the answer key
+# was written against the number being replaced.
+
+_ORDER_OF_MAGNITUDE = 10.0
+
+# Multiplier words that may follow a digit group: "9.9 million spectators".
+_SCALE_WORDS = {"hundred": 100, "thousand": 1_000, "million": 1_000_000,
+                "billion": 1_000_000_000}
+
+_WORD_UNITS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+    "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+    "eighty": 80, "ninety": 90,
+}
+
+# A run of number words, comma, hyphen or "and" separated. The booklet wrote
+# one of the three defects out longhand: "five million, seven hundred and two".
+_WORD_NUMBER_TOKENS = sorted(set(_WORD_UNITS) | set(_SCALE_WORDS),
+                             key=len, reverse=True)
+_WORD_RUN = re.compile(
+    r"\b(?:" + "|".join(_WORD_NUMBER_TOKENS) + r")"
+    r"(?:[\s,\-]+(?:and[\s,\-]+)?(?:" + "|".join(_WORD_NUMBER_TOKENS) + r"))*\b",
+    re.IGNORECASE,
+)
+
+_DIGIT_NUMBER = re.compile(
+    r"\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+(?:\.\d+)?\b")
+
+# Unit families, tried in order: the area forms have to win before "km" does,
+# and "km" before the bare "m", or "3,421,000 km" is read as metres.
+_QUANTITY_UNITS = (
+    ("area_km2",
+     r"(?:sq\.?|square)\s*(?:km|kilometres|kilometers)\b"
+     r"|(?:km|kilometres|kilometers)\s*(?:\^\s*2|2|²|squared)\b"),
+    ("distance_km", r"(?:km|kilometres|kilometers)\b"),
+    ("distance_m", r"(?:m|metres|meters)\b"),
+    ("people",
+     r"(?:people|persons|spectators|supporters|fans|residents|inhabitants"
+     r"|seats)\b"),
+)
+_QUANTITY_UNIT_RE = re.compile(
+    r"\s*(?:" + "|".join(f"(?P<{name}>{pat})" for name, pat in _QUANTITY_UNITS)
+    + r")", re.IGNORECASE)
+
+# Everything is compared in one unit per family.
+_TO_CANONICAL = {"area_km2": ("area_km2", 1.0),
+                 "distance_km": ("distance_km", 1.0),
+                 "distance_m": ("distance_km", 0.001),
+                 "people": ("people", 1.0)}
+
+
+def _words_to_number(run: str) -> Optional[float]:
+    total, current, seen = 0.0, 0.0, False
+    for token in re.split(r"[\s,\-]+", run.lower()):
+        if not token or token == "and":
+            continue
+        if token in _WORD_UNITS:
+            current += _WORD_UNITS[token]
+            seen = True
+        elif token == "hundred":
+            current = (current or 1) * 100
+            seen = True
+        elif token in _SCALE_WORDS:
+            total += (current or 1) * _SCALE_WORDS[token]
+            current = 0.0
+            seen = True
+        else:
+            return None
+    return total + current if seen else None
+
+
+def _quantities(text: str) -> list[tuple[float, str]]:
+    """Every (value, unit family) the text states outright, canonicalised.
+
+    Numbers with no unit, or a unit no rule knows about, are not returned:
+    this guard never judges a bare number.
+    """
+    found: list[tuple[float, str]] = []
+    spans: list[tuple[int, float]] = []
+
+    for m in _DIGIT_NUMBER.finditer(text):
+        try:
+            spans.append((m.end(), float(m.group(0).replace(",", ""))))
+        except ValueError:
+            continue
+    for m in _WORD_RUN.finditer(text):
+        value = _words_to_number(m.group(0))
+        if value is not None:
+            spans.append((m.end(), value))
+
+    for end, value in spans:
+        tail = text[end:end + 40]
+        # "9.9 million spectators": the multiplier sits between the digits and
+        # the unit, and belongs to the number.
+        scale = re.match(r"\s+(hundred|thousand|million|billion)\b", tail,
+                         re.IGNORECASE)
+        if scale:
+            value *= _SCALE_WORDS[scale.group(1).lower()]
+            tail = tail[scale.end():]
+        unit = _QUANTITY_UNIT_RE.match(tail)
+        if not unit or not unit.lastgroup:
+            continue
+        family, factor = _TO_CANONICAL[unit.lastgroup]
+        found.append((value * factor, family))
+    return found
+
+
+# Places a booklet names, and the largest value each quantity can plausibly
+# take. The figures are ordinary general knowledge and deliberately generous:
+# a rule only fires at ten times the number below it.
+_AU_CITIES = (
+    "sydney|melbourne|brisbane|perth|adelaide|canberra|hobart|darwin"
+    "|newcastle|wollongong|geelong|cairns|townsville|broome|kalgoorlie"
+    "|albany|geraldton|bunbury|alice springs|gold coast|sunshine coast"
+)
+_AU_STATES = (
+    r"western\s+australia|south\s+australia|new\s+south\s+wales|victoria"
+    r"|queensland|tasmania|the\s+northern\s+territory"
+)
+
+# (label, subject pattern, unit family, largest plausible value)
+_MAGNITUDE_RULES: tuple[tuple[str, str, str, float], ...] = (
+    # Perth to Brisbane by road is about 4,300 km, so 6,000 is already ample
+    # and the guard stays silent below 60,000. Both ends must be named
+    # Australian towns, so "the distance from the Earth to the Sun" is not
+    # this rule's business.
+    ("distance between Australian cities",
+     r"distance\s+(?:from|between)\s+(?:" + _AU_CITIES + r")\s+(?:to|and)\s+(?:"
+     + _AU_CITIES + r")",
+     "distance_km", 6_000),
+    # The MCG, the largest ground in the country, holds about 100,000.
+    ("stadium capacity",
+     r"\b(?:stadium|arena|sports\s+ground|oval|grandstand)\b[^.]{0,80}"
+     r"\b(?:holds?|seats?|capacity|fits?|accommodates?|packed)\b"
+     r"|\b(?:holds?|seats?|capacity\s+of|accommodates?)\b[^.]{0,40}"
+     r"\b(?:stadium|arena|sports\s+ground|oval|grandstand)\b",
+     "people", 120_000),
+    ("population of Australia",
+     r"population\s+of\s+australia", "people", 40_000_000),
+    # A town, not a city: the same booklet put two million people in a "small
+    # country town".
+    ("population of a town",
+     r"population\s+of\s+(?:a|the|this)?\s*(?:small\s+|little\s+|country\s+"
+     r"|rural\s+|quiet\s+)*town", "people", 60_000),
+    ("population of an Australian state",
+     r"population\s+of\s+(?:" + _AU_STATES + r")", "people", 10_000_000),
+    # Kakadu, the largest national park in the country, is under 20,000.
+    ("area of a national park",
+     r"national\s+park", "area_km2", 30_000),
+    ("area of Australia",
+     r"area\s+of\s+australia", "area_km2", 8_000_000),
+    ("area of an Australian state",
+     r"area\s+of\s+(?:" + _AU_STATES + r")", "area_km2", 2_600_000),
+)
+
+_COMPILED_RULES = tuple(
+    (label, re.compile(pattern, re.IGNORECASE), family, plausible_max)
+    for label, pattern, family, plausible_max in _MAGNITUDE_RULES)
+
+# A running total is not a claim about how big one thing is. "The distance from
+# Perth to Melbourne is 3400 km. A truck makes 30 return trips, covering
+# 204,000 km altogether" is a perfectly good Year 6 question, and the second
+# figure is not a distance between two cities. Clause windowing catches most of
+# these; this catches the rest, and only ever makes the guard fire less.
+_AGGREGATE = re.compile(
+    r"\b(?:in total|altogether|combined|totals?|totalled|sold|sells|sale"
+    r"|tickets?|over the (?:year|season|month|week)|each (?:year|season)"
+    r"|per (?:year|season)|across)\b", re.IGNORECASE)
+
+# How far either side of the phrase a stated quantity may sit and still be the
+# quantity that phrase is about.
+_CLAIM_RADIUS = 90
+
+
+def _claim_window(text: str, start: int, end: int) -> str:
+    """The clause around a matched phrase, never crossing a sentence end."""
+    left = 0
+    for stop in (". ", "? ", "! ", "; "):
+        cut = text.rfind(stop, 0, start)
+        if cut >= 0:
+            left = max(left, cut + len(stop))
+    left = max(left, start - _CLAIM_RADIUS)
+    right = len(text)
+    for stop in (". ", "? ", "! ", "; "):
+        cut = text.find(stop, end)
+        if cut >= 0:
+            right = min(right, cut)
+    right = min(right, end + _CLAIM_RADIUS)
+    return text[left:right]
+
+
+def implausible_magnitude(text: str) -> Optional[str]:
+    """A short reason when the text states a real-world quantity wrong by more
+    than an order of magnitude, or None.
+
+    Only the quantities in the table above are judged, only when they carry a
+    unit, only within the clause that names the thing, and only when they are
+    ten times larger than the largest plausible value. Everything else passes.
+    """
+    if not text:
+        return None
+    low = " ".join(text.lower().split())
+    for label, subject, family, plausible_max in _COMPILED_RULES:
+        ceiling = plausible_max * _ORDER_OF_MAGNITUDE
+        for match in subject.finditer(low):
+            window = _claim_window(low, match.start(), match.end())
+            if _AGGREGATE.search(window):
+                continue
+            for value, found_family in _quantities(window):
+                if found_family == family and value > ceiling:
+                    return (f"{label}: {value:,.0f} is more than ten times the "
+                            f"plausible maximum of {plausible_max:,.0f}")
+    return None

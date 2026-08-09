@@ -1,4 +1,4 @@
-# Folio web app container.
+# FolioAI web app container.
 # Build:  docker build -t folio .
 # Run:    docker run -p 8080:8080 --env-file .env folio
 FROM python:3.11-slim
@@ -18,8 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Persistent data (SQLite db + generated output) lives here; mount a volume
-# at /data in production so it survives restarts.
+# Local fallbacks live in /data. Production uses Postgres and private object
+# storage, so this directory is only working space and needs no persistent disk.
 ENV FOLIO_DB=/data/folio.db \
     FOLIO_OUTPUT=/data/output \
     PORT=8080
@@ -27,7 +27,8 @@ RUN mkdir -p /data/output
 
 EXPOSE 8080
 
-# 2 workers, long timeout because booklet generation is slow.
+# Generation is handled by the separate worker in production. The timeout is
+# still generous enough for migrations and slower provider responses at boot.
 CMD gunicorn "booklet_gen.webapp:create_app()" \
     --bind "0.0.0.0:${PORT}" \
-    --workers 2 --threads 4 --timeout 600
+    --workers 2 --threads 4 --timeout 120 --access-logfile -

@@ -25,7 +25,11 @@ os.environ.pop("DATABASE_URL", None)
 
 from booklet_gen.webapp import create_app                        # noqa: E402
 from booklet_gen.webapp import db                                # noqa: E402
-from booklet_gen.programs import PROGRAMS                        # noqa: E402
+from booklet_gen.programs import (                               # noqa: E402
+    EXAM_PROGRAMS,
+    PROGRAMS,
+    customer_programs,
+)
 
 failures: list[str] = []
 
@@ -54,12 +58,59 @@ print("-" * 62)
 home = client.get("/")
 body = home.data
 check(home.status_code == 200, "the front page loads", str(home.status_code))
+check(b"FOLIOAI" in body and b"FolioAI writes" in body,
+      "the customer-facing product name is FolioAI")
 check(b"Practice booklets your kid will actually finish" in body,
       "it leads with what the product is")
-check(b'id="program"' not in body and b"Generate booklet" not in body,
+check(b'name="program"' not in body and b"Generate booklet" not in body,
       "and does not show the generate form to someone who cannot use it")
-for p in PROGRAMS.values():
+offered = customer_programs()
+withheld = {k: p for k, p in PROGRAMS.items() if k not in offered}
+for p in offered.values():
     check(p.label.encode() in body, f"it names the {p.label} booklet")
+# Scholarships and Methods Exam are held back from the customer menu until each
+# has its own original-authoring guide and a reviewed sample set. Advertising a
+# product the site will then refuse to generate is the failure this guards.
+for p in withheld.values():
+    check(p.label.encode() not in body,
+          f"and does not advertise {p.label}, which is not on sale yet")
+
+# The hero eyebrow said "Years 1 to 10, plus WACE exams" in hand-written copy
+# while methods_exam sat outside DEFAULT_WEB_PROGRAMS, so the headline named
+# the one product the site would refuse to sell. It is now driven from
+# customer_programs(), which is what this pair of checks pins: silent when the
+# exam program is withheld, and back when it is offered.
+check((b"WACE" in body) == bool(EXAM_PROGRAMS & set(offered)),
+      "it advertises WACE exams only when an exam program is on sale",
+      f"offered {sorted(offered)}, WACE named: {b'WACE' in body}")
+_saved_allowlist = os.environ.get("FOLIO_WEB_PROGRAM_ALLOWLIST")
+os.environ["FOLIO_WEB_PROGRAM_ALLOWLIST"] = "naplan,accelerate,methods_exam"
+try:
+    with_exams = client.get("/").data
+finally:
+    if _saved_allowlist is None:
+        os.environ.pop("FOLIO_WEB_PROGRAM_ALLOWLIST", None)
+    else:
+        os.environ["FOLIO_WEB_PROGRAM_ALLOWLIST"] = _saved_allowlist
+check(b"WACE" in with_exams,
+      "and does advertise them once the exam program is allowlisted")
+
+# The hero promised "practice questions sized for an hour". Only the class work
+# is trimmed to CLASSWORK_CAP_MINUTES; the booklet also carries a week of
+# homework and a Final Challenge, and one real Year 5 Maths booklet printed
+# "about 245 minutes" on its cover. A parent who bought an hour and printed
+# four is a refund. So the page may never call something an hour without
+# saying, right there, that the hour is the class work.
+_hero = body.decode()
+_hour_claims = [_hero[max(0, m.start() - 110):m.end() + 110]
+                for m in re.finditer(r"\bhour\b", _hero)]
+check(bool(_hour_claims)
+      and all("class work" in c.lower() for c in _hour_claims),
+      "an hour is only ever claimed for the class work, not the booklet",
+      f"{len(_hour_claims)} mentions of an hour")
+check(b"for the rest of the week" in body,
+      "and the page says the homework runs on past that hour")
+
 check(b"sample-page.png" in body,
       "it shows a real page out of a booklet, not just a description")
 check(b"No credit card" in body, "it says what signing up costs")
@@ -82,13 +133,21 @@ check(signed_in, "the fixture account signed in")
 
 home = client.get("/")
 body = home.data
-check(b'id="program"' in body and b"Generate booklet" in body,
+check(b'name="program"' in body and b"Generate booklet" in body,
       "the generate form is there")
 check(b"Practice booklets your kid will actually finish" not in body,
       "and the sales pitch is not, because they have already bought in")
 for field in (b'id="year"', b'id="student_name"', b'id="term_plan"',
               b'name="csrf_token"'):
     check(field in body, f"the form still carries {field.decode()}")
+for key, p in offered.items():
+    check(f'id="program_{key}"'.encode() in body and p.blurb.encode() in body,
+          f"the form explains the {p.label} choice")
+for key in withheld:
+    check(f'id="program_{key}"'.encode() not in body,
+          f"the form offers no way to pick {PROGRAMS[key].label}")
+check(b"progressively planned booklets" in body,
+      "the term-plan choice explains what it delivers")
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +177,11 @@ print("-" * 62)
 # is also one more thing that can be slow or gone when a parent first visits.
 OFFSITE = re.compile(
     rb'(?:src|href)\s*=\s*["\'](?!/|\{\{|#|data:|mailto:)[a-zA-Z]+:', re.I)
-pages = ["/", "/library", "/account", "/login", "/signup"]
+pages = [
+    "/", "/library", "/account", "/login", "/signup", "/pricing",
+    "/support", "/privacy", "/terms", "/forgot-password",
+    "/verify/resend",
+]
 for path in pages:
     data = client.get(path, follow_redirects=True).data
     hits = OFFSITE.findall(data)
@@ -143,6 +206,53 @@ check(lib.status_code == 200 and b"Ella" in lib.data,
 acct = client.get("/account")
 check(acct.status_code == 200 and b"Booklets generated" in acct.data,
       "the account page shows usage")
+check(b"<details class=\"dangerZone\">" in acct.data,
+      "account deletion is available without dominating the page")
+pricing = client.get("/pricing")
+check(pricing.status_code == 200 and b"pay-as-you-go pricing" in pricing.data,
+      "the pricing page explains the credit packs")
+check(b"Start with a free booklet" not in pricing.data and
+      b"Purchases coming soon" in pricing.data,
+      "a signed-in user sees payment availability honestly")
+for path, phrase in (("/support", b"How can we help"),
+                     ("/privacy", b"Privacy policy"),
+                     ("/terms", b"Terms of use"),
+                     ("/forgot-password", b"Reset your password")):
+    page = client.get(path)
+    check(page.status_code == 200 and phrase in page.data,
+          f"{path} renders its customer page")
+terms = client.get("/terms").data
+support = client.get("/support").data
+privacy = client.get("/privacy").data
+check(b"within 14 days" in terms and b"replacement credit" in terms,
+      "the terms state the voluntary quality remedy")
+check(b"two business days" in support and b"not usable" in support,
+      "support gives a response target and quality path")
+check(b"first name or nickname only" in privacy and b"accounting records" in privacy,
+      "privacy copy minimises child data and explains residual legal records")
+
+# ---------------------------------------------------------------------------
+print("\nEvery page tells the same truth about how long files are kept")
+print("-" * 62)
+# Pricing promised "Saved in My booklets for later download" on a page taking
+# money, while support said FolioAI "keeps only your most recent generated
+# files" with no number, and the library quoted a number neither of them did.
+# db.save_job_file keeps the newest FILE_RETENTION_PER_USER files per account
+# and clears the rest, so that is the number all three must print. The value is
+# monkeypatched to something no other page would say by accident, which also
+# proves the pages read it live rather than hard-coding today's default.
+_real_retention = db.FILE_RETENTION_PER_USER
+db.FILE_RETENTION_PER_USER = 7
+try:
+    retention_pages = {p: client.get(p).data for p in
+                       ("/pricing", "/support", "/library")}
+finally:
+    db.FILE_RETENTION_PER_USER = _real_retention
+for path, page in retention_pages.items():
+    check(b"7 most recent" in page,
+          f"{path} states the real number of files kept", str(b"7 most recent" in page))
+check(b"Saved in My booklets for later download" not in retention_pages["/pricing"],
+      "and pricing no longer implies a booklet is kept for ever")
 prog = client.get("/progress/pages-job")
 check(prog.status_code == 200 and b"bar" in prog.data,
       "the progress page renders")

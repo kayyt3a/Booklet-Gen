@@ -1,154 +1,166 @@
-# RAG source library
+# Copyright-safe RAG source library
 
-Drop source PDFs in here, run the ingester, and they become the reference
-material the generator calibrates against.
+FolioAI is a commercial product. A document being free to download, publicly
+available or educational does not mean it can be uploaded to an app, embedded,
+adapted or used to produce a paid resource.
 
-## Where to save downloads
+Do not ingest a source into the deployed database until its commercial use has
+been reviewed and recorded. When rights are unclear, treat the source as not
+approved.
 
-```
-rag_sources/
-  <Subject>/          must match the names below exactly
-    <Year>/           "Year 3" ... "Year 12", or "All Years"
-      <Tag>/          free-form: NAPLAN, SCSA, WACE, PastPapers, Textbook
-        some-paper.pdf
-```
+## Current safety state
 
-### Subject folder names matter
+The existing local library contains past NAPLAN and WACE assessment material.
+Do not migrate that library into the paid product. NAPLAN external RAG is
+disabled in `booklet_gen/programs.py` while a reviewed corpus is built. The
+internal `booklet_gen/guidance/naplan_practice.txt` file guides original item
+writing without exposing agents to past-paper content.
 
-The retriever filters on subject, so a folder name that does not match what the
-app asks for is invisible. Use exactly these:
+This code boundary does not delete local files. It prevents the NAPLAN product
+from retrieving them. Other programs can still use the shared Mathematics
+store, so a production store must be rebuilt from approved sources rather than
+copied from the current local store.
 
-| Folder name             | Used by                                  |
-| ----------------------- | ---------------------------------------- |
-| `Mathematics`           | Academic Accelerate, NAPLAN Practice     |
-| `English`               | Academic Accelerate, NAPLAN Practice     |
-| `Reasoning`             | Scholarships                             |
-| `Mathematics Methods`   | Methods Exam (Year 11-12)                |
+## Source categories
 
-`Maths`, `maths`, or `Math` will **not** match. Neither will `Science`, which
-is not currently offered.
+### Approved in principle, subject to item-level review
 
-`All Years` is a wildcard for cross-year documents such as a P-10 scope and
-sequence: those chunks are retrieved for every year level.
+- Material written by the FolioAI operator specifically for commercial use.
+- Material supplied under a licence that expressly permits commercial reuse
+  and adaptation, with every licence condition followed.
+- Selected Australian Curriculum website text covered by CC BY 4.0, with the
+  required attribution and without excluded or third-party material.
+- Material for which the rights holder has given FolioAI written permission
+  covering storage, embedding, AI-assisted generation and sale of outputs.
 
-### Example
+### Not approved without written permission
 
-```
+- Past NAPLAN tests, answers, reading passages and writing prompts.
+- NAPLAN demonstration or trial items used as a question bank.
+- WACE examinations and marking keys used commercially without SCSA
+  permission.
+- ACER scholarship papers or other proprietary assessment papers.
+- Commercial textbooks, workbooks, tutoring resources and teacher guides.
+- National Literacy and Numeracy Learning Progressions or other content marked
+  non-commercial.
+- Photographs, logos, illustrations or third-party material whose licence is
+  different from the surrounding page or document.
+
+Do not use an education, research, study or classroom exception as the basis
+for a paid consumer product without advice specific to FolioAI.
+
+## Required rights record
+
+Before ingestion, record all of the following in the project's source-rights
+register:
+
+| Field | What to record |
+| --- | --- |
+| Internal source id | Stable identifier used in filenames and logs |
+| Title | Exact title of the source |
+| Rights holder | Person or organisation that owns the material |
+| Source URL | The official page where the material and terms were obtained |
+| Access date | Date the source and terms were checked |
+| Licence or permission | Exact licence name or written permission reference |
+| Commercial use | Yes or no |
+| Adaptation allowed | Yes or no |
+| AI and embedding use | Whether this use is expressly permitted or reviewed |
+| Attribution | Exact wording that must appear in FolioAI or its documentation |
+| Exclusions | Pages, images, logos or third-party material that must be removed |
+| Reviewer | Person who completed the rights review |
+| Review date | Date of the decision |
+| Decision | Approved, quarantined or rejected |
+
+Keep a copy of the applicable terms or permission with the record. Terms can
+change after a source is downloaded.
+
+The tracked template is `rag_sources/source_rights.csv`. Its `source_path`
+must be the PDF path relative to `rag_sources`, using forward slashes. The
+folder ingester fails closed: unregistered, quarantined, rejected, incomplete,
+or ambiguously licensed sources are listed as blocked and are not embedded.
+Every approved chunk receives the source id and review date as provenance
+metadata. The Postgres migration refuses old or hand-built stores without that
+metadata.
+
+## Safe corpus design
+
+Prefer short, operator-written skill briefs over whole assessment papers. A
+useful RAG chunk identifies:
+
+- the curriculum skill
+- prerequisite knowledge
+- common misconceptions
+- age-appropriate vocabulary and notation
+- one abstract example written by FolioAI
+- accessibility considerations
+- the source and licence for any curriculum statement used
+
+It should not contain a released question, distinctive passage, official
+stimulus, answer set or marking key.
+
+Suggested folder layout:
+
+```text
 rag_sources/
   Mathematics/
-    All Years/
-      SCSA/
-        scsa-maths-scope-and-sequence-P10.pdf
     Year 5/
-      NAPLAN/
-        naplan-2016-numeracy-year-5.pdf
-  Mathematics Methods/
-    Year 12/
-      WACE/
-        2024-MAM-Examination-Calculator-Assumed.pdf
-        2024-MAM-Ratified-Calc-Assumed-Marking-Key.pdf
+      Folio-Original/
+        fractions-skill-brief.pdf
   English/
     Year 5/
-      NAPLAN/
-        naplan-2016-reading-year-5.pdf
+      Folio-Original/
+        inference-skill-brief.pdf
+  Curriculum/
+    All Years/
+      ACARA-CC-BY/
+        reviewed-content-descriptions.pdf
 ```
 
-## Ingesting
+The subject folder must still match the names used by the application:
+`Mathematics`, `English`, `Reasoning`, or `Mathematics Methods`.
 
-**Set `DATABASE_URL` first if you want the material to reach the deployed app.**
-Without it the ingester writes to the local `rag_store/` only, which never
-leaves your machine.
+## Australian Curriculum material
 
-```powershell
-$env:DATABASE_URL="postgresql://..."          # the live database
-.venv\Scripts\python scripts\ingest_folder.py --dry-run
-.venv\Scripts\python scripts\ingest_folder.py
-.venv\Scripts\python scripts\rag_status.py    # confirm what landed
-```
+The Australian Curriculum website states that much of its content is licensed
+under CC BY 4.0, which permits commercial adaptation with attribution. It also
+lists exclusions, including logos, photographs, some third-party material and
+more restrictive resources. Review the specific page or download before use:
 
-Re-running is safe: a file that has been ingested before is replaced, not
-duplicated. Only `.pdf` is read. Word documents are skipped silently, so
-convert them first.
+https://www.australiancurriculum.edu.au/copyright-and-terms-of-use/
 
-If ingestion stops partway with a quota error, everything queued after that
-point never made it in. Re-run once quota resets and check `rag_status.py`.
+Do not assume that all ACARA material has the same licence. Past NAPLAN test
+materials have separate and much more restrictive terms:
 
-## Where to get sources
-
-Ordered by what actually moves booklet quality, given what is already ingested.
-
-### 1. Curriculum scope and sequence (fills the even-year gap)
-
-NAPLAN only runs in Years 3, 5, 7 and 9, so past papers can never ground
-Academic Accelerate in the even years. Scope-and-sequence documents can: file
-them under `All Years` and every year level retrieves them.
-
-- **SCSA (WA)**, free, official, already PDF, no conversion needed. Best fit.
-  https://k10outline.scsa.wa.edu.au/home/wa-curriculum/learning-areas/mathematics/p-10-mat-curriculum
-  https://k10outline.scsa.wa.edu.au/home/wa-curriculum/learning-areas/english/p-10-english-curriculum
-  Look for the Mathematics P-10, Years 7-10 Mathematics, Mathematics P-6, and
-  English P-10 scope-and-sequence PDFs.
-- **Australian Curriculum v9 (national)**, free and official, but the downloads
-  are `.docx` and the ingester reads `.pdf` only, so convert first.
-  https://www.australiancurriculum.edu.au/downloads/learning-areas/
-  QCAA mirrors the same content as browsable pages:
-  https://www.qcaa.qld.edu.au/p-10/aciq/version-9/learning-areas/p-10-mathematics
-
-### 2. Reasoning material (Scholarships has none)
-
-The Scholarships program currently generates ungrounded. The NSW Department of
-Education publishes free official Selective High School Placement Test sample
-papers with answer keys, covering Reading, Mathematical Reasoning, Thinking
-Skills and Writing. That maps straight onto `Reasoning/`. Prefer the
-department's own copies over the third-party sites that mirror them, and favour
-recent material: the test became computer-based in 2025.
-
-### 3. NAPLAN past papers
-
-Free and public, the biggest lift for NAPLAN quality:
 https://www.acara.edu.au/assessment/naplan
-Numeracy papers go under `Mathematics/`, reading/language/writing under
-`English/`. Note that public archives thin out after 2016, when the test moved
-to online adaptive delivery. The 2008-2011 and 2012-2016 sets may be the
-complete official offering.
 
-### 4. Other
+## Ingestion workflow
 
-- **WACE ATAR past papers and marking keys** for Methods Exam, from SCSA.
-  Methods only. Specialist is not a product line.
-- **Textbooks**, copyrighted. Fine privately to guide *style*, since generated
-  questions are new content rather than copies. Do not redistribute.
+1. Put the candidate source in a quarantine folder, not the approved library.
+2. Read the source's own copyright notice and the official website terms.
+3. Remove excluded pages, images, logos and third-party content.
+4. Complete the rights record.
+5. Have a second person review uncertain or high-value sources.
+6. Move only approved material into the structured source library.
+7. Run the ingester against a fresh test store first.
+8. Inspect retrieved chunks for restricted wording and bad metadata.
+9. Migrate only the reviewed store to production.
+10. Retain the rights register and attribution text for the life of the source.
 
-## Bulk downloading
+Never point `scripts/migrate_rag_to_postgres.py` at the current local store for
+a paid deployment. Build a clean store from approved sources.
 
-```powershell
-python scripts\download_pdfs.py <URL> --into "rag_sources\Mathematics\Year 5\NAPLAN"
-```
+## Ingesting approved material
 
-`--contains <text>` filters by URL path, `--dry-run` shows the plan. Existing
-files are skipped.
-
-ACARA listing pages mix every year and subject together, and one `--contains`
-filter cannot capture "year AND subject" safely. Dump everything into a staging
-folder and let the sorter route each file by filename:
+Set `DATABASE_URL` only after the test store has been reviewed. Without it the
+ingester writes to local `rag_store/`.
 
 ```powershell
-python scripts\download_pdfs.py <ACARA-page-URL> --into rag_sources\_staging
-python scripts\sort_naplan_staging.py --dry-run
-python scripts\sort_naplan_staging.py
-python scripts\ingest_folder.py
+.venv\Scripts\python.exe scripts\ingest_folder.py --dry-run
+.venv\Scripts\python.exe scripts\ingest_folder.py
+.venv\Scripts\python.exe scripts\rag_status.py
 ```
 
-`sort_naplan_staging.py` reads the year (`y3`/`yr5`/`year7`) and subject
-(`numeracy` to Mathematics; `reading`/`language`/`writing`/`conventions` to
-English) from each filename and files it under
-`rag_sources/<Subject>/<Year>/NAPLAN/`. Anything it cannot classify is left in
-`_staging` and listed at the end for you to move by hand.
-
-## Notes
-
-- Files loose at the top level of `rag_sources/` are skipped with a warning.
-- Everything here is gitignored: large, and some of it is copyrighted for
-  personal use only.
-- The local store lives in `rag_store/` and is also gitignored. Losing it just
-  means re-running the ingester, or re-migrating from Postgres.
+Re-running replaces a source rather than duplicating it. The current folder
+ingester reads PDF files. Everything under `rag_sources/` except this README is
+gitignored because raw source files may be large or licensed. The CSV rights
+register is the deliberate exception and remains tracked for audit history.

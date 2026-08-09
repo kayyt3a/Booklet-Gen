@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% from "_motifs.html" import pencil, book, star %}
-{% block title %}Create a booklet - Folio{% endblock %}
+{% from "_motifs.html" import pencil, book, star, hexagon, triangle %}
+{% block title %}Create a booklet - FolioAI{% endblock %}
 {% block body %}
 <div class="card">
   <div class="motifRow">
@@ -9,57 +9,94 @@
     <span class="ink-pale">{{ star(15) }}</span>
   </div>
   <h1>Create a practice booklet</h1>
-  <p class="sub">Choose a type, year, and topic. We build a validated PDF booklet
-    with a mini-lesson, practice questions, and a worked answer key.</p>
+  <p class="sub">Choose what the student is working towards, then personalise
+    the level and focus. We will build the printable PDF and check its answers.</p>
+  {% if payments_enabled %}
+    <div class="creditBanner">
+      <span><strong>{{ credits }}</strong> booklet credit{{ '' if credits == 1 else 's' }} available</span>
+      <a class="link" href="{{ url_for('payments.pricing') }}">Buy credits</a>
+    </div>
+  {% endif %}
 
   <form method="post" action="{{ url_for('views.generate') }}">
     {{ csrf_field() }}
-    <label for="program">Booklet type</label>
-    <select id="program" name="program" required onchange="onProgramChange()">
-      <option value="" disabled selected>Choose a type</option>
-      {% for key, p in programs.items() %}
-        <option value="{{ key }}" data-pick="{{ 'yes' if p.pick_subject else 'no' }}"
-                data-exam="{{ 'yes' if key in exam_programs else 'no' }}">
-          {{ p.label }}: {{ p.blurb }}
-        </option>
-      {% endfor %}
-    </select>
-
-    <div class="row">
-      <div>
-        <label for="year">Year level</label>
-        <select id="year" name="year" required>
-          <option value="" disabled selected>Year</option>
-          {% for y in years %}
-            <option value="{{ y }}" data-exam-year="{{ 'yes' if y in exam_years else 'no' }}">{{ y }}</option>
-          {% endfor %}
-        </select>
+    <fieldset class="formSection programPicker">
+      <legend><span class="stepBadge">1</span> Choose a booklet type</legend>
+      <div class="programGrid">
+        {% set icons = {'scholarships': hexagon, 'naplan': book,
+                        'accelerate': pencil, 'methods_exam': triangle} %}
+        {% set inks = {'scholarships': 'ink-navy', 'naplan': 'ink-navy',
+                       'accelerate': 'ink-orange', 'methods_exam': 'ink-orange'} %}
+        {% for key, p in programs.items() %}
+          <div class="programOption">
+            <input id="program_{{ key }}" type="radio" name="program"
+                   value="{{ key }}" required
+                   data-pick="{{ 'yes' if p.pick_subject else 'no' }}"
+                   data-exam="{{ 'yes' if key in exam_programs else 'no' }}"
+                   onchange="onProgramChange()">
+            <label for="program_{{ key }}">
+              <span class="programIcon {{ inks.get(key, 'ink-navy') }}">
+                {{ icons.get(key, book)(25) }}</span>
+              <span>
+                <strong>{{ p.label }}</strong>
+                <small>{{ p.blurb }}</small>
+              </span>
+              <span class="choiceMark" aria-hidden="true"></span>
+            </label>
+          </div>
+        {% endfor %}
       </div>
-      <div id="subjectField" style="display:none">
-        <label for="subject">Subject</label>
-        <select id="subject" name="subject">
-          <option value="" disabled selected>Subject</option>
-          {% for s in subjects %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
-        </select>
+    </fieldset>
+
+    <fieldset class="formSection">
+      <legend><span class="stepBadge">2</span> Personalise it</legend>
+      <div class="row">
+        <div>
+          <label for="year">Year level</label>
+          <select id="year" name="year" required>
+            <option value="" disabled selected>Select a year level</option>
+            {% for y in years %}
+              <option value="{{ y }}" data-exam-year="{{ 'yes' if y in exam_years else 'no' }}">{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div id="subjectField" hidden>
+          <label for="subject">Subject</label>
+          <select id="subject" name="subject">
+            <option value="" disabled selected>Select a subject</option>
+            {% for s in subjects %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+          </select>
+        </div>
       </div>
-    </div>
 
-    <label for="topic">Topic focus <span class="muted">(optional)</span></label>
-    <input id="topic" name="topic" type="text" placeholder="e.g. fractions and area">
+      <label for="topic">Topic focus <span class="muted">(optional)</span></label>
+      <input id="topic" name="topic" type="text"
+             maxlength="240" placeholder="For example, fractions and area">
+      <p class="fieldHelp">Leave this blank for a balanced mix at the selected year level.</p>
 
-    <label for="student_name">Student name</label>
-    <input id="student_name" name="student_name" type="text" placeholder="Alex" required>
+      <label for="student_name">Student name</label>
+      <input id="student_name" name="student_name" type="text"
+             maxlength="80" placeholder="For example, Alex" autocomplete="off" required>
+      <p class="fieldHelp">Printed on the cover and used to identify it in My booklets.</p>
+    </fieldset>
 
-    <div class="checkbox" id="termField">
-      <input id="term_plan" name="term_plan" type="checkbox">
-      <label for="term_plan" style="margin:0">Generate a full {{ term_weeks }}-week term plan
-        instead of a single booklet</label>
+    <div class="termChoice" id="termField">
+      <input id="term_plan" name="term_plan" type="checkbox" onchange="onTermChange()">
+      <label for="term_plan">
+        <span class="termCheck" aria-hidden="true"></span>
+        <span><strong>Build a full {{ term_weeks }}-week term plan</strong>
+          <small>{{ term_weeks }} progressively planned booklets, bundled in one ZIP download.</small>
+        </span>
+      </label>
     </div>
 
     <button type="submit" id="submitBtn">Generate booklet</button>
     <div class="hint" id="formNote">
-      Free to generate. This takes a couple of minutes, and the finished PDF is
-      saved to <a class="link" href="{{ url_for('views.library') }}">My booklets</a>.
+      <span id="formNoteText">
+        {% if payments_enabled %}Uses 1 booklet credit. {% endif %}This usually takes about two minutes.
+      </span>
+      The finished file is saved to
+      <a class="link" href="{{ url_for('views.library') }}">My booklets</a>.
     </div>
   </form>
 </div>
@@ -68,15 +105,14 @@
   // Exam programs (e.g. Methods Exam) produce a full examination paper, so they
   // have no subject picker, no term plan, and only senior year levels apply.
   function onProgramChange() {
-    var sel = document.getElementById('program');
-    var opt = sel.options[sel.selectedIndex];
+    var opt = document.querySelector('input[name="program"]:checked');
     var needsSubject = opt && opt.getAttribute('data-pick') === 'yes';
     var isExam = opt && opt.getAttribute('data-exam') === 'yes';
 
-    document.getElementById('subjectField').style.display = needsSubject ? 'block' : 'none';
+    document.getElementById('subjectField').hidden = !needsSubject;
     document.getElementById('subject').required = needsSubject;
 
-    document.getElementById('termField').style.display = isExam ? 'none' : 'flex';
+    document.getElementById('termField').hidden = isExam;
     if (isExam) document.getElementById('term_plan').checked = false;
 
     // Restrict the year dropdown to the years the chosen program supports.
@@ -85,20 +121,37 @@
     for (var i = 0; i < year.options.length; i++) {
       var o = year.options[i];
       if (!o.value) continue;
-      var allowed = !isExam || o.getAttribute('data-exam-year') === 'yes';
+      var allowed = isExam
+        ? o.getAttribute('data-exam-year') === 'yes'
+        : o.getAttribute('data-exam-year') !== 'yes';
       o.hidden = !allowed;
       o.disabled = !allowed;
       if (!allowed && o.selected) { o.selected = false; cleared = true; }
     }
     if (cleared) year.selectedIndex = 0;
 
-    document.getElementById('submitBtn').textContent =
-      isExam ? 'Generate exam paper' : 'Generate booklet';
-    document.getElementById('formNote').innerHTML = isExam
-      ? 'Produces a full practice paper with two sections and a marking key. '
-        + 'This takes a few minutes and is saved to My booklets.'
-      : 'Free to generate. This takes a couple of minutes, and the finished '
-        + 'PDF is saved to My booklets.';
+    updateAction(isExam);
+  }
+
+  function onTermChange() {
+    var opt = document.querySelector('input[name="program"]:checked');
+    updateAction(opt && opt.getAttribute('data-exam') === 'yes');
+  }
+
+  function updateAction(isExam) {
+    var isTerm = document.getElementById('term_plan').checked;
+    var button = document.getElementById('submitBtn');
+    var note = document.getElementById('formNoteText');
+    if (isExam) {
+      button.textContent = 'Generate exam paper';
+      note.textContent = '{% if payments_enabled %}Uses 1 booklet credit. {% endif %}Creates a full two-section practice paper with a marking key. This takes a few minutes.';
+    } else if (isTerm) {
+      button.textContent = 'Generate {{ term_weeks }}-week term plan';
+      note.textContent = '{% if payments_enabled %}Uses {{ term_weeks }} booklet credits. {% endif %}Creates {{ term_weeks }} booklets and takes longer than a single booklet. You can safely leave the page while it works.';
+    } else {
+      button.textContent = 'Generate booklet';
+      note.textContent = '{% if payments_enabled %}Uses 1 booklet credit. {% endif %}This usually takes about two minutes.';
+    }
   }
 </script>
 {% endblock %}

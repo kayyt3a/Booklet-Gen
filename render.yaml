@@ -1,46 +1,106 @@
-# Render Blueprint for the Folio web app.
-#
-# To deploy:
-#   1. Push this repo to GitHub (done).
-#   2. In Render: New > Blueprint, connect this repo. Render reads this file
-#      and creates the service below.
-#   3. When prompted, paste values for FLASK_SECRET_KEY and GEMINI_API_KEY
-#      (they are marked sync:false so they are NOT stored in the repo).
-#   4. Deploy. Render builds the Dockerfile and gives you a public URL.
-#
-# Plan notes:
-#   - `starter` because the free plan spins down after ~15 min idle and the
-#     next request cold-starts in 30-60s. That is survivable for a demo and
-#     not for a public site: the first visitor after a quiet spell is the one
-#     deciding whether this looks like a real product.
-#   - The `disk:` block below stays commented out on purpose. It exists to
-#     persist /data, but generated PDFs are archived as blobs in Postgres
-#     (db.save_job_file, served by views.download), and accounts, job history
-#     and the RAG library live there too. Nothing that matters is on the
-#     instance filesystem, so paying for a disk would buy nothing.
-
+# Render Blueprint for the paid FolioAI web app and its generation worker.
+# Secret values are entered in Render and are never stored in this file.
 services:
   - type: web
     name: folio
     runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
     envVars:
-      # Set these in the Render dashboard when prompted (never committed).
       - key: FLASK_SECRET_KEY
-        sync: false
+        generateValue: true
       - key: GEMINI_API_KEY
         sync: false
-      # Postgres connection string, from Neon / Supabase / Render Postgres.
-      # This is what makes accounts survive restarts AND gives the deployed
-      # app a real RAG library. Without it the app falls back to on-disk
-      # SQLite + Chroma, which are wiped whenever the instance restarts.
       - key: DATABASE_URL
         sync: false
-    # Only needed if PDFs ever stop being archived to Postgres. See the plan
-    # note at the top of this file before uncommenting: as things stand this
-    # would be paying for storage nothing reads.
-    # disk:
-    #   name: folio-data
-    #   mountPath: /data
-    #   sizeGB: 1
+      - key: FOLIO_REQUIRE_POSTGRES
+        value: "1"
+      - key: FOLIO_PUBLIC_URL
+        sync: false
+      - key: FOLIO_SUPPORT_EMAIL
+        sync: false
+      - key: FOLIO_ADMIN_EMAILS
+        sync: false
+      - key: FOLIO_BUSINESS_NAME
+        value: FolioAI
+      - key: FOLIO_BUSINESS_COUNTRY
+        value: Australia
+      - key: FOLIO_BUSINESS_NUMBER
+        sync: false
+      - key: FOLIO_BUSINESS_ADDRESS
+        sync: false
+      - key: FOLIO_SUPPORT_PHONE
+        sync: false
+      - key: FOLIO_JOB_MODE
+        # inline: the web service generates in a background thread,
+        # which is what this deployment has always done. Switch to
+        # queue only once the worker below is provisioned: in queue
+        # mode the web service only enqueues, so without a worker
+        # the site refuses every order (see generation_is_available).
+        value: inline
+      - key: FOLIO_REQUIRE_PAYMENTS
+        value: "1"
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_SINGLE
+        sync: false
+      - key: STRIPE_PRICE_TERM
+        sync: false
+      - key: FOLIO_REQUIRE_EMAIL_VERIFICATION
+        value: "1"
+      - key: FOLIO_EMAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_STARTTLS
+        value: "1"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: FOLIO_STORAGE_BUCKET
+        value: booklets
+      - key: FOLIO_COOKIE_SECURE
+        value: "1"
+
+# Background generation worker. Commented out because this account runs a
+# single web service today, and a Blueprint sync that created the worker
+# while the web service still said inline, or set queue while the worker
+# did not exist, would break generation in one direction or the other.
+#
+# To enable queue mode: uncomment this block, deploy the worker, confirm
+# /healthz reports worker healthy, then set FOLIO_JOB_MODE=queue above.
+#
+#   - type: worker
+#     name: folio-generator
+#     runtime: docker
+#     plan: starter
+#     maxShutdownDelaySeconds: 300
+#     dockerfilePath: ./Dockerfile
+#     dockerCommand: python -m booklet_gen.worker
+#     envVars:
+#       - key: GEMINI_API_KEY
+#         sync: false
+#       - key: DATABASE_URL
+#         sync: false
+#       - key: FOLIO_REQUIRE_POSTGRES
+#         value: "1"
+#       - key: SUPABASE_URL
+#         sync: false
+#       - key: SUPABASE_SERVICE_ROLE_KEY
+#         sync: false
+#       - key: FOLIO_STORAGE_BUCKET
+#         value: booklets
+#       - key: FOLIO_JOB_TIMEOUT
+#         value: "2700"
+#       - key: FOLIO_WORKER_POLL_SECONDS
+#         value: "2"

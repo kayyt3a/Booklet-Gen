@@ -10,7 +10,8 @@ Usage (PowerShell):
     .venv\\Scripts\\python scripts\\migrate_rag_to_postgres.py
 
 Re-running is safe: rows are keyed by source id and chunk ordinal, so a second
-run overwrites rather than duplicating.
+run overwrites rather than duplicating. Migration refuses a store containing
+chunks without approved rights metadata.
 """
 from __future__ import annotations
 
@@ -28,6 +29,32 @@ from booklet_gen.rag.store import (                              # noqa: E402
 )
 
 BATCH = 200
+
+
+def _rights_audit(metadatas: list[dict]) -> list[str]:
+    """Return failures for vector sources that lack approval provenance."""
+    failures: list[str] = []
+    by_source: dict[str, list[dict]] = {}
+    for metadata in metadatas:
+        item = metadata or {}
+        key = item.get("source_id") or item.get("source") or "unknown"
+        by_source.setdefault(str(key), []).append(item)
+    for source_id, rows in sorted(by_source.items()):
+        first = rows[0]
+        name = first.get("source") or source_id
+        decisions = {str(row.get("rights_decision") or "").casefold()
+                     for row in rows}
+        rights_ids = {str(row.get("rights_source_id") or "").strip()
+                      for row in rows}
+        review_dates = {str(row.get("rights_review_date") or "").strip()
+                        for row in rows}
+        if decisions != {"approved"}:
+            failures.append(f"{name}: rights_decision is missing or not approved")
+        if "" in rights_ids or len(rights_ids) != 1:
+            failures.append(f"{name}: rights_source_id is missing or inconsistent")
+        if "" in review_dates or len(review_dates) != 1:
+            failures.append(f"{name}: rights_review_date is missing or inconsistent")
+    return failures
 
 
 def main() -> int:
@@ -68,6 +95,15 @@ def main() -> int:
         print("Chroma returned no embeddings; cannot migrate without re-embedding.",
               file=sys.stderr)
         return 1
+
+    rights_failures = _rights_audit(metas)
+    if rights_failures:
+        print("RIGHTS AUDIT FAILED. Migration is blocked:", file=sys.stderr)
+        for failure in rights_failures:
+            print(f"  - {failure}", file=sys.stderr)
+        print("Rebuild the local store using scripts/ingest_folder.py and the "
+              "approved source-rights register.", file=sys.stderr)
+        return 3
 
     dim = len(embs[0])
     if dim != EMBED_DIM:

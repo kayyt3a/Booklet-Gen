@@ -1,4 +1,4 @@
-"""CLI entry point for Folio, the tutoring booklet generator.
+"""CLI entry point for FolioAI, the tutoring booklet generator.
 
 Two ways to generate a booklet:
 
@@ -29,7 +29,7 @@ def _slug(s: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Folio: generate a tutoring booklet PDF")
+    parser = argparse.ArgumentParser(description="FolioAI: generate a tutoring booklet PDF")
     parser.add_argument("description", nargs="?", default=None,
                         help="Free-text topic, e.g. 'Year 8 maths, fractions and ratios'. "
                              "Omit when using --program.")

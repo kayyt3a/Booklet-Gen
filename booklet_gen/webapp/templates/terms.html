@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Terms of use - FolioAI{% endblock %}
+{% block body %}
+<article class="card policyPage">
+  <p class="eyebrow">Last updated 6 August 2026</p>
+  <h1>Terms of use</h1>
+  <p>These terms apply when you use FolioAI, provided by {{ business.name }} in
+    {{ business.country }}. By creating an account or making a purchase, you
+    agree to them.</p>
+
+  <h2>Accounts</h2>
+  <p>You must provide an email you control, keep your password private, and be
+    authorised to submit any information about a student. Accounts are intended
+    for adults. Tell us promptly if you believe an account has been misused.</p>
+
+  <h2>Educational materials</h2>
+  <p>FolioAI uses automated systems to generate original practice materials.
+    Although answer checks are built into the process, generated content can
+    contain mistakes or unsuitable wording. An adult should review a booklet
+    before giving it to a student. FolioAI is not an official assessment body and
+    is not endorsed by ACARA, ACER, SCSA, or any examination authority.</p>
+
+  <h2>Credits and payment</h2>
+  <p>A single booklet or exam paper uses one booklet credit. A term plan uses
+    one credit per generated week. Credits are reserved when generation is
+    requested and automatically returned if the job fails. Prices and included
+    credits are displayed before Stripe Checkout. Credits have no cash value
+    and cannot be transferred between accounts. They do not expire while the
+    account remains active. Deleting an account permanently removes its unused
+    credits, so contact support first if a payment issue is unresolved.</p>
+
+  <h2>Refunds and Australian Consumer Law</h2>
+  <p>A technical generation failure automatically returns the reserved credits.
+    Report a materially incorrect, unsafe, unreadable, or substantially
+    off-topic booklet within 14 days of generation. We will offer a no-charge
+    replacement credit or supervised retry. If a replacement also fails, or the
+    failure is major, we will offer the appropriate refund for the affected paid
+    credit. We do not promise change-of-mind refunds after a credit has been
+    used.</p>
+  <p>If a paid service is not supplied, materially faulty, or otherwise fails to
+    meet a consumer guarantee under Australian Consumer Law, contact
+    <a class="link" href="mailto:{{ business.email }}">{{ business.email }}</a>.
+    Nothing in these terms excludes, restricts, or modifies rights that cannot
+    lawfully be excluded.</p>
+
+  <h2>Acceptable use</h2>
+  <p>Do not probe or disrupt the service, automate account creation, evade
+    usage safeguards, resell access, submit unlawful or infringing material,
+    or use FolioAI to harm another person. We may suspend access needed to protect
+    users or the service and will act reasonably when doing so.</p>
+
+  <h2>Your generated booklets</h2>
+  <p>You may use and print generated booklets for personal educational use with
+    students you teach or care for. You are responsible for checking whether
+    your inputs and intended use respect third-party rights. Do not imply that
+    a generated booklet is an official paper or is endorsed by another body.</p>
+
+  <h2>Availability and liability</h2>
+  <p>We aim to keep FolioAI available but cannot promise uninterrupted access or
+    that every generation will succeed. To the extent permitted by law, FolioAI
+    is supplied without additional guarantees beyond those expressly stated.
+    Any liability that cannot be excluded remains subject to applicable law.</p>
+
+  <h2>Changes and contact</h2>
+  <p>We may update the service and these terms. Material changes will be posted
+    here with a new date. Questions can be sent to
+    <a class="link" href="mailto:{{ business.email }}">{{ business.email }}</a>.</p>
+  <p class="businessDetails">{{ business.name }}{% if business.number %} &middot;
+    {{ business.number }}{% endif %}{% if business.address %} &middot;
+    {{ business.address }}{% endif %}</p>
+</article>
+{% endblock %}

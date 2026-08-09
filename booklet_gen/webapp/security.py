@@ -1,4 +1,4 @@
-"""Small, dependency-free security helpers for the Folio web app.
+"""Small, dependency-free security helpers for the FolioAI web app.
 
 Two things live here:
 
@@ -14,11 +14,12 @@ Two things live here:
 from __future__ import annotations
 
 import hmac
+import hashlib
 import logging
 import secrets
 from urllib.parse import urlparse
 
-from flask import abort, request, session
+from flask import abort, current_app, request, session
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +29,16 @@ CSRF_HEADER = "X-CSRF-Token"
 
 # Everything else (POST, PUT, PATCH, DELETE) has to carry a token.
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+
+def csrf_exempt(view):
+    """Mark one signed external callback as exempt from session CSRF.
+
+    This is only for endpoints such as Stripe webhooks that authenticate with
+    their own cryptographic signature and do not carry a browser session.
+    """
+    view._folio_csrf_exempt = True
+    return view
 
 
 def csrf_token() -> str:
@@ -67,6 +78,9 @@ def init_csrf(app) -> None:
     def _verify_csrf():
         if request.method in _SAFE_METHODS:
             return None
+        view = current_app.view_functions.get(request.endpoint or "")
+        if view is not None and getattr(view, "_folio_csrf_exempt", False):
+            return None
         expected = session.get(CSRF_SESSION_KEY) or ""
         submitted = _submitted_token()
         if not expected or not submitted or not hmac.compare_digest(
@@ -78,7 +92,7 @@ def init_csrf(app) -> None:
                 request.headers.get("Referer", "-"),
             )
             abort(400, description=(
-                "Your session expired or the request did not come from Folio. "
+                "Your session expired or the request did not come from FolioAI. "
                 "Go back, reload the page, and try again."
             ))
         return None
@@ -88,6 +102,19 @@ def rotate_csrf_token() -> str:
     """Mint a fresh token. Called when the session identity changes."""
     session[CSRF_SESSION_KEY] = secrets.token_urlsafe(32)
     return session[CSRF_SESSION_KEY]
+
+
+def enforce_rate_limit(scope: str, limit: int, window_seconds: int) -> None:
+    """Stop repeated sensitive requests using a hashed network identifier."""
+    from . import db
+    address = request.remote_addr or "unknown"
+    fingerprint = hashlib.sha256(address.encode("utf-8")).hexdigest()[:24]
+    if not db.rate_limit_hit(
+            f"{scope}:{fingerprint}", int(limit), int(window_seconds)):
+        abort(429, description=(
+            "Too many attempts were made from this connection. Wait a little "
+            "and try again."
+        ))
 
 
 def safe_redirect_target(target: str | None, fallback: str) -> str:

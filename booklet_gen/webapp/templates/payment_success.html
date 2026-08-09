@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% from "_motifs.html" import check %}
+{% block title %}Payment received - FolioAI{% endblock %}
+{% block body %}
+<div class="card narrow centerCard">
+  <div class="doneMark ink-green">{{ check(36) }}</div>
+  <h1>Payment received</h1>
+  <p class="sub">Your purchase has been added to your FolioAI account.</p>
+  <div class="balanceCallout"><strong>{{ credits }}</strong> booklet credit{{ '' if credits == 1 else 's' }} available</div>
+  <a class="btn" href="{{ url_for('views.index') }}">Create a booklet</a>
+  <a class="btn secondary" href="{{ url_for('views.account') }}">View purchase history</a>
+</div>
+{% endblock %}

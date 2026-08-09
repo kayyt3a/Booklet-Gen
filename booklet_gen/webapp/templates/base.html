@@ -1,16 +1,17 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-AU">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{% block title %}Folio{% endblock %}</title>
+  <title>{% block title %}FolioAI{% endblock %}</title>
   <meta name="description" content="{% block description %}Printable practice
     booklets for Years 1 to 10. A mini-lesson, worked examples, practice
     questions and a checked answer key, built in about two minutes.{% endblock %}">
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body>
+<body class="{{ 'signedIn' if g.user else 'signedOut' }}">
+  <a class="skipLink" href="#main-content">Skip to main content</a>
   <header>
     <div class="headerInner">
       <a class="brand" href="{{ url_for('views.index') }}">
@@ -20,32 +21,47 @@
           <path d="M16 9c-3-2.5-6.5-3.5-12-3.5v17c5.5 0 9 1 12 3.5"/>
           <path d="M16 9c3-2.5 6.5-3.5 12-3.5v17c-5.5 0-9 1-12 3.5"/>
         </svg>
-        FOLIO <span>practice booklets</span></a>
+        FOLIOAI <span>practice booklets</span></a>
       <nav class="nav">
         {% if g.user %}
           <a href="{{ url_for('views.index') }}"
              class="{{ 'active' if request.endpoint == 'views.index' }}">Create</a>
           <a href="{{ url_for('views.library') }}"
-             class="{{ 'active' if request.endpoint == 'views.library' }}">My booklets</a>
+             class="{{ 'active' if request.endpoint == 'views.library' }}">
+             <span class="desktopLabel">My booklets</span><span class="mobileLabel">Booklets</span></a>
           <a href="{{ url_for('views.account') }}"
              class="{{ 'active' if request.endpoint == 'views.account' }}">Account</a>
-          <a href="{{ url_for('auth.logout') }}">Log out</a>
+          <a href="{{ url_for('payments.pricing') }}"
+             class="{{ 'active' if request.endpoint == 'payments.pricing' }}">
+             <span class="desktopLabel">Buy credits</span><span class="mobileLabel">Credits</span></a>
+          {% if is_admin() %}<a href="{{ url_for('admin.index') }}">Admin</a>{% endif %}
+          <form class="navForm" method="post" action="{{ url_for('auth.logout') }}">
+            {{ csrf_field() }}<button type="submit">
+              <span class="desktopLabel">Log out</span><span class="mobileLabel">Logout</span>
+            </button>
+          </form>
         {% else %}
+          <a href="{{ url_for('payments.pricing') }}">Pricing</a>
           <a href="{{ url_for('auth.login') }}">Log in</a>
           <a href="{{ url_for('auth.signup') }}">Sign up</a>
         {% endif %}
       </nav>
     </div>
   </header>
-  <div class="wrap">
+  <main class="wrap" id="main-content">
     {% with messages = get_flashed_messages() %}
-      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+      {% for m in messages %}<div class="flash" role="status">{{ m }}</div>{% endfor %}
     {% endwith %}
     {% block body %}{% endblock %}
-  </div>
+  </main>
   <footer>
-    Folio, practice booklets for Years 1 to 10.
-    {% if g.user %}Signed in as {{ g.user['email'] }}.{% endif %}
+    <span>FolioAI, practice booklets for Years 1 to 10.</span>
+    <span class="footerLinks">
+      <a href="{{ url_for('public.support') }}">Support</a>
+      <a href="{{ url_for('public.privacy') }}">Privacy</a>
+      <a href="{{ url_for('public.terms') }}">Terms</a>
+    </span>
+    {% if g.user %}<span>Signed in as {{ g.user['email'] }}.</span>{% endif %}
   </footer>
 </body>
 </html>

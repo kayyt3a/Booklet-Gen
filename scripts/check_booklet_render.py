@@ -43,7 +43,8 @@ from reportlab.lib.units import cm                              # noqa: E402
 
 from booklet_gen import schemas as S                            # noqa: E402
 from booklet_gen.formatter import (                             # noqa: E402
-    CHROME_MARGIN, HOMEWORK_MIN_START_CM, PAGE_MARGIN, SPELLING_TEST_SPACES,
+    CHROME_MARGIN, HOMEWORK_MIN_START_CM, MULTIPLY, PAGE_MARGIN,
+    SPELLING_TEST_SPACES,
     _escape, _lesson_html, _make_styles, _prettify_fractions, _register_fonts,
     answer_line_labels, answer_unit, written_response_rules,
     apply_bold_markup, key_answer, ordered_questions, part_counts, part_labels,
@@ -672,8 +673,12 @@ for q in ("Homework 0.0", "Question 0.0", "Subtopic 4"):
 cover = " ".join(pages[0].split())    # the claim wraps across lines
 check("symbolically" not in cover.lower(),
       "the cover claims no symbolic proof it cannot show per answer")
-check("checked for accuracy" in cover,
-      "it claims what is true of every answer instead")
+# "checked for accuracy" was an absolute, and a booklet with an unticked
+# answer in its key contradicts it in its own notation. The claim now tracks
+# what the key actually shows, so this asserts the honest wording rather than
+# the old blanket one.
+check("has been checked" in cover,
+      "it claims only the checking the key can evidence")
 # "Show your working" belongs on a maths cover only; there is no working in an
 # English booklet.
 check("show your working" in cover,
@@ -932,6 +937,90 @@ if boundary_section:
           "the session band sits above the subtopic heading it starts on",
           f"session {n} / Part {part}")
 
+# ---------------------------------------------------------------------------
+# The Homework band's total must be the sum of the sittings printed under it
+#
+# A shipped Year 5 Maths booklet said "Split into 4 sessions, about 179 min in
+# total" over sittings of 31, 31, 31 and 29 min. Fifty-seven minutes were
+# unaccounted for: the band was quoting the whole homework half, including the
+# Final Challenge that has its own band and its own estimate below, and
+# including the mini-lessons of subtopics whose practice had moved to Homework,
+# which the sitting estimates did not count at all. A parent who plans a
+# Tuesday evening around 31 minutes and loses an hour does not buy again.
+# ---------------------------------------------------------------------------
+print("\nThe homework band adds up")
+
+trimmed_data = BookletData(
+    subject="Mathematics", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic=f"Topic {i}", subtopic=f"Subtopic {i + 1}", teaching=teaching(2),
+        # The last two subtopics did not fit the hour, so their practice moved
+        # to Homework and their mini-lessons print down there with it.
+        questions=[] if i >= 3 else [
+            vq(f"Question {i}.{j}: a box is {j + 2} cm long, 2 cm wide and 3 cm "
+               "high. What is its volume in cubic centimetres?")
+            for j in range(4)],
+        homework_questions=[
+            vq(f"Set {i} item {j}: calculate {j + 1}/12 + {j + 1}/12 and give "
+               "your answer in its lowest terms.", difficulty="easy")
+            for j in range(10)]) for i in range(5)],
+    challenge_questions=[
+        vq(f"Challenge {k}: a pool is 10 m by 5 m by 1.5 m. What is its volume "
+           "in cubic metres?", difficulty="hard") for k in range(8)])
+
+trimmed_plan = homework_session_plan(trimmed_data)
+trimmed_times = booklet_timing(trimmed_data)
+trimmed_pages = read(render_pdf(trimmed_data, tmp / "trimmed.pdf"))[0]
+trimmed_body = " ".join(
+    " ".join(trimmed_pages[:key_page(trimmed_pages)]).split())
+
+check(len(trimmed_plan) >= 2 and bool(trimmed_data.challenge_questions),
+      "the fixture splits into sittings and has a Final Challenge",
+      f"{len(trimmed_plan)} sessions")
+band_total = re.search(r"Split into \d+ sessions, about (\d+) min in total",
+                       trimmed_body)
+check(band_total is not None, "the Homework band states a total",
+      trimmed_body[trimmed_body.find("lock it in"):][:150])
+printed_sessions = [int(m) for m in re.findall(
+    r"Session \d+ of \d+ \| \d+ questions? \| about (\d+) min", trimmed_body)]
+check(len(printed_sessions) == len(trimmed_plan),
+      "every sitting prints its own estimate", str(printed_sessions))
+if band_total and printed_sessions:
+    check(int(band_total.group(1)) == sum(printed_sessions),
+          "the Homework total is exactly the sittings underneath it added up",
+          f"band {band_total.group(1)} vs sittings "
+          f"{' + '.join(str(m) for m in printed_sessions)} "
+          f"= {sum(printed_sessions)}")
+# And the Final Challenge is named as extra, not folded into that total.
+challenge_note = re.search(r"Final Challenge at the end adds about (\d+) min",
+                           trimmed_body)
+check(challenge_note is not None
+      and int(challenge_note.group(1)) == trimmed_times["challenge_minutes"],
+      "the Final Challenge is quoted separately, not inside the homework total",
+      trimmed_body[trimmed_body.find("lock it in"):][:170])
+if band_total:
+    check(int(band_total.group(1)) + trimmed_times["challenge_minutes"]
+          <= trimmed_times["homework_minutes"] + 3,
+          "and the two together are the homework half, give or take rounding",
+          f"{band_total.group(1)} + {trimmed_times['challenge_minutes']} vs "
+          f"{trimmed_times['homework_minutes']}")
+
+# A subtopic whose practice moved down reprints its mini-lesson in Homework, so
+# the sitting that holds it has to be charged for it.
+no_lesson = BookletData(
+    subject="Mathematics", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic=s.topic, subtopic=s.subtopic,
+        teaching=s.teaching if s.questions else None,
+        questions=list(s.questions),
+        homework_questions=list(s.homework_questions))
+        for s in trimmed_data.sections])
+check(sum(p["minutes"] for p in trimmed_plan)
+      > sum(p["minutes"] for p in homework_session_plan(no_lesson)) + 2,
+      "a moved subtopic's mini-lesson is charged to the sitting that prints it",
+      f"{sum(p['minutes'] for p in trimmed_plan)} min with the lessons, "
+      f"{sum(p['minutes'] for p in homework_session_plan(no_lesson))} without")
+
 print("\nWarm-up working space")
 
 
@@ -1160,7 +1249,7 @@ e_cover = " ".join(e_pages[0].split())
 check("show your working" not in e_cover,
       "an English cover does not ask for working it has no room for")
 check("symbolically" not in e_cover.lower()
-      and "checked for accuracy" in e_cover,
+      and "has been checked" in e_cover,
       "and claims the same accuracy check the maths cover does")
 check((e_key_start + 1) % 2 == 1,
       "the English key also starts on the front of a fresh sheet",
@@ -1348,7 +1437,149 @@ check(answer_unit("A tap fills a tank. What is the flow rate in litres per "
                   "minute?") is None,
       "no half a compound unit is guessed for a rate")
 
+
+# ---------------------------------------------------------------------------
+# A homework session that starts mid-subtopic says what it is
+#
+# year5-maths-sample.pdf page 10 opens "Session 2 of 2 | 9 questions | about
+# 12 min" and the next line is "2. Write 0.305 in words." No topic, no
+# question 1. The child sits down days later on a page that starts in the
+# middle of a list they cannot see.
+# ---------------------------------------------------------------------------
+print("\nA session starting mid-subtopic")
+
+cont = BookletData(
+    subject="Mathematics", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic="Decimals", subtopic="Place value in decimals", questions=[],
+        homework_questions=[
+            vq(f"Write the value of the digit 5 in {j}.305 as a fraction.",
+               difficulty="easy") for j in range(1, 15)])])
+cont_plan = homework_session_plan(cont)
+cont_pages = read(render_pdf(cont, tmp / "continued.pdf"))[0]
+cont_body = "\n".join(cont_pages[:key_page(cont_pages)])
+mid = [p for p in cont_plan[1:] if p["start"] > 0]
+check(len(cont_plan) > 1 and bool(mid),
+      "the fixture splits into more than one session",
+      str([p["start"] for p in cont_plan]))
+if mid:
+    check("(continued)" in cont_body,
+          "a session opening part way through a subtopic names it",
+          cont_body[cont_body.find("Session 2"):][:90].replace("\n", " | "))
+
+
+# ---------------------------------------------------------------------------
+# Markdown emphasis must never print, and must not become multiplication
+#
+# A real booklet printed "multiply the numerator and the denominator by the
+# x same x number" inside the highlighted box its topic is named after.
+# _STAR_MULT_RE read the model's *same* emphasis markers as multiplication,
+# because the \s* either side of the asterisk swallowed the space that was
+# supposed to protect them.
+# ---------------------------------------------------------------------------
+print("\nMarkdown emphasis")
+for raw, want, note in [
+    ("multiply the numerator and denominator by the *same* number",
+     "multiply the numerator and denominator by the same number",
+     "the shipped case"),
+    ("This is **really** important.", "This is **really** important.",
+     "double asterisks are left for apply_bold_markup"),
+    ("Calculate 15 * 4 + 7.", "Calculate 15 " + MULTIPLY + " 4 + 7.",
+     "real multiplication survives"),
+    ("Volume = 7 * 4 * 2", "Volume = 7 " + MULTIPLY + " 4 " + MULTIPLY + " 2",
+     "a chain of multiplications survives"),
+    ("Area = length * width", "Area = length " + MULTIPLY + " width",
+     "multiplication between words survives"),
+]:
+    got = _escape(raw)
+    check(got == want, f"emphasis: {note}", f"{got!r}")
+
+# ---------------------------------------------------------------------------
+# The cover claim must match the key it points at
+#
+# A real booklet promised "every answer in the key at the back has been checked
+# for accuracy" on page 1, then printed ten of ninety-nine answers with no tick
+# beside them. That tells a parent, in the product's own notation, that the
+# cover is false.
+# ---------------------------------------------------------------------------
+print("\nThe cover claims only what the key delivers")
+
+
+def vq2(text, verified):
+    return ValidatedQuestion(
+        question=Question(question=text, answer="24", working="8 x 3 = 24",
+                          difficulty="easy"),
+        verified=verified)
+
+
+def cover_text(all_verified):
+    d = BookletData(
+        subject="Mathematics", year_level="Year 5", student_name="Sam",
+        sections=[SubtopicOutput(
+            topic="Number", subtopic="Multiplying",
+            questions=[vq("What is 6 times 7?"),
+                       vq2("And 8 times 3?", all_verified)],
+            homework_questions=[])])
+    pages = read(render_pdf(d, tmp / f"cover-{all_verified}.pdf"))[0]
+    return " ".join(pages[0].split())
+
+
+all_ok = cover_text(True)
+some_unchecked = cover_text(False)
+check("Every answer in the key at the back has been checked" in all_ok,
+      "a fully verified booklet still says so")
+check("Every answer" not in some_unchecked,
+      "a booklet with an unchecked answer drops the absolute claim",
+      some_unchecked[:120])
+check("a tick marks an answer that has been checked" in some_unchecked,
+      "and points at the tick instead")
+
 print(f"\nPDFs written to {tmp}")
+
+
+# ---------------------------------------------------------------------------
+# Two readings under one subtopic: the key must say which is which
+#
+# year5-english-sample.pdf, key pages 19-20: "Making inferences" appeared once,
+# then answers 1 to 5 for 'The Last Bus to Mullaloo', then immediately another
+# run of 1 to 5 for 'From the Diary of Alice Weir' with nothing between them.
+# Numbering restarts under each passage, exactly as the student page numbers
+# it, so whoever was marking beside the student had no way to tell where the
+# second reading began and marked against the wrong set.
+# ---------------------------------------------------------------------------
+print("\nAnswer key: two readings in one subtopic")
+
+two_readings = BookletData(
+    subject="English", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic="Comprehension", subtopic="Making inferences",
+        passages=[P1, P2],
+        questions=[pq("Why did the kitten hide?", "p1", answer="It was afraid"),
+                   pq("What did she find?", "p1", answer="A collar"),
+                   pq("How does the crew feel?", "p2", answer="Frightened"),
+                   pq("What warned them?", "p2", answer="The falling glass")],
+        homework_questions=[])])
+tr_pages = read(render_pdf(two_readings, tmp / "two-readings.pdf"))[0]
+tr_key = "\n".join(tr_pages[key_page(tr_pages):])
+check(P1.title in tr_key and P2.title in tr_key,
+      "the key names both readings, so a restarted 1 is not ambiguous",
+      f"{P1.title in tr_key}/{P2.title in tr_key}")
+check(tr_key.index(P1.title) < tr_key.index(P2.title),
+      "and names them in the order the student met them")
+
+# One reading needs no label: the subtopic heading already says what it is.
+one_reading = BookletData(
+    subject="English", year_level="Year 5", student_name="Sam",
+    sections=[SubtopicOutput(
+        topic="Comprehension", subtopic="Making inferences",
+        passages=[P1],
+        questions=[pq("Why did the kitten hide?", "p1", answer="It was afraid"),
+                   pq("What did she find?", "p1", answer="A collar")],
+        homework_questions=[])])
+or_pages = read(render_pdf(one_reading, tmp / "one-reading.pdf"))[0]
+or_key = "\n".join(or_pages[key_page(or_pages):])
+check("Questions on" not in or_key,
+      "a subtopic with a single reading is not labelled needlessly")
 if failures:
     print(f"\n{len(failures)} FAILED:")
     for f in failures:

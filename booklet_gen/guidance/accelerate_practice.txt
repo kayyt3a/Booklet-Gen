@@ -1,0 +1,175 @@
+ACADEMIC ACCELERATE AUTHORING GUIDE
+
+Purpose
+
+Write original Mathematics and English practice for Australian students in
+Years 1 to 10. The booklet helps a student consolidate and get ahead of what
+their school is teaching, so it must match the year level's real curriculum
+expectations rather than a generic idea of the subject. This guide is an
+internal authoring specification. It is not an official curriculum document
+and must not be described as one.
+
+NON-NEGOTIABLE ORIGINALITY RULES
+
+- Start every lesson, passage, stimulus, diagram, question, answer and worked
+  solution from a blank page.
+- Never reproduce or closely paraphrase a question, passage, answer or marking
+  guide from a textbook, workbook, past assessment, commercial tutoring
+  resource or published test.
+- Never preserve a source item's distinctive combination of setting, names,
+  numbers, diagram, sentence order and required operation while changing only
+  surface details.
+- If reference material appears to contain an actual assessment item, passage
+  or marking guide, ignore that material completely. Use only the skill named
+  by the booklet topic and subtopic.
+- Do not call generated material official, authentic, released, endorsed or
+  approved by ACARA, a state authority, a school or a publisher.
+- Do not use an education-authority or publisher logo, and do not imitate the
+  visual layout of a published workbook or test paper.
+- A shared curriculum skill is not protected wording. Teach and assess the
+  skill using a fresh situation, fresh language, fresh values and a fresh
+  solution path.
+
+CURRICULUM SCOPE
+
+Australian schooling follows a published curriculum with six Mathematics
+strands (Number, Algebra, Measurement, Space, Statistics, Probability) and
+three English strands (Language, Literature, Literacy). Work to the year level
+requested. A booklet for a given year should sit mostly at that year's
+expectations, revisit the prior year where a skill depends on it, and offer a
+small number of accessible stretch items reaching into the next year.
+
+Do not teach a technique the student has almost certainly not met yet. A Year
+4 division question is solved by grouping, repeated subtraction or known
+facts, not by long division set out formally. A Year 6 area question uses a
+rectangle or triangle, not an integral. Where a topic legitimately spans
+several years, pitch the numbers and the language, not just the operation.
+
+MATHEMATICS BY YEAR BAND
+
+Years 1 and 2
+Counting, place value to 100 then 1000, part-part-whole thinking, addition and
+subtraction within 100, multiplication as equal groups and arrays, sharing and
+halving, halves quarters and eighths of shapes and collections, informal then
+formal units for length mass and capacity, duration and telling time to the
+half and quarter hour, naming and sorting two and three dimensional shapes,
+simple position and direction, tally marks and picture graphs, everyday chance
+language. Keep numbers friendly and the reading load low. One idea per
+question.
+
+Years 3 and 4
+Place value to tens of thousands, rounding, mental and written addition and
+subtraction, multiplication facts to ten times ten, division with and without
+remainders, unit fractions and equivalent fractions on a number line, decimals
+to hundredths, money and simple change, perimeter, area by counting squares,
+angles as turns and comparison to a right angle, symmetry, grid references,
+time to the minute and elapsed time, column graphs and simple data collection,
+chance described as likely, unlikely, certain or impossible. Word problems may
+carry two steps by Year 4.
+
+Years 5 and 6
+Place value to millions and thousandths, factors multiples and primes, order
+of operations, adding and subtracting fractions with related denominators,
+multiplying a fraction by a whole number, converting between fractions
+decimals and percentages, percentage of a quantity, integers and the number
+line, simple ratio in context, area of rectangles triangles and
+parallelograms, volume of rectangular prisms, angles on a straight line at a
+point and in a triangle, the Cartesian plane in the first quadrant then all
+four, translations reflections and rotations, mean and median, side by side
+column graphs, probability expressed as a fraction decimal or percentage.
+Multi step problems are appropriate. Require reasoning, not only computation.
+
+Years 7 and 8
+All four operations with integers and with fractions and decimals, index
+notation and prime factorisation, percentage increase and decrease, ratio rate
+and proportion, algebraic conventions, substitution, collecting like terms,
+expanding brackets, solving linear equations, plotting and interpreting linear
+relationships, circumference and area of circles, volume and surface area of
+prisms, angle relationships with parallel lines, congruence, Pythagoras,
+sampling, measures of centre and spread, stem and leaf plots, two step chance
+experiments and sample spaces. Algebraic reasoning should be genuine, not
+arithmetic wearing a letter.
+
+Years 9 and 10
+Index laws, scientific notation, surds at Year 10, expanding and factorising
+including quadratics, solving quadratic equations, simultaneous equations,
+gradient and intercept, linear and non linear graphs, similarity and scale
+factor, right angled trigonometry, surface area and volume of composite
+solids, bivariate data and scatterplots, box plots and comparing
+distributions, Venn diagrams and two way tables, conditional probability at
+Year 10. Expect students to justify a step, not only produce an answer.
+
+ENGLISH BY YEAR BAND
+
+Years 1 and 2
+Phonemic awareness, blends and digraphs, common sight words, sentence
+boundaries with capitals and full stops, nouns verbs and adjectives named in
+plain terms, literal comprehension of a short familiar text, sequencing
+events, predicting from a title or picture, writing a simple recount or
+narrative of a few sentences. Passages should be a few short paragraphs at
+most, with concrete everyday content.
+
+Years 3 and 4
+Paragraphing, the purpose and shape of narratives, information reports,
+procedures and persuasive texts, literal and inferential comprehension,
+synonyms and antonyms, prefixes and suffixes, commas in lists, apostrophes for
+contraction and possession, consistent verb tense, adverbs, similes, dialogue
+punctuation. Ask students to point to the words in the text that support an
+answer.
+
+Years 5 and 6
+Text structure and author purpose, point of view, persuasive devices,
+figurative language including metaphor and personification, simple compound
+and complex sentences, clauses, direct and indirect speech, homophones, word
+roots, summarising, comparing two short texts, editing for clarity. Written
+answers should be several sentences and should quote or refer to the text.
+
+Years 7 and 8
+The analytical paragraph with a topic sentence, evidence and explanation,
+theme, characterisation, narrative voice, tone and mood, rhetorical devices,
+active and passive voice, cohesion, nominalisation, close reading of a short
+poem, and how a media text positions a reader. Distinguish what a text says
+from how it works.
+
+Years 9 and 10
+Sustained analytical response, embedded quotation, evaluating the strength of
+an argument, recognising unsupported reasoning, register and style, deliberate
+ambiguity, comparing how two texts treat a shared idea, varied and controlled
+sentence structure. Questions should reward interpretation that is defended
+from the text rather than opinion alone.
+
+WRITING THE PASSAGE
+
+Passages must be written for this booklet. Vary length and form across a
+booklet so a student meets narrative, informative and persuasive writing
+rather than three of the same. Set them in places an Australian child
+recognises, and keep the situations affordable and ordinary. A passage exists
+to be questioned, so it must contain enough specific detail to support every
+question asked about it, including the inferential ones.
+
+DIFFICULTY AND PROGRESSION
+
+Within a subtopic, order questions from most accessible to most demanding. The
+first question should be solvable by a student who has just read the lesson.
+The last should require combining two ideas. Do not put the hardest question
+first, and do not let difficulty sawtooth. Across a term plan, later weeks
+should assume earlier weeks.
+
+QUALITY AND REVIEW
+
+- Every question must be answerable from the information given.
+- Every answer must be correct, and for Mathematics the working must reach it.
+- A question with one defensible answer must not be phrased as though it has
+  several, and an open question must not be marked as though it has one.
+- Check that the named year level, subject and subtopic all match the item.
+- Reject any item that reads as though it was recalled from a published
+  resource rather than written fresh.
+
+PUBLIC DESIGN SOURCES USED FOR THIS GUIDE
+
+The year band descriptions above summarise the publicly published Australian
+Curriculum learning areas for Mathematics and English, Foundation to Year 10,
+at the level of which skills belong to which year. Curriculum scope is factual
+and public. No assessment item, passage, marking guide, textbook exercise or
+commercial worksheet was consulted or reproduced in writing this guide, and
+none may be used when generating from it.

@@ -1,7 +1,7 @@
-# Folio
+# FolioAI
 
 An AI practice-booklet generator for Australian students. A parent or tutor
-picks a booklet type, year level, and topic, and Folio produces a printable PDF:
+picks a booklet type, year level, and topic, and FolioAI produces a printable PDF:
 a mini-lesson, worked examples, guided practice, independent questions, a
 cumulative final challenge, and an answer key whose maths has been verified
 symbolically rather than taken on trust.
@@ -10,7 +10,8 @@ It also produces full WACE-shaped practice examination papers for Year 12
 Mathematics Methods, with calculator-free and calculator-assumed sections,
 mark allocations, and a marking key.
 
-Free to use. Web app with accounts, plus a CLI.
+The customer web app includes one free booklet, then pay-as-you-go booklet
+credits. A CLI is also included for owner and development use.
 
 ## Product lines
 
@@ -30,7 +31,7 @@ revision weeks at the end.
 request ("Year 8 maths, fractions and ratios")
   -> Outline Parser        fast tier, Pydantic-validated JSON
   -> per subtopic, concurrently:
-       RAG retrieval       curriculum material for this subject and year
+       approved RAG        commercially reviewed curriculum material, when enabled
        Intro Writer        mini-lesson, worked example, guided examples
        Question Generator  one batch covering classwork and homework
        Validator           batched, one call per subtopic
@@ -79,18 +80,23 @@ each subtopic's failure rate is logged.
 
 ## Resource library (RAG)
 
-Curriculum documents and past papers are chunked, embedded with Gemini
-`gemini-embedding-001`, and retrieved per subtopic to calibrate style and
-difficulty against real material. Two interchangeable backends:
+Commercially reviewed curriculum material can be chunked, embedded with Gemini
+`gemini-embedding-001`, and retrieved per subtopic. Past assessment papers are
+not an approved commercial source merely because they are public. The NAPLAN
+product therefore keeps external RAG disabled and uses an internally written,
+copyright-safe authoring guide instead. See `rag_sources/README.md` before
+ingesting or migrating any source.
 
-- **Postgres + pgvector** when `DATABASE_URL` is set. Deployments use this, so
-  the live app has a real library.
+Two interchangeable backends:
+
+- **Postgres + pgvector** when `DATABASE_URL` is set. Deployments use this for
+  a freshly reviewed production library.
 - **On-disk ChromaDB** otherwise, for a local checkout.
 
 ```bash
 python scripts/ingest_folder.py        # ingest rag_sources/<Subject>/<Year>/<Tag>/
 python scripts/rag_status.py           # what is in the library, and what is missing
-python scripts/migrate_rag_to_postgres.py   # move a local library up, no re-embedding
+python scripts/migrate_rag_to_postgres.py   # approved stores only, never the old paper archive
 ```
 
 Retrieval filters on subject and year, with an `All Years` wildcard for
@@ -100,8 +106,9 @@ unreachable store returns no chunks and generation continues ungrounded.
 PDF text extraction is pypdf per page, falling back to Tesseract OCR for pages
 that extract almost nothing, which is common in workbook scans.
 
-Source files and the vector store are gitignored. Some material is copyrighted
-for personal use, so keep it that way.
+Raw source files and the vector store are gitignored. The auditable
+`rag_sources/source_rights.csv` register remains tracked. Personal-use material
+must remain outside the paid production store.
 
 ## Setup
 
@@ -135,19 +142,22 @@ Outputs land in `output/`, structured JSONL logs in `logs/`.
 
 ## Web app
 
-Flask, in `booklet_gen/webapp/`. Accounts gate access; generation is free and
-unlimited, with a per-account daily cap as an abuse guard since each booklet
-costs real API spend. Finished PDFs are stored in the database and listed on a
-per-account library page, because the hosting filesystem is ephemeral and
-anything left only on disk disappears on the next deploy.
+Flask, in `booklet_gen/webapp/`. Accounts gate access. New accounts receive one
+booklet credit, and Stripe Checkout sells single-booklet and term-plan credit
+packs. A per-account and whole-service daily cap limits abusive API spend.
+Generation jobs are stored in Postgres and claimed by a separate worker, so a
+web redeploy does not silently discard the queue. Finished files use private
+Supabase Storage when configured, with a database fallback.
 
-Passwords are hashed with werkzeug. Sessions are signed with `FLASK_SECRET_KEY`.
+Passwords are hashed with werkzeug. Sessions are signed with
+`FLASK_SECRET_KEY`. Production can require email verification, and password
+recovery uses signed, expiring links sent over SMTP.
 
 ## Deployment
 
-Dockerfile plus `render.yaml`, served by gunicorn. See `DEPLOY.md`. One Postgres
-backs both the accounts and the vector library, so `DATABASE_URL` is the single
-setting that makes a deployment durable.
+Dockerfile plus `render.yaml`, with a gunicorn web service and a durable
+generation worker. See `DEPLOY.md`. One Postgres backs accounts, payments,
+generation jobs, and the vector library.
 
 ## Layout
 
@@ -176,6 +186,9 @@ Not a full test suite, but the correctness-critical paths have checks:
 python scripts/check_calculus_validator.py   # 17 cases, right and wrong answers
 python scripts/check_postgres_backends.py    # accounts + pgvector, needs DATABASE_URL
 python scripts/check_library.py              # history, downloads, retention, isolation
+python scripts/check_copyright_safe_rag.py   # NAPLAN guide and restricted-RAG boundary
+python scripts/check_source_rights.py         # ingestion and migration approval gate
+python scripts/check_launch_readiness.py      # beta and live environment audit
 ```
 
 ## Known gaps
@@ -185,4 +198,5 @@ python scripts/check_library.py              # history, downloads, retention, is
   Science material in the library to ground it.
 - `google-generativeai` is deprecated upstream; a migration to `google-genai`
   is pending.
-- No password reset or email verification.
+- The policy templates must be reviewed and populated with the operator's real
+  business details before launch.

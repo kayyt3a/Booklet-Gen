@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from types import SimpleNamespace
 import tempfile
 from pathlib import Path
 
@@ -31,7 +32,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 logging.disable(logging.CRITICAL)
 
 from booklet_gen.agents.consistency import (          # noqa: E402
-    answer_is_trustworthy, reconcile_diagram_spec, refers_to_missing_figure)
+    answer_is_trustworthy, diagram_dimensionality_matches,
+    example_spoils_passage, implausible_magnitude, reconcile_diagram_spec,
+    refers_to_missing_figure)
 
 # (answer, working, should_be_trusted)
 ANSWER_CASES = [
@@ -55,6 +58,16 @@ ANSWER_CASES = [
     ("6", "My mistake, the answer is 6.", False),
     # A fraction answer contradicted by its own working.
     ("5/8", "3/8 + 2/8 = 6/8. So the answer is 6/8.", False),
+
+    # Self-correction in the ANSWER rather than the working. This slipped
+    # through: the contradiction check only judges a single-valued answer, and
+    # "75. Wait, recalculating: 80" reads as two numbers, so it was skipped
+    # while the working alone looked consistent.
+    ("75. Wait, recalculating: 80", "New volume = 5 x 4 x 4 = 80.", False),
+    ("20. Correction: 24", "6 x 4 = 24.", False),
+    ("Actually, my mistake, it is 14", "7 + 7 = 14.", False),
+    # An answer that merely discusses a student's error must keep its mark.
+    ("He added the denominators", "2/5 + 1/5 = 3/5, not 3/10.", True),
 ]
 
 # (spec, question, expect_changed, note)
@@ -171,6 +184,73 @@ FIGURE_CASES = [
 ]
 
 
+# A real-world quantity that is absurd by orders of magnitude. Page 10 of a
+# shipped Year 5 Maths booklet, in a subtopic called "Reading and writing
+# numbers up to millions", told a child that Perth is 3,421,000 km from
+# Melbourne, that a stadium holds 9,900,009 people and that a Queensland
+# national park is three times the size of Queensland.
+#
+# The keep cases matter more than the drop cases here. This guard deletes
+# customer content, and most of the keeps are real questions from the same
+# booklet, one of them on the very next page.
+# (question, should_be_dropped, note)
+MAGNITUDE_CASES = [
+    # The three shipped defects, in the wording they shipped in.
+    ("The distance from Perth to Melbourne is approximately 3,421,000 "
+     "kilometres. Write this distance in words.", True, "page 10, the shipped case"),
+    ("A large stadium can hold 9,900,009 spectators. Write this capacity in "
+     "words.", True, "page 11, the shipped case"),
+    ("A national park in Queensland covers an area of five million, seven "
+     "hundred and two km squared. Write this area in numerals.", True,
+     "page 11, written out in words"),
+    ("A national park in Queensland covers an area of 5,702,000 square "
+     "kilometres.", True, "the same claim in numerals"),
+    ("The population of a small country town is 2,050,100 people. Write this "
+     "number in words.", True, "page 10: a small town the size of Brisbane"),
+    ("The distance between Sydney and Brisbane is 912,000,000 metres.", True,
+     "wrong in metres is still wrong"),
+    ("The MCG is an oval that seats 9,900,009 people.", True,
+     "the capacity phrase can come either way round"),
+
+    # Real questions from the same booklet, which must survive untouched.
+    ("The distance from Perth to Adelaide is approximately 2695 kilometres. "
+     "Round this distance to the nearest 100 kilometres.", False,
+     "page 13, correct, and the second number is a rounding instruction"),
+    ("A game company sold 10,000,000 copies of its new release. Write this "
+     "number in words.", False, "page 11: no rule covers copies sold"),
+    ("A popular online video has been viewed six million, ninety-five "
+     "thousand, and forty-two times.", False, "page 11: views are unbounded"),
+    ("Write the number 'Four million, one hundred and twenty thousand, five "
+     "hundred and three' in numerals.", False, "page 10: no real-world claim"),
+    ("A charity event raised seven million, eight thousand, and sixteen "
+     "dollars.", False, "page 10: dollars are not in the table"),
+
+    # Correct versions of the flagged claims, and near neighbours.
+    ("The distance from Perth to Melbourne is about 3,400 km.", False,
+     "the truth passes"),
+    ("The distance from Perth to Melbourne is about 3,400,000 metres. Write "
+     "this in kilometres.", False, "a unit conversion is not an error"),
+    ("A large stadium can hold 100,000 spectators.", False, "about the MCG"),
+    ("Kakadu National Park covers about 19,800 km2.", False,
+     "the largest national park in the country"),
+    ("The area of Western Australia is 2,527,013 km squared.", False, ""),
+    ("The population of Australia is about 27,000,000 people.", False, ""),
+    ("The population of a town is 12,500 people. Round it to the nearest 1000.",
+     False, "a town the size of a town"),
+    ("The distance from the Earth to the Sun is about 150,000,000 kilometres.",
+     False, "both ends must be Australian towns, and one of these is a star"),
+    ("Light travels 9,460,000,000,000 kilometres in a year.", False,
+     "no rule claims to know how far light goes"),
+
+    # Sums and running totals are not claims about how big one thing is.
+    ("The distance from Perth to Melbourne is about 3,400 km. A truck makes "
+     "30 return trips, covering 204,000 km altogether.", False,
+     "the second figure is a total, and it is in another sentence"),
+    ("The stadium sold 2,000,000 seats over the season.", False,
+     "a season's sales are not a capacity"),
+]
+
+
 def _render_checks() -> list:
     """Draw the diagrams and read back every label matplotlib was asked for.
 
@@ -195,10 +275,22 @@ def _render_checks() -> list:
     diagrams.CACHE_DIR = tmp        # never read a cached PNG: we need the draw
     try:
         def labels(spec):
+            """The distinct labels drawn for one spec.
+
+            Distinct, not the raw sequence: render_diagram now draws a figure
+            more than once when the first attempt puts text on the page too
+            small to read (see _draw_legibly), so the same label legitimately
+            arrives several times. What this file is about is *which* strings
+            reach the page, and that is unchanged by how often they are drawn.
+            """
             drawn.clear()
             path = diagrams.render_diagram(dict(spec))
             assert path is not None and path.exists(), f"render failed: {spec}"
-            return list(drawn)
+            seen = []
+            for s in drawn:
+                if s not in seen:
+                    seen.append(s)
+            return seen
 
         # The shipped case, after reconciliation.
         spec, _ = reconcile_diagram_spec(
@@ -236,6 +328,48 @@ def _render_checks() -> list:
              "unknown": ["height"]})
         out.append((path is not None and path.exists(),
                     "a spec with an unknown side still renders a PNG"))
+
+        # A number line places its mark by value, so the position is the fact
+        # and the label is a claim about it. The shipped Year 5 booklet taught
+        # "round 347 to the nearest 100" with a line from 300 to 400, the dot
+        # at 347, and "300" written over the dot: the answer, printed on the
+        # point it is not. The position wins.
+        got = labels({"type": "number_line", "from": 300, "to": 400,
+                      "divisions": 10, "mark_at": [347], "label_at": ["300"]})
+        out.append(("347" in got and "300" in got and got.count("300") == 1,
+                    f"number line: the mark labelled '300' at 347 reads {got} "
+                    f"('300' survives only as the left endpoint)"))
+
+        # A label that already agrees is untouched, in every form a label
+        # legitimately takes.
+        got = labels({"type": "number_line", "from": 0, "to": 1,
+                      "divisions": 4, "mark_at": [0.75], "label_at": ["3/4"]})
+        out.append(("3/4" in got,
+                    f"number line: a correct fraction label is kept: {got}"))
+
+        got = labels({"type": "number_line", "from": 0, "to": 4,
+                      "divisions": 8, "mark_at": [1.5], "label_at": ["1 1/2"]})
+        out.append(("1 1/2" in got,
+                    f"number line: a correct mixed number is kept: {got}"))
+
+        # Words describe the point rather than naming it, so they are left be.
+        got = labels({"type": "number_line", "from": 0, "to": 100,
+                      "divisions": 10, "mark_at": [47], "label_at": ["just under half"]})
+        out.append(("just under half" in got,
+                    f"number line: a worded label is left alone: {got}"))
+
+        # A fraction label that disagrees is corrected like any other.
+        got = labels({"type": "number_line", "from": 0, "to": 1,
+                      "divisions": 4, "mark_at": [0.75], "label_at": ["1/2"]})
+        out.append(("1/2" not in got,
+                    f"number line: a fraction label naming the wrong point goes: {got}"))
+
+        # A mark off the end of the line is clipped away by the axes, so its
+        # label would float over empty space. Both go.
+        got = labels({"type": "number_line", "from": 0, "to": 10,
+                      "divisions": 10, "mark_at": [50], "label_at": ["50"]})
+        out.append(("50" not in got,
+                    f"number line: a mark past the end is dropped, label and all: {got}"))
     finally:
         Axes.text = original
         diagrams.CACHE_DIR = old_cache
@@ -309,6 +443,12 @@ def _pipeline_checks() -> list:
     questions = [
         Question(question="How many cubes are needed to build this object?",
                  answer="12", working="3 layers of 4."),
+        # Verified, correctly worked, and impossible. The judge marks the
+        # arithmetic and the arithmetic is right; only the world is wrong.
+        Question(question="A large stadium can hold 9,900,009 spectators. "
+                          "Write this capacity in words.",
+                 answer="Nine million, nine hundred thousand and nine",
+                 working="Read the digits in groups of three."),
         Question(question="Calculate 3/8 + 2/8.", answer="5/8",
                  working="3 + 2 = 5, keep the denominator."),
         Question(question="A storage box is built using 24 cubic blocks. The base "
@@ -348,8 +488,11 @@ def _pipeline_checks() -> list:
     kept = [vq.question.question for vq in out]
     checks = [(
         len(out) == 2 and not any("this object" in k for k in kept),
-        f"{len(out)} of 3 questions kept: the one pointing at a missing "
+        f"{len(out)} of 4 questions kept: the one pointing at a missing "
         "figure was dropped",
+    ), (
+        not any("9,900,009" in k for k in kept),
+        "and the stadium holding ten million people never reaches the page",
     )]
 
     box = [vq for vq in out if "storage box" in vq.question.question]
@@ -360,6 +503,64 @@ def _pipeline_checks() -> list:
         f"hidden (unknown={spec.get('unknown')})",
     ))
     return checks
+
+
+# A figure with the wrong number of dimensions. The critic's complaint was the
+# absence of diagrams; this is the failure that arrives with them. A child who
+# reads "volume" off a flat rectangle learns that a box is a square.
+DIMENSION_CASES = [
+    ({"type": "rectangle", "length": 5, "width": 4},
+     "Find the volume of a box 5 cm long, 4 cm wide and 3 cm high.",
+     False, "a flat rectangle cannot show a volume"),
+    ({"type": "cuboid", "length": 5, "width": 4, "height": 3},
+     "Find the volume of a box 5 cm long, 4 cm wide and 3 cm high.",
+     True, "a cuboid can"),
+    ({"type": "cuboid", "length": 8, "width": 5, "height": 2},
+     "Find the area of a rectangle 8 cm long and 5 cm wide.",
+     False, "a solid cannot show a flat area"),
+    ({"type": "rectangle", "length": 8, "width": 5},
+     "What is the perimeter of a rectangle 8 cm long and 5 cm wide?",
+     True, "perimeter is flat"),
+    ({"type": "cuboid", "length": 3, "width": 3, "height": 3},
+     "Find the surface area of this cube.",
+     True, "surface area is a property of a solid"),
+    ({"type": "rectangle", "length": 3, "width": 3},
+     "Find the surface area of this cube.",
+     False, "and so cannot be drawn flat"),
+    ({"type": "cuboid", "length": 20, "width": 10, "height": 10},
+     "A tank holds 2 litres of water.",
+     True, "capacity is a solid"),
+    # Left alone rather than risk dropping a good figure.
+    ({"type": "circle_slices", "slices": 4, "shaded": 3},
+     "What fraction of the circle is shaded?",
+     True, "a question naming neither is not ours to judge"),
+    ({"type": "cuboid", "length": 5, "width": 4, "height": 3},
+     "Find the area of the base, then use it to find the volume.",
+     True, "a question naming both is not ours to judge"),
+]
+
+
+# A lesson example that answers a question about a reading printed below it.
+# year5-english-sample.pdf page 11: "Let's do this one together, In 'The Last
+# Bus to Mullaloo', what can you infer is in the warm paper bag? Answer: Hot
+# food she bought with her bus money" with the story starting in the box
+# immediately underneath.
+# (example question, example answer, should_be_dropped, note)
+SPOILER_CASES = [
+    ("In 'The Last Bus to Mullaloo', what can you infer is in the paper bag?",
+     "Hot food she bought with her bus money", True,
+     "the shipped case: a quoted title"),
+    ("In The Last Bus to Mullaloo, how does Tess feel?", "Anxious", True,
+     "an unquoted title still gives it away"),
+    ("What does 'From the Diary of Alice Weir' suggest about the town?",
+     "That it is failing", True, "the second reading, quoted"),
+    ("Read this: 'The dog barked twice, then sat.' What can you infer?",
+     "It had heard something", False, "the lesson carrying its own excerpt"),
+    ("In 'A Walk to School', what happens first?", "She misses the bus", False,
+     "a title this section does not define"),
+    ("What does the word steadily suggest?", "Calmness", False,
+     "no title named at all"),
+]
 
 
 def main() -> int:
@@ -373,6 +574,27 @@ def main() -> int:
         failures += not ok
         label = "trusted" if got else "rejected"
         print(f"  {'ok  ' if ok else 'FAIL'}  {label:8} {answer[:26]!r:30} {why or ''}")
+
+    print("\nLesson examples that spoil a reading")
+    print("-" * 62)
+    passages = [SimpleNamespace(title="The Last Bus to Mullaloo"),
+                SimpleNamespace(title="From the Diary of Alice Weir")]
+    for question, answer, want, note in SPOILER_CASES:
+        example = SimpleNamespace(question=question, answer=answer)
+        got = example_spoils_passage(example, passages)
+        ok = got == want
+        failures += not ok
+        verdict = "dropped" if got else "kept"
+        print(f"  {'ok  ' if ok else 'FAIL'}  {verdict:8} {note}")
+
+    print("\nDiagram dimensionality")
+    print("-" * 62)
+    for spec, question, want, note in DIMENSION_CASES:
+        got = diagram_dimensionality_matches(spec, question)
+        ok = got == want
+        failures += not ok
+        kept = "kept" if got else "dropped"
+        print(f"  {'ok  ' if ok else 'FAIL'}  {kept:8} {note}")
 
     print("\nDiagram reconciliation")
     print("-" * 62)
@@ -409,6 +631,17 @@ def main() -> int:
         print(f"  {'ok  ' if ok else 'FAIL'}  {label:26} "
               f"{note or text[:40]}")
 
+    print("\nImpossible real-world quantities")
+    print("-" * 62)
+    for text, want_drop, note in MAGNITUDE_CASES:
+        reason = implausible_magnitude(text)
+        ok = bool(reason) == want_drop
+        failures += not ok
+        label = "drop" if reason else "keep"
+        print(f"  {'ok  ' if ok else 'FAIL'}  {label:5} {note or text[:44]}")
+        if reason and not ok:
+            print(f"          {reason}")
+
     wiring = _pipeline_checks()
     print("\nPipeline wiring")
     print("-" * 62)
@@ -423,8 +656,9 @@ def main() -> int:
         failures += not ok
         print(f"  {'ok  ' if ok else 'FAIL'}  {line}")
 
-    total = (len(ANSWER_CASES) + len(DIAGRAM_CASES) + len(LEAK_CASES)
-             + len(FIGURE_CASES) + len(rendered) + len(wiring) + len(teaching))
+    total = (len(ANSWER_CASES) + len(SPOILER_CASES) + len(DIMENSION_CASES) + len(DIAGRAM_CASES)
+             + len(LEAK_CASES) + len(FIGURE_CASES) + len(MAGNITUDE_CASES)
+             + len(rendered) + len(wiring) + len(teaching))
     print(f"\n{total - failures}/{total} behaved as expected")
     return 1 if failures else 0
 

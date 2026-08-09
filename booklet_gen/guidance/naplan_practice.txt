@@ -1,0 +1,162 @@
+COPYRIGHT-SAFE NAPLAN PRACTICE AUTHORING GUIDE
+
+Purpose
+
+Write original literacy and numeracy practice for Australian students. Match
+the broad capabilities, clarity and range of difficulty associated with
+NAPLAN preparation. Do not reproduce, reconstruct or disguise official test
+content. This guide is an internal authoring specification, not an official
+NAPLAN document.
+
+NON-NEGOTIABLE ORIGINALITY RULES
+
+- Start every lesson, passage, stimulus, diagram, question, writing prompt,
+  answer and worked solution from a blank page.
+- Never reproduce or closely paraphrase a past, current, demonstration or
+  trial test question, answer, passage, writing stimulus or marking guide.
+- Never preserve a source item's distinctive combination of setting, names,
+  numbers, diagram, sentence order and required operation while merely
+  changing surface details.
+- If reference material appears to contain an actual assessment item, answer,
+  passage, stimulus or marking guide, ignore that material completely. Use
+  only the skill named by the booklet topic and subtopic.
+- Do not predict a live writing prompt or claim that an item appeared, will
+  appear, or is likely to appear in an official test.
+- Do not call generated material official, authentic, released, endorsed or
+  approved by ACARA or another assessment authority.
+- Do not use an ACARA, NAPLAN, Australian Government or education-authority
+  logo. Do not imitate the visual layout of an official test paper.
+- A shared curriculum skill is not protected wording. Teach and assess the
+  skill using a fresh situation, fresh language, fresh values and a fresh
+  solution path.
+
+ASSESSMENT SCOPE
+
+NAPLAN is sat in Years 3, 5, 7 and 9. It covers four domains: reading,
+writing, conventions of language, and numeracy. Questions should primarily
+draw on skills expected from earlier schooling while allowing a small number
+of accessible stretch items. Follow the requested subtopic and year level,
+not memories of a particular paper.
+
+FolioAI is printable, so adapt digital interaction types to paper honestly.
+A drag-and-drop, hot-text or hotspot skill can become a short response,
+matching, circling, labelling or evidence-selection task. Test the same
+capability without claiming to reproduce the online interface.
+
+GENERAL ITEM-WRITING CONTRACT
+
+- Give each item one main purpose. Do not make difficult reading the hidden
+  barrier in a numeracy item unless interpreting language is the intended
+  skill.
+- Include every fact needed to solve the item. Do not depend on specialist
+  knowledge, paid experiences, brand knowledge or a particular household.
+- Make the expected response clear. Avoid trick wording, double negatives and
+  plausible alternative answers unless evaluating alternatives is the skill.
+- Ensure the supplied answer and working fully resolve the exact question.
+- Order a set from the plainest form of the skill to application, reasoning
+  and transfer. Include a genuine range of difficulty without trying to make
+  a child fail.
+- Use concise Standard Australian English, Australian spelling, metric units,
+  Australian dollars and unambiguous dates.
+- Use invented people and institutions. Real geography can be used when it is
+  accurate and culturally appropriate.
+- Do not describe a student's result as pass or fail. NAPLAN is one source of
+  information about learning, not a complete judgement of a child or school.
+
+NUMERACY
+
+Cover appropriate skills from number, algebra, measurement, space, statistics
+and probability. Mix fluency with application, problem-solving and reasoning.
+
+- Begin with a direct calculation or interpretation that reveals the target
+  skill cleanly.
+- Progress to one-step and multi-step applications using fresh everyday
+  situations such as timetables, maps, sport, gardens, recipes, transport,
+  collections, weather observations or community events.
+- Ask students to interpret tables, graphs, scales, diagrams and spatial
+  information, not merely calculate from prose.
+- Use realistic values and units. State rounding expectations and whether an
+  exact value is required.
+- For Years 7 and 9, include some arithmetic that can be completed without a
+  calculator. Do not make calculator access necessary unless the question
+  explicitly says it is allowed.
+- Create every diagram from the new question. A diagram must agree with the
+  labels, values, answer and working.
+- Wrong answer options are not available in the FolioAI booklet schema. Use a
+  short response or ask the student to identify and correct an invented
+  student's error instead.
+
+READING
+
+Use wholly original, complete texts. Across a booklet, vary informative,
+imaginative and persuasive writing. A passage should make sense without
+outside material and should finish rather than stopping like an extracted
+page.
+
+Across the questions attached to a passage, sample several capabilities:
+
+- locate an explicitly stated detail
+- connect details across sentences or paragraphs
+- make an inference supported by textual evidence
+- determine a word or phrase meaning from context
+- identify purpose, audience, viewpoint or text structure
+- explain the effect of a language choice
+- distinguish fact from opinion where appropriate
+- compare information or viewpoints when two short texts are supplied
+
+Every inference must have evidence in the passage. The model answer should
+name that evidence. Do not require one cultural interpretation where the text
+reasonably supports several.
+
+CONVENTIONS OF LANGUAGE
+
+Assess spelling first as a skill in meaningful context, then grammar and
+punctuation in Standard Australian English.
+
+- Use original sentences and short paragraphs.
+- Test one clear convention at a time before combining conventions.
+- For spelling, use age-appropriate sound, letter-pattern, morphology and
+  word-origin knowledge. Do not rely only on spotting a visually odd word.
+- For grammar, include word classes, agreement, tense, clauses, sentence
+  structure, reference and cohesion at the requested level.
+- For punctuation, make meaning matter. Ask what a mark changes or where it
+  clarifies the sentence, not only what the mark is called.
+- Do not present a home dialect or a student's identity as defective. The
+  task is to recognise and use Standard Australian English in the stated
+  context.
+
+WRITING
+
+NAPLAN writing asks for a continuous narrative or persuasive response. A
+FolioAI practice prompt must be newly invented and must not imitate the theme,
+images or wording of a released or remembered prompt.
+
+- A narrative prompt should support an orientation, a developing problem or
+  tension, and a satisfying resolution without prescribing the whole plot.
+- A persuasive prompt should support a clear position, developed reasons and
+  a conclusion. It must not require specialist facts for a fair response.
+- Use topics on which children can draw from imagination, observation and
+  ordinary school or community life.
+- Practise both narrative and persuasive writing over time. Never suggest
+  that one form is predicted for the next test.
+- Short booklet items can practise planning, paragraph order, cohesion,
+  sentence craft, editing and audience awareness. Do not imply that a short
+  response is equivalent to completing a full writing task.
+
+QUALITY AND REVIEW
+
+Before accepting an item, check that it is original, solvable, age-appropriate,
+free of restricted source wording, and matched to the stated answer. Check
+that names, settings and activities are varied without tokenism. An adult
+should review generated material before it is given to a child.
+
+PUBLIC DESIGN SOURCES USED FOR THIS GUIDE
+
+These sources define broad public facts and assessment capabilities. They are
+not banks of wording to reuse.
+
+- NAPLAN overview and four domains: https://www.nap.edu.au/naplan
+- What's in the tests: https://www.nap.edu.au/naplan/whats-in-the-tests
+- NAPLAN Assessment Framework: https://www.nap.edu.au/docs/default-source/naplan/naplan-assessment-framework.pdf
+- Public demonstration site description: https://www.nap.edu.au/naplan/public-demonstration-site
+- Australian Curriculum copyright terms: https://www.australiancurriculum.edu.au/copyright-and-terms-of-use/

@@ -7,8 +7,25 @@ here: nothing else in the codebase hard-codes these names.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
+
+
+GUIDANCE_DIR = Path(__file__).resolve().parent / "guidance"
+
+# External material is a production safety boundary, not a convenience toggle.
+# Leave this unset for FolioAI's clean-room mode. It may only be set after every
+# source in the production store, plus any network image workflow, has completed
+# a commercial-rights review.
+EXTERNAL_CONTENT_ENV = "FOLIO_ALLOW_REVIEWED_EXTERNAL_CONTENT"
+
+# Only these independently authored products are offered to customers by
+# default. CLI users can still address every entry in PROGRAMS. A reviewed
+# product must be named explicitly before the web app will display or accept it.
+WEB_PROGRAM_ALLOWLIST_ENV = "FOLIO_WEB_PROGRAM_ALLOWLIST"
+DEFAULT_WEB_PROGRAMS = ("naplan", "accelerate")
 
 
 @dataclass(frozen=True)
@@ -19,6 +36,9 @@ class Program:
     subjects: tuple[str, ...]      # subject engines to run (empty = parent picks)
     pick_subject: bool             # parent chooses the subject (Academic Accelerate)
     blurb: str                     # one-line description for menus
+    guidance_file: Optional[str] = None
+    year_guidance_pattern: Optional[str] = None
+    use_rag: bool = True
 
     def describe(self, subject: str, year_level: str, topic: Optional[str]) -> str:
         """Build the free-text description the outline parser expects, for one
@@ -39,6 +59,24 @@ class Program:
         # accelerate (or any subject-driven program)
         return f"{year_level} {subject}{t}"
 
+    def authoring_guidance(self, year_level: Optional[str] = None) -> Optional[str]:
+        """Load base instructions and an optional year-specific supplement.
+
+        Calls without a year keep the original behaviour. A missing supplement
+        is harmless so the four NAPLAN year guides can be added incrementally.
+        """
+        parts: list[str] = []
+        if self.guidance_file:
+            path = GUIDANCE_DIR / self.guidance_file
+            parts.append(path.read_text(encoding="utf-8").strip())
+        if self.year_guidance_pattern and year_level:
+            digits = "".join(ch for ch in year_level if ch.isdigit())
+            if digits:
+                path = GUIDANCE_DIR / self.year_guidance_pattern.format(year=digits)
+                if path.is_file():
+                    parts.append(path.read_text(encoding="utf-8").strip())
+        return "\n\n".join(part for part in parts if part) or None
+
 
 PROGRAMS: dict[str, Program] = {
     "scholarships": Program(
@@ -56,6 +94,14 @@ PROGRAMS: dict[str, Program] = {
         subjects=("Mathematics", "English"),
         pick_subject=False,
         blurb="NAPLAN-style numeracy and literacy in one booklet.",
+        guidance_file="naplan_practice.txt",
+        year_guidance_pattern="naplan_year_{year}.txt",
+        # The existing vector library contains past assessment papers whose
+        # terms do not permit commercial app use. Keep external retrieval off
+        # for this product until the store is rebuilt entirely from reviewed,
+        # commercially permitted sources. The internal guide above still
+        # reaches every generation stage.
+        use_rag=False,
     ),
     "accelerate": Program(
         key="accelerate",
@@ -64,6 +110,12 @@ PROGRAMS: dict[str, Program] = {
         subjects=(),
         pick_subject=True,
         blurb="Curriculum revision to help a student get ahead at school. Pick the subject.",
+        # Accelerate is a launch product and production runs clean-room, so
+        # external retrieval is off for it exactly as it is for NAPLAN. Without
+        # a guide it would be the only customer-facing product generating with
+        # no curriculum grounding at all.
+        guidance_file="accelerate_practice.txt",
+        use_rag=False,
     ),
     "methods_exam": Program(
         key="methods_exam",
@@ -105,3 +157,31 @@ def get_program(key: str) -> Program:
             f"Unknown program {key!r}. Choose one of: {', '.join(PROGRAMS)}"
         )
     return PROGRAMS[k]
+
+
+def reviewed_external_content_enabled() -> bool:
+    """True only after the production external-content review is approved."""
+    return os.environ.get(EXTERNAL_CONTENT_ENV, "").strip() == "1"
+
+
+def program_external_rag_enabled(program: Program) -> bool:
+    """Effective RAG permission for a program, including the global gate."""
+    return program.use_rag and reviewed_external_content_enabled()
+
+
+def web_program_keys() -> tuple[str, ...]:
+    """Customer program keys, fail-closed to the reviewed default set."""
+    configured = os.environ.get(WEB_PROGRAM_ALLOWLIST_ENV)
+    if configured is None:
+        requested = DEFAULT_WEB_PROGRAMS
+    else:
+        requested = tuple(
+            key.strip().lower() for key in configured.split(",") if key.strip()
+        )
+    requested_set = set(requested)
+    return tuple(key for key in PROGRAMS if key in requested_set)
+
+
+def customer_programs() -> dict[str, Program]:
+    """Programs the website may display and accept in the current process."""
+    return {key: PROGRAMS[key] for key in web_program_keys()}

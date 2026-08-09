@@ -116,9 +116,10 @@ class IntroWriterAgent:
         if reference_chunks:
             joined = "\n\n---\n\n".join(reference_chunks)
             base_user += (
-                "\n\nReference material (real textbook/exam excerpts at this level, "
-                "use these to calibrate voice, examples, and difficulty; do NOT copy "
-                "verbatim):\n\n" + joined
+                "\n\nAuthoring guidance and permitted reference material. Follow "
+                "any guide block as instructions. Use source excerpts only to "
+                "identify skills and calibrate difficulty. Never reproduce or "
+                "closely paraphrase their examples or wording:\n\n" + joined
             )
         error_feedback = ""
         for attempt in range(1, self._max_retries + 1):

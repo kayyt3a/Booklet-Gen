@@ -68,6 +68,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -81,6 +82,92 @@ LINE_WIDTH = 1.8
 
 
 UNKNOWN_LABEL = "?"
+
+DPI = 180
+
+# Every figure here is drawn large and then scaled bodily into a small box on
+# the page by the formatter, so the size a label is written at says nothing
+# about the size it prints at. A figure authored at 4.9 inches wide and placed
+# 2.4 inches wide loses half of everything written on it, including the
+# measurements the question turns on.
+#
+# DIAGRAM_PRINT_BOX_PT is the *smallest* box the formatter scales a diagram
+# into (WE_IMG_WIDTH x WE_IMG_HEIGHT in formatter.py, 6cm x 4cm). Question
+# figures get a larger box and so come out larger still. Sizing for the
+# smaller box therefore covers both.
+# scripts/check_diagram_legibility.py asserts these two stay in agreement.
+DIAGRAM_PRINT_BOX_PT = (6 * 72 / 2.54, 4 * 72 / 2.54)
+# Body text in the booklet is around 10pt. A measurement written on a figure
+# is read at a glance, not in a paragraph, so 9pt is a floor rather than a
+# target. The "not to scale" caption is a footnote and may sit lower.
+MIN_DIAGRAM_LABEL_PT = 9.0
+MIN_DIAGRAM_NOTE_PT = 7.0
+# The compare composite draws its own labels with Pillow rather than
+# matplotlib, so it applies the same floor through its own layout.
+MIN_COMPARE_LABEL_PT = MIN_DIAGRAM_LABEL_PT
+# A figure that cannot be made legible without swamping the drawing is
+# stopped here rather than growing without bound.
+_MAX_FONT_SCALE = 4.0
+# Clear the floor by a little, so rounding cannot drop text back under it.
+_FLOOR_MARGIN = 1.03
+
+
+class _Fonts:
+    """The font sizes one figure uses, and the floor each must clear in print.
+
+    Renderers ask for sizes through this rather than writing `fontsize=11`,
+    because 11 is a size on a canvas nobody looks at. Recording the request
+    lets render_diagram measure the finished PNG, work out what the formatter
+    will scale it by, and re-draw at a larger size if anything lands under its
+    floor. One instance per render, so concurrent subtopics cannot collide.
+    """
+
+    def __init__(self, scale: float = 1.0) -> None:
+        self.scale = scale
+        self.used: list[tuple[float, float]] = []   # (size drawn, floor in print)
+
+    def label(self, base: float = 11.0) -> float:
+        """A measurement or value the child has to read."""
+        return self._add(base, MIN_DIAGRAM_LABEL_PT)
+
+    def note(self, base: float = 7.0) -> float:
+        """Secondary caption text."""
+        return self._add(base, MIN_DIAGRAM_NOTE_PT)
+
+    def _add(self, base: float, floor: float) -> float:
+        pt = base * self.scale
+        self.used.append((pt, floor))
+        return pt
+
+    def shortfall(self, png_w: int, png_h: int) -> float:
+        """How many times too small the worst text is once printed.
+
+        1.0 or less means everything clears its floor. The scale factor is
+        exactly the one formatter._make_image applies: the figure DPI cancels,
+        leaving points on the page per point in the figure.
+
+        Aims a little over the floor rather than exactly at it. Landing on the
+        boundary makes the floor a coin toss decided by rounding, and a floor
+        that is sometimes missed is not a floor.
+        """
+        if not self.used:
+            return 1.0
+        box_w, box_h = DIAGRAM_PRINT_BOX_PT
+        px_to_pt = min(box_w / png_w, box_h / png_h, 1.0)
+        worst = 1.0
+        for pt, floor in self.used:
+            printed = pt * DPI / 72 * px_to_pt
+            if printed > 0:
+                worst = max(worst, floor * _FLOOR_MARGIN / printed)
+        return worst
+
+
+# Where the search for a compare label size starts and stops. The ceiling only
+# binds on a composite so wide that no font size can be both legible and in
+# proportion; growing without bound there would push the figures themselves
+# down to nothing.
+_COMPARE_LABEL_PX_MIN = 26
+_COMPARE_LABEL_PX_MAX = 160
 
 
 def _dim_label(spec: dict, key: str, value: float, unit_suffix: str) -> str:
@@ -102,7 +189,7 @@ def _side_rotation(label: str) -> int:
     return 0 if label == UNKNOWN_LABEL else 90
 
 
-def _scale_note(ax, spec: dict) -> None:
+def _scale_note(ax, spec: dict, f: _Fonts) -> None:
     """Caption a figure whose unknown side is still drawn in proportion.
 
     Hiding the label stops the number being printed, but the shape is drawn
@@ -113,7 +200,7 @@ def _scale_note(ax, spec: dict) -> None:
         return
     ax.annotate("Diagram not to scale", xy=(0.5, -0.06),
                 xycoords="axes fraction", ha="center", va="top",
-                fontsize=7, color=LINE_COLOR, alpha=0.75)
+                fontsize=f.note(7), color=LINE_COLOR, alpha=0.75)
 
 
 def _cache_path(spec: dict) -> Path:
@@ -142,16 +229,46 @@ def render_diagram(spec: dict) -> Optional[Path]:
         # Import matplotlib lazily so unused installs pay no import cost.
         import matplotlib
         matplotlib.use("Agg")
-        renderer(spec, out)
+        _draw_legibly(renderer, spec, out, kind)
         return out
     except Exception as e:
         log.warning("diagram.render_failed", extra={"type": kind, "error": str(e)[:200]})
         return None
 
 
+def _draw_legibly(renderer, spec: dict, out: Path, kind: str) -> None:
+    """Draw the figure, then redraw it larger if its text prints too small.
+
+    Sizing the text up front is not enough: matplotlib saves with a tight
+    bounding box, so a bigger label makes a bigger canvas, which the formatter
+    then scales down harder. The only honest measure is the finished PNG, so
+    that is what this measures, and it re-draws until the worst text on the
+    figure clears its floor.
+    """
+    from PIL import Image as PILImage
+
+    scale = 1.0
+    for _ in range(6):
+        fonts = _Fonts(scale)
+        renderer(spec, out, fonts)
+        if not fonts.used:
+            return               # nothing written on it, nothing to read
+        with PILImage.open(out) as img:
+            png_w, png_h = img.size
+        shortfall = fonts.shortfall(png_w, png_h)
+        if shortfall <= 1.001:
+            return
+        nxt = min(scale * shortfall, _MAX_FONT_SCALE)
+        if nxt <= scale * 1.001:
+            log.info("diagram.label_size_capped",
+                     extra={"type": kind, "scale": round(scale, 2)})
+            return
+        scale = nxt
+
+
 # ---- individual renderers ----
 
-def _circle_slices(spec: dict, out: Path) -> None:
+def _circle_slices(spec: dict, out: Path, f: _Fonts) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.patches import Wedge, Circle
 
@@ -161,7 +278,7 @@ def _circle_slices(spec: dict, out: Path) -> None:
         raise ValueError(f"slices must be 2-24, got {slices}")
     shaded = max(0, min(shaded, slices))
 
-    fig, ax = plt.subplots(figsize=(2.4, 2.4), dpi=180)
+    fig, ax = plt.subplots(figsize=(2.4, 2.4), dpi=DPI)
     # Shaded wedges: wedges are drawn CCW from the theta1 angle.
     wedge_angle = 360.0 / slices
     for i in range(slices):
@@ -192,7 +309,7 @@ def _circle_slices(spec: dict, out: Path) -> None:
     plt.close(fig)
 
 
-def _bar_model(spec: dict, out: Path) -> None:
+def _bar_model(spec: dict, out: Path, f: _Fonts) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
 
@@ -204,7 +321,7 @@ def _bar_model(spec: dict, out: Path) -> None:
 
     width_per = 0.4
     total_w = parts * width_per
-    fig, ax = plt.subplots(figsize=(min(6.0, total_w + 0.5), 0.9), dpi=180)
+    fig, ax = plt.subplots(figsize=(min(6.0, total_w + 0.5), 0.9), dpi=DPI)
     for i in range(parts):
         x = i * width_per
         face = SHADE_COLOR if i < shaded else "white"
@@ -220,7 +337,58 @@ def _bar_model(spec: dict, out: Path) -> None:
     plt.close(fig)
 
 
-def _number_line(spec: dict, out: Path) -> None:
+_PLAIN_NUMBER = re.compile(r"^-?\d+(?:\.\d+)?$")
+_PLAIN_FRACTION = re.compile(r"^(-?\d+)\s*[/⁄]\s*(\d+)$")
+_MIXED_NUMBER = re.compile(r"^(-?\d+)\s+(\d+)\s*[/⁄]\s*(\d+)$")
+
+
+def _label_value(text: str) -> Optional[float]:
+    """The value a mark's label states, or None if it does not state one.
+
+    Only a label that is *entirely* a number counts: "347", "3.5", "3/4",
+    "1 1/2". Anything with words in it ("about 350", "x") is describing the
+    point rather than naming it, and is left alone.
+    """
+    s = str(text).strip()
+    if _PLAIN_NUMBER.match(s):
+        return float(s)
+    m = _MIXED_NUMBER.match(s)
+    if m and float(m.group(3)):
+        whole = float(m.group(1))
+        part = float(m.group(2)) / float(m.group(3))
+        return whole - part if whole < 0 else whole + part
+    m = _PLAIN_FRACTION.match(s)
+    if m and float(m.group(2)):
+        return float(m.group(1)) / float(m.group(2))
+    return None
+
+
+def _mark_label(text: str, mark: float) -> str:
+    """The text to print above a highlighted point, corrected if it lies.
+
+    A number line's mark is placed by its value, so the position is the fact
+    and the label is a claim about it. When the two disagree the figure
+    contradicts itself, and the child is asked to believe that the point
+    sitting between two ticks is a value it plainly is not.
+
+    This is not hypothetical. A Year 5 booklet teaching "round 347 to the
+    nearest 100" drew a line from 300 to 400, put the dot at 347, and wrote
+    "300" over it: the model labelled the mark with the answer instead of the
+    number being rounded. A prompt cannot be relied on to stop that, but the
+    spec contradicts itself in a way that is plain to read, so the position
+    wins and the label is set to the value actually marked.
+    """
+    stated = _label_value(text)
+    if stated is None:
+        return str(text)
+    if abs(stated - mark) <= max(1e-9, abs(mark) * 1e-9):
+        return str(text)
+    log.info("diagram.mark_label_corrected",
+             extra={"claimed": str(text)[:20], "marked": mark})
+    return _pretty_num(mark)
+
+
+def _number_line(spec: dict, out: Path, f: _Fonts) -> None:
     import matplotlib.pyplot as plt
     lo = float(spec.get("from", 0))
     hi = float(spec.get("to", 1))
@@ -230,7 +398,7 @@ def _number_line(spec: dict, out: Path) -> None:
     if hi <= lo or divisions < 1 or divisions > 40:
         raise ValueError("invalid number_line spec")
 
-    fig, ax = plt.subplots(figsize=(5.5, 1.0), dpi=180)
+    fig, ax = plt.subplots(figsize=(5.5, 1.0), dpi=DPI)
     ax.plot([lo, hi], [0, 0], color=LINE_COLOR, linewidth=LINE_WIDTH)
     step = (hi - lo) / divisions
     for i in range(divisions + 1):
@@ -238,15 +406,21 @@ def _number_line(spec: dict, out: Path) -> None:
         ax.plot([x, x], [-0.08, 0.08], color=LINE_COLOR, linewidth=LINE_WIDTH)
         # Endpoint labels
         if i == 0 or i == divisions:
-            ax.text(x, -0.25, _pretty_num(x), ha="center", va="top", fontsize=10)
+            ax.text(x, -0.25, _pretty_num(x), ha="center", va="top", fontsize=f.label(10))
     # Highlighted marks with labels
     for i, m in enumerate(marks):
         mx = float(m)
+        # A point off the end of the line is clipped away by the axes limits,
+        # leaving its label floating over nothing. Drop the pair instead.
+        if mx < lo or mx > hi:
+            log.info("diagram.mark_off_the_line",
+                     extra={"mark": mx, "from": lo, "to": hi})
+            continue
         ax.plot([mx], [0], marker="o", markersize=9,
                 color=SHADE_COLOR, markeredgecolor=LINE_COLOR)
         if i < len(labels):
-            ax.text(mx, 0.22, str(labels[i]), ha="center", va="bottom",
-                    fontsize=10, color=LINE_COLOR)
+            ax.text(mx, 0.22, _mark_label(labels[i], mx), ha="center", va="bottom",
+                    fontsize=f.label(10), color=LINE_COLOR)
     ax.set_xlim(lo - (hi - lo) * 0.05, hi + (hi - lo) * 0.05)
     ax.set_ylim(-0.5, 0.5)
     ax.axis("off")
@@ -254,7 +428,7 @@ def _number_line(spec: dict, out: Path) -> None:
     plt.close(fig)
 
 
-def _rectangle(spec: dict, out: Path) -> None:
+def _rectangle(spec: dict, out: Path, f: _Fonts) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
 
@@ -268,27 +442,27 @@ def _rectangle(spec: dict, out: Path) -> None:
     scale = 3.0 / max(length, width)
     fig_w = length * scale + 1.2
     fig_h = width * scale + 1.0
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=180)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=DPI)
     ax.add_patch(Rectangle((0, 0), length, width,
                            facecolor="white",
                            edgecolor=LINE_COLOR, linewidth=LINE_WIDTH))
     # Labels
     unit_s = f" {unit}" if unit else ""
     ax.text(length / 2, -width * 0.08, _dim_label(spec, "length", length, unit_s),
-            ha="center", va="top", fontsize=11)
+            ha="center", va="top", fontsize=f.label(11))
     side = _dim_label(spec, "width", width, unit_s)
     ax.text(-length * 0.05, width / 2, side,
-            ha="right", va="center", fontsize=11, rotation=_side_rotation(side))
+            ha="right", va="center", fontsize=f.label(11), rotation=_side_rotation(side))
     ax.set_xlim(-length * 0.15, length * 1.05)
     ax.set_ylim(-width * 0.18, width * 1.08)
     ax.set_aspect("equal")
     ax.axis("off")
-    _scale_note(ax, spec)
+    _scale_note(ax, spec, f)
     fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
 
-def _l_shape(spec: dict, out: Path) -> None:
+def _l_shape(spec: dict, out: Path, f: _Fonts) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.patches import Polygon
 
@@ -305,13 +479,13 @@ def _l_shape(spec: dict, out: Path) -> None:
            (OL - CL, OW - CW), (OL - CL, OW), (0, OW)]
 
     scale = 3.5 / max(OL, OW)
-    fig, ax = plt.subplots(figsize=(OL * scale + 1.4, OW * scale + 1.2), dpi=180)
+    fig, ax = plt.subplots(figsize=(OL * scale + 1.4, OW * scale + 1.2), dpi=DPI)
     ax.add_patch(Polygon(pts, closed=True, facecolor="white",
                          edgecolor=LINE_COLOR, linewidth=LINE_WIDTH))
     us = f" {unit}" if unit else ""
     # Label each side. Coords chosen so labels don't overlap the shape.
     def txt(x, y, s, **kw):
-        ax.text(x, y, s, fontsize=10, **kw)
+        ax.text(x, y, s, fontsize=f.label(10), **kw)
     txt(OL / 2, -OW * 0.06, f"{_pretty_num(OL)}{us}", ha="center", va="top")             # bottom
     txt(OL + OL * 0.02, (OW - CW) / 2, f"{_pretty_num(OW - CW)}{us}",
         ha="left", va="center")                                                          # right lower
@@ -331,7 +505,7 @@ def _l_shape(spec: dict, out: Path) -> None:
     plt.close(fig)
 
 
-def _cuboid(spec: dict, out: Path) -> None:
+def _cuboid(spec: dict, out: Path, f: _Fonts) -> None:
     """A rectangular prism in oblique (cabinet) projection.
 
     length -> width across the front (x), height -> up the front (y),
@@ -367,7 +541,7 @@ def _cuboid(spec: dict, out: Path) -> None:
 
     span = max(L + ox, H + oy)
     scale = 3.2 / span
-    fig, ax = plt.subplots(figsize=(span * scale + 1.4, span * scale + 1.2), dpi=180)
+    fig, ax = plt.subplots(figsize=(span * scale + 1.4, span * scale + 1.2), dpi=DPI)
 
     def line(p, q, dashed=False):
         ax.plot([p[0], q[0]], [p[1], q[1]], color=LINE_COLOR,
@@ -386,25 +560,25 @@ def _cuboid(spec: dict, out: Path) -> None:
     us = f" {unit}" if unit else ""
     # length: front bottom edge A-B, below.
     ax.text((A[0] + B[0]) / 2, -H * 0.07, _dim_label(spec, "length", L, us),
-            ha="center", va="top", fontsize=11)
+            ha="center", va="top", fontsize=f.label(11))
     # height: front left edge A-D, to the left.
     side = _dim_label(spec, "height", H, us)
     ax.text(-L * 0.05, H / 2, side,
-            ha="right", va="center", fontsize=11, rotation=_side_rotation(side))
+            ha="right", va="center", fontsize=f.label(11), rotation=_side_rotation(side))
     # width (depth): receding edge B-B2, offset to the lower right.
     ax.text((B[0] + B2[0]) / 2 + L * 0.03, (B[1] + B2[1]) / 2 - H * 0.02,
-            _dim_label(spec, "width", W, us), ha="left", va="center", fontsize=11)
+            _dim_label(spec, "width", W, us), ha="left", va="center", fontsize=f.label(11))
 
     ax.set_xlim(-L * 0.2, L + ox + L * 0.12)
     ax.set_ylim(-H * 0.18, H + oy + H * 0.1)
     ax.set_aspect("equal")
     ax.axis("off")
-    _scale_note(ax, spec)
+    _scale_note(ax, spec, f)
     fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
 
-def _cylinder(spec: dict, out: Path) -> None:
+def _cylinder(spec: dict, out: Path, f: _Fonts) -> None:
     """An upright cylinder: elliptical top, solid front base, dashed back base."""
     import matplotlib.pyplot as plt
     from matplotlib.patches import Ellipse, Arc
@@ -418,7 +592,7 @@ def _cylinder(spec: dict, out: Path) -> None:
     ell_h = r * 0.5            # visual half-height of the perspective ellipse
     scale = 3.0 / max(2 * r, H + 2 * ell_h)
     fig, ax = plt.subplots(figsize=(2 * r * scale + 1.4, (H + 2 * ell_h) * scale + 1.0),
-                           dpi=180)
+                           dpi=DPI)
 
     cx = 0.0
     top_y = H
@@ -441,19 +615,21 @@ def _cylinder(spec: dict, out: Path) -> None:
     # radius: from centre of top ellipse out to the rim.
     ax.plot([cx, cx + r], [top_y, top_y], color=SHADE_COLOR,
             linewidth=LINE_WIDTH, linestyle=(0, (2, 2)))
-    ax.text(cx + r / 2, top_y + ell_h * 0.35,
+    # Clear of the rim, not across it: at legible size this label sat on top
+    # of the ellipse outline and both became hard to read.
+    ax.text(cx + r / 2, top_y + ell_h * 1.12,
             f"r = {_dim_label(spec, 'radius', r, us)}",
-            ha="center", va="bottom", fontsize=10, color=LINE_COLOR)
+            ha="center", va="bottom", fontsize=f.label(10), color=LINE_COLOR)
     # height: down the right side.
     side = _dim_label(spec, "height", H, us)
     ax.text(cx + r + r * 0.12, H / 2, side,
-            ha="left", va="center", fontsize=11, rotation=_side_rotation(side))
+            ha="left", va="center", fontsize=f.label(11), rotation=_side_rotation(side))
 
     ax.set_xlim(cx - r * 1.5, cx + r * 1.7)
     ax.set_ylim(-ell_h * 2.2, top_y + ell_h * 2.2)
     ax.set_aspect("equal")
     ax.axis("off")
-    _scale_note(ax, spec)
+    _scale_note(ax, spec, f)
     fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
 
@@ -465,13 +641,45 @@ def _pretty_num(x: float) -> str:
     return f"{x:g}"
 
 
-def _compare(spec: dict, out: Path) -> None:
+def _label_font(size_px: int):
+    """A bold sans face at `size_px`, wherever the font happens to live.
+
+    The formatter finds DejaVu Sans through matplotlib's font manager rather
+    than by path, because matplotlib bundles the font and is already a hard
+    dependency. Do the same here: an absolute /usr/share path is a Linux-only
+    assumption, and the booklet is generated on Windows too, where it would
+    silently drop to Pillow's bitmap default and print labels smaller still.
+    """
+    from PIL import ImageFont
+
+    try:
+        from matplotlib import font_manager
+
+        prop = font_manager.FontProperties()
+        prop.set_family("DejaVu Sans")
+        prop.set_weight("bold")
+        return ImageFont.truetype(
+            font_manager.findfont(prop, fallback_to_default=False), size_px)
+    except Exception:
+        pass
+    try:
+        return ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size_px)
+    except Exception:
+        pass
+    try:
+        return ImageFont.load_default(size=size_px)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _compare(spec: dict, out: Path, f: _Fonts) -> None:
     """Render 2-4 sub-diagrams side by side, each with a label underneath.
 
     We render each sub-spec through the normal render_diagram path (so caching
     and validation apply), then compose them into a single PNG with Pillow.
     """
-    from PIL import Image as PILImage, ImageDraw, ImageFont
+    from PIL import Image as PILImage, ImageDraw
 
     items = spec.get("items") or []
     if not (2 <= len(items) <= 4):
@@ -499,29 +707,58 @@ def _compare(spec: dict, out: Path) -> None:
             img = img.resize((int(img.width * ratio), target_h), PILImage.LANCZOS)
         resized.append((img, label))
 
-    gap = 40
-    label_h = 44
     pad = 20
-    total_w = pad * 2 + sum(img.width for img, _ in resized) + gap * (len(resized) - 1)
-    total_h = pad * 2 + target_h + label_h
+    box_w, box_h = DIAGRAM_PRINT_BOX_PT
+    ruler = ImageDraw.Draw(PILImage.new("RGBA", (1, 1)))
+
+    def layout(font_px: int):
+        """Geometry for one candidate label size, plus the resulting scale.
+
+        `scale` is exactly what formatter._make_image will apply: points per
+        pixel once the composite is fitted into the print box. The label
+        therefore prints at font_px * scale points.
+        """
+        font = _label_font(font_px)
+        widths = []
+        for img, label in resized:
+            bbox = ruler.textbbox((0, 0), label, font=font)
+            # A label wider than its own figure would otherwise run into the
+            # neighbouring one, so the column, not the figure, sets the width.
+            widths.append(max(img.width, (bbox[2] - bbox[0]) + 8))
+        gap = max(40, int(font_px * 0.8))
+        total_w = pad * 2 + sum(widths) + gap * (len(resized) - 1)
+        total_h = pad * 2 + target_h + font_px + 18
+        scale = min(box_w / total_w, box_h / total_h, 1.0)
+        return font, widths, total_w, total_h, scale
+
+    # Grow the label until it clears the floor at print size. Raising it
+    # widens the columns and deepens the label band, which shrinks the scale
+    # again, so this iterates; it converges because the floor is small next to
+    # the print box, and the ceiling stops it either way.
+    font_px = _COMPARE_LABEL_PX_MIN
+    font, widths, total_w, total_h, scale = layout(font_px)
+    for _ in range(8):
+        needed = math.ceil(MIN_COMPARE_LABEL_PT / scale)
+        if needed <= font_px:
+            break
+        nxt = min(needed, _COMPARE_LABEL_PX_MAX)
+        if nxt <= font_px:
+            log.info("diagram.compare_label_capped",
+                     extra={"items": len(resized), "font_px": font_px})
+            break
+        font_px = nxt
+        font, widths, total_w, total_h, scale = layout(font_px)
 
     canvas = PILImage.new("RGBA", (total_w, total_h), (255, 255, 255, 255))
-    try:
-        font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26,
-        )
-    except Exception:
-        font = ImageFont.load_default()
-
     draw = ImageDraw.Draw(canvas)
     x = pad
-    for img, label in resized:
-        canvas.paste(img, (x, pad), img)
+    for (img, label), col_w in zip(resized, widths):
+        canvas.paste(img, (x + (col_w - img.width) // 2, pad), img)
         bbox = draw.textbbox((0, 0), label, font=font)
         tw = bbox[2] - bbox[0]
-        draw.text((x + img.width / 2 - tw / 2, pad + target_h + 6),
+        draw.text((x + col_w / 2 - tw / 2, pad + target_h + 6),
                   label, fill=(31, 58, 95, 255), font=font)
-        x += img.width + gap
+        x += col_w + max(40, int(font_px * 0.8))
 
     canvas.save(out, "PNG")
 

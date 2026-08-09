@@ -1,5 +1,29 @@
 # Handoff: Folio (Booklet-Gen)
 
+## Current snapshot, 5 August 2026
+
+This section supersedes older statements later in this file that say billing,
+admin tooling, legal pages, job completion timestamps, or copyright controls do
+not exist. The current working tree contains:
+
+- Stripe Checkout, one-off credit packs, and idempotent webhook fulfilment
+- durable queued jobs, completion timestamps, a separate worker, and automatic
+  credit return when generation fails
+- private Supabase Storage with ownership-checked downloads
+- verification and password-reset email
+- Privacy, Terms, Support, and Pricing pages
+- an administrator support console
+- a NAPLAN original-authoring guide with external NAPLAN RAG disabled
+- a tracked source-rights register, fail-closed PDF ingestion, and a migration
+  block for old vector stores without approval provenance
+- an offline beta/live configuration audit at
+  `scripts/launch_readiness.py`
+
+These changes are not yet a clean committed release. The founder's remaining
+decisions and provider-account actions are isolated in `FOUNDER_TODO.md`. The
+technical deployment sequence is in `DEPLOY.md`. Treat older sections below as
+historical context when they conflict with this snapshot.
+
 Written for whoever picks this up next (currently: Codex), with no memory of
 prior sessions. Read this, then `CLAUDE.md` for the full house rules — this
 file is the situation report, `CLAUDE.md` is the standing instructions.
@@ -185,6 +209,14 @@ commits to anything, so support conversations aren't guesswork.
   billing**, don't assume.
 
 ### The one risk worth resolving before any money changes hands
+
+**Update, 5 August 2026:** the NAPLAN path now refuses external RAG and uses
+`booklet_gen/guidance/naplan_practice.txt`, an internally written item-design
+guide with explicit originality rules. `rag_sources/README.md` now treats past
+NAPLAN, WACE, ACER and textbook material as quarantined unless commercial rights
+are documented. The local files have not been deleted, and other products can
+still reach the shared Mathematics store, so production still needs a clean
+commercially reviewed vector database rather than a migration of the old one.
 `rag_sources/` (gitignored, not present in most sessions — it's real
 curriculum material the owner has locally) is documented in `CLAUDE.md` as
 containing content "copyrighted for personal use only, e.g. ACER

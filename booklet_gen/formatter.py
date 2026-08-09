@@ -361,8 +361,28 @@ def _tidy_units(text: str) -> str:
 MULTIPLY = "×"
 DIVIDE = "÷"
 
-# "15 * 4", "2 * (7 + 4)", "5 * side". Emphasis asterisks (*like this*) have a
-# space on the outside, so neither lookaround matches and they survive.
+# Markdown emphasis, which models emit constantly and which must never reach a
+# printed page. Stripped before any notation rule runs, because _STAR_MULT_RE
+# below would otherwise read the markers as multiplication: a real booklet
+# printed "multiply the numerator and the denominator by the × same × number"
+# in the highlighted box the whole topic is named after.
+#
+# An emphasis marker hugs its text (no space on the inside) and is free on the
+# outside, which is exactly the opposite of a multiplication asterisk. That
+# asymmetry is what separates them, and it is why "4 * 3" is untouched.
+# Single asterisks only. A **double** pair is deliberate markup that
+# apply_bold_markup turns into a real bold run later, and it has to survive
+# this step intact.
+_EMPHASIS_RE = re.compile(
+    r"(?<![\w*])\*(?!\*)(?=\S)([^*\n]{1,80}?)(?<=\S)\*(?!\*)(?![\w])")
+
+
+def _strip_emphasis(text: str) -> str:
+    return _EMPHASIS_RE.sub(r"\1", text)
+
+
+# "15 * 4", "2 * (7 + 4)", "5 * side". Emphasis asterisks are already gone by
+# the time this runs, so the greedy \s* either side is safe.
 _STAR_MULT_RE = re.compile(r"(?<=[0-9A-Za-z\)])\s*\*\s*(?=[0-9A-Za-z\(])")
 
 # "1 x 3", "5x3", "40 x 20 x 10", "l x w x h". Both sides must be a number or a
@@ -648,7 +668,7 @@ def _strip_step_prefix(text: str) -> str:
 
 def _escape(text: str) -> str:
     return _prettify_fractions(_tidy_units(_normalise_notation(
-        _dedash(text)
+        _strip_emphasis(_dedash(text))
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
@@ -1710,7 +1730,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # subject. The secondary line carries the subject(s) and year level. With a
     # background image the text is pushed down to sit in the clear centre zone.
     story.append(Spacer(1, 6.5 * cm if cover_bg else 3 * cm))
-    story.append(Paragraph("FOLIO", styles["wordmark"]))
+    story.append(Paragraph("FOLIOAI", styles["wordmark"]))
     story.append(Spacer(1, 0.6 * cm))
     headline = data.program_label or data.subject
     story.append(Paragraph(_escape(headline), styles["title"]))
@@ -1756,10 +1776,20 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # and it devalues the mark on the answers where it is earned. Until the
     # mark distinguishes the two, the cover claims only what is true of all of
     # them.
+    # The claim has to match the key it points at. A real booklet said "every
+    # answer has been checked for accuracy" on page 1 and then printed ten
+    # answers out of ninety-nine with no tick beside them, which tells a parent
+    # in the product's own notation that the cover is false. Being told that is
+    # worse than never claiming it: they do not have to find a wrong answer to
+    # want their money back.
+    every_answer_checked = all(vq.verified for vq in all_questions(data))
     story.append(Paragraph(
         "Work through it in order"
         + (" and show your working." if only_maths else ".")
-        + " Every answer in the key at the back has been checked for accuracy.",
+        + (" Every answer in the key at the back has been checked."
+           if every_answer_checked else
+           " In the key at the back, a tick marks an answer that has been"
+           " checked."),
         styles["footer_note"],
     ))
     story.append(PageBreak())
@@ -1883,13 +1913,23 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # is too little room left to be worth starting Homework here.
         story.append(CondPageBreak(HOMEWORK_MIN_START_CM * cm))
         sessions = homework_session_plan(data)
+        # The number on this band has to be the number the page underneath it
+        # adds up to. It used to be the whole homework half, Final Challenge and
+        # all, printed over four sittings of 31, 31, 31 and 29 min: a parent who
+        # planned around "179 min in total" was 57 minutes out. The sitting
+        # bands are what a parent counts, so the total is their sum, and the
+        # Final Challenge keeps its own estimate on its own band below.
         hw_sub = ("Do these through the week to lock it in. "
-                  f"About {times['homework_minutes']} min.") \
-            if times["homework_minutes"] else "Do these through the week to lock it in."
+                  f"About {times['homework_only_minutes']} min.") \
+            if times["homework_only_minutes"] \
+            else "Do these through the week to lock it in."
         if sessions:
             hw_sub = ("Do these through the week to lock it in. "
-                      f"Split into {len(sessions)} sessions, "
-                      f"about {times['homework_minutes']} min in total.")
+                      f"Split into {len(sessions)} sessions, about "
+                      f"{sum(s['minutes'] for s in sessions)} min in total.")
+        if data.challenge_questions and times["challenge_minutes"]:
+            hw_sub += (" The Final Challenge at the end adds about "
+                       f"{times['challenge_minutes']} min.")
         story.append(_part_band(styles, "Homework", "#8B1E3F", hw_sub))
         story.append(Spacer(1, 0.3 * cm))
 
@@ -1942,6 +1982,17 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                             story.append(CondPageBreak(3.5 * cm))
                         story.append(band)
                         story.append(Spacer(1, 0.25 * cm))
+                        if j:
+                            # The session starts part way through this
+                            # subtopic, so the heading was printed pages back
+                            # under an earlier session. Without this the child
+                            # sits down on Wednesday to "Session 2 of 2"
+                            # followed by "2. Write 0.305 in words", with no
+                            # sign of what the work is about or where question
+                            # one went.
+                            story.append(Paragraph(
+                                _escape(f"{section.subtopic} (continued)"),
+                                styles["subtopic"]))
                     if j == 0:
                         story.extend(headings)
                     counter["n"] += 1
@@ -2036,6 +2087,25 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # the page lookup, because several questions now print as "3".
             story.append(_answer_block(styles, shown(acount["n"]), vq, page))
 
+    def render_section_answers(section, questions):
+        """Answers for one subtopic, with each reading named above its group.
+
+        Numbering restarts at 1 under every passage, exactly as the student
+        page numbers it. Flattening the groups printed two runs of "1" to "5"
+        under a single subtopic heading with nothing between them, so whoever
+        was marking beside the student had no way to tell which reading the
+        second run belonged to and marked against the wrong one.
+        """
+        groups = passage_groups(questions, section_passages(section))
+        for passage, qs in groups:
+            if passage is not None and len(groups) > 1:
+                title = getattr(passage, "title", None)
+                story.append(Paragraph(
+                    _escape(f"Questions on '{title}'" if title
+                            else "Questions on the next reading"),
+                    styles["passage_label"]))
+            render_answers(qs)
+
     if data.recap_questions:
         story.append(_key_part_heading(styles, "Warm-up Recap", "#6b7280"))
         render_answers(data.recap_questions)
@@ -2055,8 +2125,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # Grouping questions under their passage changes the printed order, so
         # the key has to be walked in the same order or every number after the
         # first passage points at the wrong question.
-        render_answers(ordered_questions(section.questions,
-                                         section_passages(section)))
+        render_section_answers(section, section.questions)
 
     if has_homework:
         story.append(_key_part_heading(styles, "Homework", "#8B1E3F"))
@@ -2066,8 +2135,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                 continue
             subject_topic_headers(section, state)
             story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
-            render_answers(ordered_questions(section.homework_questions,
-                                             section_passages(section)))
+            render_section_answers(section, section.homework_questions)
 
     if data.challenge_questions:
         story.append(_key_part_heading(styles, "Final Challenge", "#8B1E3F"))
@@ -2150,12 +2218,12 @@ def _booklet_doc(target, data: BookletData):
         leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
         topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
         title=booklet_title(data),
-        author="Folio",
+        author="FolioAI",
         # ReportLab writes its own literal "(unspecified)" into these when they
         # are left off, and a parent sees that in the Properties dialog of the
         # thing they paid for.
         subject=f"{data.subject} practice, {data.year_level}",
-        creator="Folio",
+        creator="FolioAI",
     )
     _head = data.program_label or data.subject
     doc._header_text = f"{_head}  |  {data.year_level}  |  {data.student_name}"
@@ -2169,7 +2237,7 @@ def _booklet_doc(target, data: BookletData):
 def render_pdf(data: BookletData, out_path: Path) -> Path:
     """Render the booklet, answer key included.
 
-    One document. A Folio booklet is worked through by a parent or tutor sitting
+    One document. A FolioAI booklet is worked through by a parent or tutor sitting
     with the child, so the key belongs at the back of the same booklet rather
     than in a second file. What the key must not do is leak into the pages the
     child works on: the verification marks live beside the answers, and the
@@ -2256,7 +2324,7 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
         leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
         topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
         title=f"{paper.subject} Practice Examination",
-        author="Folio",
+        author="FolioAI",
     )
     doc._header_text = f"{paper.subject}  |  {paper.year_level}  |  {paper.student_name}"
     # Exams use a plain cover: a decorative background undercuts the look.
@@ -2272,7 +2340,7 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
 
     # ---- Cover: formal exam front page ----
     story.append(Spacer(1, 1.2 * cm))
-    story.append(Paragraph("FOLIO", styles["wordmark"]))
+    story.append(Paragraph("FOLIOAI", styles["wordmark"]))
     story.append(Spacer(1, 0.8 * cm))
     story.append(Paragraph("Practice Examination", styles["subtitle"]))
     story.append(Paragraph(_escape(paper.subject), styles["title"]))
@@ -2312,7 +2380,7 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
 
     story.append(Spacer(1, 0.8 * cm))
     story.append(Paragraph(
-        "This is a practice paper generated by Folio. Questions marked with a "
+        "This is a practice paper generated by FolioAI. Questions marked with a "
         "check mark in the marking key have been symbolically verified.",
         styles["footer_note"],
     ))

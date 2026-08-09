@@ -63,7 +63,7 @@ def _http_download(url: str, out: Path) -> None:
 # in Australia is a serious cultural breach and, for images of the deceased,
 # one some communities regard as harmful to view.
 #
-# A picture in a Folio booklet is decoration for a reading passage. It is never
+# A picture in a FolioAI booklet is decoration for a reading passage. It is never
 # worth that risk, so a query naming people, ceremony, remains or anything
 # sacred is refused and the question simply prints without a picture. The
 # prompts also ask for object, animal, place or machine; this is the backstop
@@ -88,6 +88,13 @@ def fetch_image(query: str) -> tuple[Optional[Path], Optional[str]]:
 
     Returns (path, attribution) on success, (None, None) otherwise.
     """
+    # Network imagery is external content too. It stays off in clean-room mode
+    # even when a model emits image_query. Programmatic diagrams are rendered
+    # by diagrams.py and do not pass through this gate.
+    from ..programs import reviewed_external_content_enabled
+    if not reviewed_external_content_enabled():
+        log.info("wikimedia.disabled_cleanroom")
+        return None, None
     if not query or not query.strip():
         return None, None
     if query_is_refused(query):

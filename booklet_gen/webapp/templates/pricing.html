@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_motifs.html" import book, check %}
+{% block title %}Pricing - FolioAI{% endblock %}
+{% block description %}Buy FolioAI booklet credits. Start with one free personalised practice booklet, then pay only when you need another.{% endblock %}
+{% block body %}
+<section class="pricingIntro">
+  <span class="motifRow ink-navy">{{ book(28) }}</span>
+  <h1>Simple, pay-as-you-go pricing</h1>
+  <p class="sub">Create an account and your first booklet is included. After
+    that, buy only what you need. There is no subscription.</p>
+  {% if g.user and payments_enabled %}
+    <div class="creditBanner centered">
+      <span><strong>{{ credits }}</strong> booklet credit{{ '' if credits == 1 else 's' }} available</span>
+    </div>
+  {% endif %}
+</section>
+{% if request.args.get('cancelled') %}
+  <div class="flash">Checkout was cancelled. No charge was made.</div>
+{% endif %}
+
+<div class="pricingGrid">
+  {% for key, product in products.items() %}
+    <article class="priceCard {{ 'featured' if key == 'term' }}">
+      {% if key == 'term' %}<span class="priceBadge">Best value</span>{% endif %}
+      <h2>{{ product.label }}</h2>
+      <p class="price"><span>A$</span>{{ product.display_price }}</p>
+      <p class="muted">{{ product.description }}</p>
+      <ul class="priceFeatures">
+        <li>{{ check(18) }}<span>{{ product.units }} booklet credit{{ '' if product.units == 1 else 's' }}</span></li>
+        <li>{{ check(18) }}<span>Printable PDF with a worked answer key</span></li>
+        {# "Saved in My booklets for later download" read as "kept for ever" on
+           a page taking money. Only the newest FILE_RETENTION_PER_USER files
+           stay downloadable, so the page says so, with the real number. #}
+        <li>{{ check(18) }}<span>Saved in My booklets: your {{ retention }} most recent files stay downloadable</span></li>
+      </ul>
+      {% if not g.user %}
+        <a class="btn" href="{{ url_for('auth.signup') }}">Start with a free booklet</a>
+      {% elif payments_enabled %}
+        <form method="post" action="{{ url_for('payments.checkout', product_key=key) }}">
+          {{ csrf_field() }}
+          <button class="btn" type="submit">Buy with secure checkout</button>
+        </form>
+      {% else %}
+        <button class="btn" type="button" disabled>Purchases coming soon</button>
+      {% endif %}
+    </article>
+  {% endfor %}
+</div>
+
+<div class="card pricingFinePrint">
+  <h2>What a credit covers</h2>
+  <p>A single booklet or exam paper uses one credit. A 10-week term plan uses
+    10 credits because it creates 10 separate booklets. If generation fails,
+    the reserved credits are returned automatically.</p>
+  <p class="muted">Payments are processed securely by Stripe. FolioAI does not
+    receive or store your complete card number. Prices are in Australian dollars
+    and include GST when applicable.</p>
+  <p class="muted">A technical generation failure returns its reserved credits
+    automatically. Our 14-day quality promise covers a materially incorrect,
+    unsafe, unreadable, or substantially off-topic booklet. Australian Consumer
+    Law rights also continue to apply.</p>
+</div>
+{% endblock %}

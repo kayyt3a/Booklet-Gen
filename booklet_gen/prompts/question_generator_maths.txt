@@ -37,7 +37,20 @@ Vary the questions within the set:
 - Question 1 is the plainest, most direct form of the subtopic, the one a teacher would model on the board first.
 
 VISUAL DIAGRAMS (optional per question)
-Any question may include an OPTIONAL `diagram_spec` field. Pages of unbroken symbols are a wall a child bounces off, so wherever the subtopic can be pictured at all (a fraction of a shape, a position on a number line, a shape, a box, a comparison), one or two questions in the set should carry a figure. Leave it out for pure symbolic computation, and never bolt a picture onto a question that does not use it: the rules below decide whether a figure is possible, not the wish for one.
+Any question may include an OPTIONAL `diagram_spec` field. Pages of unbroken symbols are a wall a child bounces off, and a booklet with no figures at all reads as a word processor document rather than a maths book.
+
+REQUIRED COVERAGE: if the subtopic can be pictured at all, AT LEAST ONE THIRD of the questions in the set must carry a diagram_spec, and never fewer than two. These subtopics can always be pictured, so a set with no figures is wrong:
+- fractions of a shape or a collection -> circle_slices or bar_model
+- comparing or ordering fractions -> compare
+- placing or reading a value, including decimals -> number_line
+- perimeter or area -> rectangle or l_shape
+- volume, capacity or surface area -> cuboid or cylinder
+Leave it out only for pure symbolic computation, and never bolt a picture onto a question that does not use it.
+
+DIMENSION, the rule that matters most:
+- Area and perimeter are FLAT. Use rectangle or l_shape. Never draw a solid for them.
+- Volume, capacity and surface area are SOLID. Use cuboid or cylinder. Never draw a flat rectangle for them.
+A rectangle beside "find the volume" teaches a child that a box is a square, which is worse than printing no picture at all. A question whose figure has the wrong number of dimensions has its figure deleted before printing, so the question then stands alone in words: get it right rather than lose it.
 
 Supported spec types (use exactly these keys):
 - {"type":"circle_slices","slices":4,"shaded":1}

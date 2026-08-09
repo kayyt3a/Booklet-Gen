@@ -1,4 +1,4 @@
-"""Generate form (dropdowns), background generation, status, download."""
+"""Consumer generation, progress, library, download, and account routes."""
 from __future__ import annotations
 
 import io
@@ -10,7 +10,6 @@ import threading
 import time
 import uuid
 import zipfile
-from datetime import datetime
 from pathlib import Path
 
 from flask import (
@@ -20,18 +19,22 @@ from flask import (
 
 from . import db
 from .auth import login_required
-from ..programs import PROGRAMS, ACCELERATE_SUBJECTS, EXAM_PROGRAMS, EXAM_YEARS
+from .commerce import payments_enabled
+from ..programs import (
+    PROGRAMS, ACCELERATE_SUBJECTS, EXAM_PROGRAMS, EXAM_YEARS,
+    customer_programs,
+)
 
 log = logging.getLogger(__name__)
 
 bp = Blueprint("views", __name__)
 
 YEARS = [f"Year {n}" for n in range(1, 13)]
+BOOKLET_YEARS = [f"Year {n}" for n in range(1, 11)]
 TERM_WEEKS = 10
 
-# Abuse guard: generation is free and unlimited in price, but each one costs
-# real Gemini API spend, so cap it. Not a paywall, just a ceiling against a
-# bot or a stuck retry loop running up the bill.
+# Abuse guard. Paid credits control entitlements while these limits cap the
+# maximum API spend from a compromised account or automated attack.
 #
 # The unit is a booklet, not a request. The old FOLIO_DAILY_LIMIT counted job
 # rows, and a term plan is one row that generates TERM_WEEKS booklets, so a
@@ -50,6 +53,7 @@ GLOBAL_DAILY_BOOKLET_LIMIT = int(
 # background thread with no timeout of its own, so without this a hung LLM
 # call leaves the row "running" and the user watching a spinner for ever.
 JOB_TIMEOUT_SECONDS = int(os.environ.get("FOLIO_JOB_TIMEOUT", "2700"))
+JOB_MODE = (os.environ.get("FOLIO_JOB_MODE") or "inline").strip().lower()
 
 if os.environ.get("FOLIO_DAILY_LIMIT"):
     log.warning(
@@ -63,6 +67,27 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", s or "").strip("-").lower() or "booklet"
 
 
+def _quota_allows(user_id: int, units: int) -> bool:
+    used = db.booklets_started_last_24h(user_id)
+    if used + units > DAILY_BOOKLET_LIMIT:
+        remaining = max(0, DAILY_BOOKLET_LIMIT - used)
+        if units > 1 and remaining:
+            flash(f"A term plan counts as {units} booklets and you have "
+                  f"{remaining} left of today's {DAILY_BOOKLET_LIMIT}. "
+                  "Generate single booklets, or try the term plan tomorrow.")
+        else:
+            flash(f"You've reached today's limit of {DAILY_BOOKLET_LIMIT} "
+                  "booklets. Please try again tomorrow.")
+        return False
+    if db.booklets_started_globally_last_24h() + units > GLOBAL_DAILY_BOOKLET_LIMIT:
+        log.warning("global daily booklet ceiling reached (limit=%d)",
+                    GLOBAL_DAILY_BOOKLET_LIMIT)
+        flash("FolioAI has hit its overall generation limit for today. "
+              "Please try again tomorrow.")
+        return False
+    return True
+
+
 @bp.route("/")
 def index():
     # Two different pages behind one URL. A signed-out visitor is deciding
@@ -73,12 +98,18 @@ def index():
     # This used to be one template branching on `g.user`, which meant a
     # prospective customer's first impression was a heading and a Sign up
     # button on an otherwise empty page.
+    programs = customer_programs()
+    customer_exam_programs = EXAM_PROGRAMS.intersection(programs)
     if not g.user:
-        return render_template("landing.html", programs=PROGRAMS)
+        return render_template("landing.html", programs=programs,
+                               exam_programs=customer_exam_programs)
     return render_template(
         "generate.html",
-        programs=PROGRAMS, years=YEARS, subjects=ACCELERATE_SUBJECTS,
-        term_weeks=TERM_WEEKS, exam_programs=EXAM_PROGRAMS, exam_years=EXAM_YEARS,
+        programs=programs, years=YEARS, subjects=ACCELERATE_SUBJECTS,
+        term_weeks=TERM_WEEKS, exam_programs=customer_exam_programs,
+        exam_years=EXAM_YEARS,
+        credits=db.credit_balance(g.user["id"]),
+        payments_enabled=payments_enabled(),
     )
 
 
@@ -89,11 +120,11 @@ def generate():
     year = (request.form.get("year") or "").strip()
     subject = (request.form.get("subject") or "").strip()
     topic = (request.form.get("topic") or "").strip()
-    name = (request.form.get("student_name") or "Student").strip()
+    name = (request.form.get("student_name") or "").strip() or "Student"
     is_term = request.form.get("term_plan") == "on"
 
-    if program not in PROGRAMS:
-        flash("Please choose a booklet type.")
+    if program not in customer_programs():
+        flash("That booklet type is not currently available.")
         return redirect(url_for("views.index"))
     if year not in YEARS:
         flash("Please choose a year level.")
@@ -106,28 +137,25 @@ def generate():
         flash(f"{PROGRAMS[program].label} is only available for "
               f"{' and '.join(EXAM_YEARS)}.")
         return redirect(url_for("views.index"))
+    if not is_exam and year not in BOOKLET_YEARS:
+        flash("Practice booklets are available for Years 1 to 10.")
+        return redirect(url_for("views.index"))
+    if len(name) > 80:
+        flash("Student names cannot be longer than 80 characters.")
+        return redirect(url_for("views.index"))
+    if len(topic) > 240:
+        flash("Topic focus cannot be longer than 240 characters.")
+        return redirect(url_for("views.index"))
+    if is_exam:
+        # Ignore a forged term-plan checkbox for exam products. The public UI
+        # hides it, and one exam paper must never reserve 10 credits.
+        is_term = False
 
     # A term plan is one request but TERM_WEEKS booklets, so it costs that
     # much of the budget and is charged that much of the quota.
     units = TERM_WEEKS if is_term else 1
 
-    used = db.booklets_started_last_24h(g.user["id"])
-    if used + units > DAILY_BOOKLET_LIMIT:
-        remaining = max(0, DAILY_BOOKLET_LIMIT - used)
-        if units > 1 and remaining:
-            flash(f"A term plan counts as {units} booklets and you have "
-                  f"{remaining} left of today's {DAILY_BOOKLET_LIMIT}. "
-                  "Generate single booklets, or try the term plan tomorrow.")
-        else:
-            flash(f"You've reached today's limit of {DAILY_BOOKLET_LIMIT} "
-                  "booklets. Please try again tomorrow.")
-        return redirect(url_for("views.index"))
-
-    if db.booklets_started_globally_last_24h() + units > GLOBAL_DAILY_BOOKLET_LIMIT:
-        log.warning("global daily booklet ceiling reached (limit=%d)",
-                    GLOBAL_DAILY_BOOKLET_LIMIT)
-        flash("Folio has hit its overall generation limit for today. "
-              "Please try again tomorrow.")
+    if not _quota_allows(g.user["id"], units):
         return redirect(url_for("views.index"))
 
     job_id = uuid.uuid4().hex
@@ -141,103 +169,59 @@ def generate():
         label = f"{label} - {name}"
     if is_term:
         label = f"{label} (term plan)"
-    db.create_job(job_id, g.user["id"], label, units=units)
-
     args = dict(program=program, year=year, subject=subject or None,
                 topic=topic or None, name=name, is_term=is_term,
-                is_exam=is_exam, user_id=g.user["id"], label=label,
-                out_dir=str(current_app.config["OUTPUT_DIR"]))
-    threading.Thread(target=_run_job, args=(job_id, args), daemon=True).start()
+                is_exam=is_exam)
+    available, why = generation_is_available()
+    if not available:
+        log.error("refusing generation: the queue has no live worker (%s)", why)
+        flash("Booklet generation is paused for maintenance right now. "
+              "Nothing has been charged. Please try again shortly.")
+        return redirect(url_for("views.index"))
+    if not db.enqueue_job(
+            job_id, g.user["id"], label, units, args,
+            reserve_credits=payments_enabled(),
+            daily_limit=DAILY_BOOKLET_LIMIT,
+            global_daily_limit=GLOBAL_DAILY_BOOKLET_LIMIT):
+        flash("You need more booklet credits for that selection.")
+        return redirect(url_for("payments.pricing"))
+    _dispatch_job(job_id, args)
     return redirect(url_for("views.progress", job_id=job_id))
 
 
-def _run_job(job_id: str, a: dict):
-    """Background worker. Imported lazily so the web process starts fast."""
-    from ..pipeline import BookletPipeline
-    from ..formatter import render_pdf, render_exam_pdf
-
-    # A Python thread cannot be killed from outside, and the LLM client owns
-    # its own socket timeout (llm/gemini.py is not ours to change), so the
-    # half we can implement is the bookkeeping: after the timeout the job is
-    # reported as failed instead of spinning for ever. If the thread is still
-    # alive and later succeeds, finish_job flips it back to done and the
-    # booklet appears in the library.
-    def _timed_out():
-        if db.fail_job_if_running(job_id, (
-                f"Generation timed out after {JOB_TIMEOUT_SECONDS // 60} "
-                "minutes and was abandoned. Please try again.")):
-            log.warning("job %s timed out after %ds", job_id, JOB_TIMEOUT_SECONDS)
-
-    watchdog = threading.Timer(JOB_TIMEOUT_SECONDS, _timed_out)
-    watchdog.daemon = True
-    watchdog.start()
-    try:
-        pipeline = BookletPipeline()
-        out_dir = Path(a["out_dir"])
-        # Dated, so a tutor generating a booklet a week for the same student
-        # gets files they can tell apart in a Downloads folder. `label` now
-        # carries the student's name, so this is the last thing needed to make
-        # the name unique. (`ts` was computed here and never used.)
-        slug = f"{_slug(a.get('label') or 'booklet')}-{datetime.now():%Y%m%d}"
-        if a.get("is_exam"):
-            paper = pipeline.run_exam(
-                a["year"], a["name"], topic_focus=a["topic"],
-            )
-            path = out_dir / f"{job_id}.pdf"
-            render_exam_pdf(paper, path)
-            _archive(job_id, a["user_id"], path, f"{slug}.pdf", "application/pdf")
-            db.finish_job(job_id, path=str(path))
-        elif a["is_term"]:
-            booklets = pipeline.run_term_plan(
-                a["program"], a["year"], a["name"],
-                subject=a["subject"], weeks=TERM_WEEKS, topic_hint=a["topic"],
-            )
-            folder = out_dir / f"{job_id}"
-            folder.mkdir(parents=True, exist_ok=True)
-            for data in booklets:
-                fn = f"week-{data.week_number:02d}-{_slug(data.week_focus or 'booklet')}.pdf"
-                render_pdf(data, folder / fn)
-            # Archive the term plan as the same zip the user would download.
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for pdf in sorted(folder.glob("*.pdf")):
-                    zf.write(pdf, pdf.name)
-            db.save_job_file(job_id, a["user_id"], f"{slug}.zip",
-                             "application/zip", buf.getvalue())
-            db.finish_job(job_id, dir=str(folder))
-        else:
-            data = pipeline.run_program(
-                a["program"], a["year"], a["name"],
-                subject=a["subject"], topic=a["topic"],
-            )
-            path = out_dir / f"{job_id}.pdf"
-            # One booklet, with the key at the back. A parent or tutor works
-            # through it with the child, so there is nothing to withhold and a
-            # second copy was only ever another file to keep track of.
-            render_pdf(data, path)
-            _archive(job_id, a["user_id"], path, f"{slug}.pdf", "application/pdf")
-            db.finish_job(job_id, path=str(path))
-    except Exception as e:
-        db.fail_job(job_id, str(e))
-    finally:
-        watchdog.cancel()
+def _run_job(job_id: str, _args: dict | None = None):
+    """Compatibility wrapper for local inline execution and existing checks."""
+    from ..jobs import run_job_by_id
+    return run_job_by_id(job_id)
 
 
-def _archive(job_id: str, user_id: int, path: Path, filename: str, mimetype: str):
-    """Copy a finished file into the database.
+# How stale a worker heartbeat may be before the queue counts as unattended.
+# The worker beats once per poll (2s by default), so this is generous.
+WORKER_HEARTBEAT_MAX_AGE = int(
+    os.environ.get("FOLIO_WORKER_HEARTBEAT_MAX_AGE", "120"))
 
-    The instance filesystem is ephemeral, so anything left only on disk is gone
-    after the next restart or deploy and the history page would link to
-    nothing. Failing to archive must not fail the job: the user can still
-    download it in this session from disk.
+
+def generation_is_available() -> tuple[bool, str]:
+    """(ok, reason). False when queue mode has nothing behind it.
+
+    In queue mode the web service only enqueues; a separate worker generates.
+    With no worker running, every booklet sits at "generating" for ever, which
+    is worse than an outage because the site looks like it is working and the
+    customer's credit is already spent. Refusing up front costs them nothing
+    and tells them the truth.
     """
-    try:
-        db.save_job_file(job_id, user_id, filename, mimetype, path.read_bytes())
-    except Exception as e:
-        # Module logger, not current_app: this runs in a background thread
-        # with no application context, where touching current_app would raise
-        # and turn a cosmetic archive failure into a failed job.
-        log.warning("archive failed for %s: %s", job_id, e)
+    if JOB_MODE != "queue":
+        return True, ""
+    status = db.worker_status(WORKER_HEARTBEAT_MAX_AGE)["status"]
+    if status == "healthy":
+        return True, ""
+    return False, status
+
+
+def _dispatch_job(job_id: str, args: dict | None = None) -> None:
+    if JOB_MODE == "queue":
+        return
+    threading.Thread(target=_run_job, args=(job_id, args), daemon=True).start()
 
 
 @bp.route("/progress/<job_id>")
@@ -255,7 +239,7 @@ def _settle_if_stale(job) -> dict:
     The worker thread it belonged to is gone (a redeploy, a spin-down, or a
     hung call), so leaving it "running" means an endless spinner.
     """
-    if job["status"] != "running":
+    if job["status"] not in {"queued", "running"}:
         return job
     if int(time.time()) - int(job["created_at"]) < JOB_TIMEOUT_SECONDS:
         return job
@@ -288,7 +272,8 @@ def library():
     # Only touch the database again if this page would otherwise show a
     # spinner for a job whose worker cannot still be alive.
     cutoff = int(time.time()) - JOB_TIMEOUT_SECONDS
-    if any(j["status"] == "running" and int(j["created_at"]) < cutoff for j in jobs):
+    if any(j["status"] in {"queued", "running"}
+           and int(j["created_at"]) < cutoff for j in jobs):
         try:
             db.fail_stale_running_jobs(JOB_TIMEOUT_SECONDS)
             jobs = db.list_jobs(g.user["id"])
@@ -308,6 +293,18 @@ def download(job_id: str):
     # Prefer the archived copy: it is the only one that survives a restart.
     stored = db.get_job_file(job_id)
     if stored is not None:
+        if stored["storage_key"]:
+            try:
+                from . import storage
+                return redirect(storage.signed_download_url(stored["storage_key"]))
+            except Exception as exc:
+                log.exception("could not create stored-file download URL: %s", exc)
+                return render_template(
+                    "error.html",
+                    heading="Your download is temporarily unavailable",
+                    detail=("The booklet is safe, but FolioAI could not open its "
+                            "download link. Please try again shortly."),
+                ), 503
         return send_file(
             io.BytesIO(bytes(stored["data"])), as_attachment=True,
             download_name=stored["filename"], mimetype=stored["mimetype"],
@@ -330,6 +327,39 @@ def download(job_id: str):
     abort(404)
 
 
+@bp.route("/retry/<job_id>", methods=["POST"])
+@login_required
+def retry(job_id: str):
+    original = db.get_job(job_id)
+    if (not original or original["user_id"] != g.user["id"]
+            or original["status"] != "error" or not original["request_json"]):
+        abort(404)
+    try:
+        args = json.loads(original["request_json"])
+    except (TypeError, ValueError):
+        flash("That job cannot be retried. Create a new booklet instead.")
+        return redirect(url_for("views.index"))
+    units = int(original["units"])
+    if not _quota_allows(g.user["id"], units):
+        return redirect(url_for("views.library"))
+    new_id = uuid.uuid4().hex
+    available, why = generation_is_available()
+    if not available:
+        log.error("refusing generation: the queue has no live worker (%s)", why)
+        flash("Booklet generation is paused for maintenance right now. "
+              "Nothing has been charged. Please try again shortly.")
+        return redirect(url_for("views.index"))
+    if not db.enqueue_job(
+            new_id, g.user["id"], original["label"], units,
+            args, reserve_credits=payments_enabled(),
+            daily_limit=DAILY_BOOKLET_LIMIT,
+            global_daily_limit=GLOBAL_DAILY_BOOKLET_LIMIT):
+        flash("You need more booklet credits to retry that job.")
+        return redirect(url_for("payments.pricing"))
+    _dispatch_job(new_id, args)
+    return redirect(url_for("views.progress", job_id=new_id))
+
+
 # ---------- account: export and deletion ----------
 
 @bp.route("/account")
@@ -342,6 +372,9 @@ def account():
         file_count=sum(1 for j in jobs if j["filename"]),
         daily_limit=DAILY_BOOKLET_LIMIT,
         used_today=db.booklets_started_last_24h(g.user["id"]),
+        credits=db.credit_balance(g.user["id"]),
+        payments=db.list_payments(g.user["id"]),
+        payments_enabled=payments_enabled(),
     )
 
 
@@ -352,7 +385,7 @@ def account_export():
     payload = db.export_account(g.user["id"])
     buf = io.BytesIO(json.dumps(payload, indent=2).encode("utf-8"))
     return send_file(buf, as_attachment=True,
-                     download_name="folio-account-export.json",
+                     download_name="folioai-account-export.json",
                      mimetype="application/json")
 
 

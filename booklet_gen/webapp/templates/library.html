@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_motifs.html" import scatter %}
-{% block title %}My booklets - Folio{% endblock %}
+{% block title %}My booklets - FolioAI{% endblock %}
 {% block body %}
 <div class="card">
   <h1>My booklets</h1>
@@ -37,10 +37,17 @@
             {% else %}
               <span class="pill done" title="This file was cleared to save space">Expired</span>
             {% endif %}
-          {% elif j.status == 'running' %}
+          {% elif j.status in ('queued', 'running') %}
             <a class="btn secondary small" href="{{ url_for('views.progress', job_id=j.id) }}">In progress</a>
           {% else %}
-            <span class="pill error">Failed</span>
+            {% if j.request_json %}
+              <form method="post" action="{{ url_for('views.retry', job_id=j.id) }}">
+                {{ csrf_field() }}
+                <button class="btn secondary small" type="submit">Try again</button>
+              </form>
+            {% else %}
+              <span class="pill error">Failed</span>
+            {% endif %}
           {% endif %}
         </li>
       {% endfor %}

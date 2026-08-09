@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Sort a flat folder of downloaded NAPLAN PDFs into the RAG folder structure.
+"""Sort personal-use NAPLAN downloads. Do not ingest them commercially.
 
 Pairs with download_pdfs.py: download everything from an ACARA listing page
 into a staging folder, then run this to route each file into
 rag_sources/<Subject>/<Year>/NAPLAN/ based on year level and subject
 detected in the filename.
+
+ACARA's terms do not permit these past papers to be uploaded to an app or used
+as a commercial question bank. This utility is retained only for an existing
+private archive. NAPLAN external RAG is disabled in the product. See
+rag_sources/README.md before handling any source material.
 
 Usage:
     python scripts/sort_naplan_staging.py
