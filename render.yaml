@@ -33,7 +33,12 @@ services:
       - key: FOLIO_SUPPORT_PHONE
         sync: false
       - key: FOLIO_JOB_MODE
-        value: queue
+        # inline: the web service generates in a background thread,
+        # which is what this deployment has always done. Switch to
+        # queue only once the worker below is provisioned: in queue
+        # mode the web service only enqueues, so without a worker
+        # the site refuses every order (see generation_is_available).
+        value: inline
       - key: FOLIO_REQUIRE_PAYMENTS
         value: "1"
       - key: STRIPE_SECRET_KEY
@@ -67,27 +72,35 @@ services:
       - key: FOLIO_COOKIE_SECURE
         value: "1"
 
-  - type: worker
-    name: folio-generator
-    runtime: docker
-    plan: starter
-    maxShutdownDelaySeconds: 300
-    dockerfilePath: ./Dockerfile
-    dockerCommand: python -m booklet_gen.worker
-    envVars:
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: DATABASE_URL
-        sync: false
-      - key: FOLIO_REQUIRE_POSTGRES
-        value: "1"
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: FOLIO_STORAGE_BUCKET
-        value: booklets
-      - key: FOLIO_JOB_TIMEOUT
-        value: "2700"
-      - key: FOLIO_WORKER_POLL_SECONDS
-        value: "2"
+# Background generation worker. Commented out because this account runs a
+# single web service today, and a Blueprint sync that created the worker
+# while the web service still said inline, or set queue while the worker
+# did not exist, would break generation in one direction or the other.
+#
+# To enable queue mode: uncomment this block, deploy the worker, confirm
+# /healthz reports worker healthy, then set FOLIO_JOB_MODE=queue above.
+#
+#   - type: worker
+#     name: folio-generator
+#     runtime: docker
+#     plan: starter
+#     maxShutdownDelaySeconds: 300
+#     dockerfilePath: ./Dockerfile
+#     dockerCommand: python -m booklet_gen.worker
+#     envVars:
+#       - key: GEMINI_API_KEY
+#         sync: false
+#       - key: DATABASE_URL
+#         sync: false
+#       - key: FOLIO_REQUIRE_POSTGRES
+#         value: "1"
+#       - key: SUPABASE_URL
+#         sync: false
+#       - key: SUPABASE_SERVICE_ROLE_KEY
+#         sync: false
+#       - key: FOLIO_STORAGE_BUCKET
+#         value: booklets
+#       - key: FOLIO_JOB_TIMEOUT
+#         value: "2700"
+#       - key: FOLIO_WORKER_POLL_SECONDS
+#         value: "2"
