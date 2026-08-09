@@ -40,6 +40,15 @@ VISUAL DIAGRAMS (optional per question)
 Any question may include an OPTIONAL `diagram_spec` field. Pages of unbroken symbols are a wall a child bounces off, and a booklet with no figures at all reads as a word processor document rather than a maths book.
 
 REQUIRED COVERAGE: if the subtopic can be pictured at all, AT LEAST ONE THIRD of the questions in the set must carry a diagram_spec, and never fewer than two. These subtopics can always be pictured, so a set with no figures is wrong:
+- reading a clock, elapsed time, "what time is shown" -> clock. NEVER describe
+  a clock in words. "The short hand is at 3 and the long hand is at 2" is not a
+  clock question, it is a riddle about one, and the skill being taught is
+  looking at a dial.
+- multiplication as equal rows, "how many altogether" -> array
+- sharing, division, "into groups of" -> groups
+- naming or counting the sides of flat shapes -> shape. Never describe a shape
+  and ask what it is called without drawing it.
+- place value, reading or building a three-digit number -> place_value
 - fractions of a shape or a collection -> circle_slices or bar_model
 - comparing or ordering fractions -> compare
 - placing or reading a value, including decimals -> number_line
@@ -67,6 +76,27 @@ Supported spec types (use exactly these keys):
   A rectangular prism (3D box) drawn as a labelled solid with dashed hidden edges. USE THIS for volume questions about boxes, cubes (set length=width=height), and rectangular prisms whose three dimensions are all GIVEN in the question: show a cuboid, not a flat rectangle. When the question withholds one of the three because that is what it is asking for, show nothing at all (see Rules below).
 - {"type":"cylinder","radius":3,"height":8,"unit":"cm"}
   An upright 3D cylinder labelled with radius and height. Use for volume/surface-area of cylinders (upper primary and beyond).
+- {"type":"clock","hour":3,"minute":10}
+  An analogue clock face showing that time, with both hands and all twelve
+  numerals. The hour hand sits correctly between numerals, so 7:20 shows it
+  just past 7. Use for every question about reading a clock.
+- {"type":"array","rows":3,"columns":4}
+  Rows by columns of counters, up to 12 by 12. The picture multiplication is
+  built on.
+- {"type":"groups","groups":3,"each":4}
+  Equal groups of counters, each ringed. Up to 8 groups of 12. Use for sharing
+  and division: three rings of four is a different idea from a three by four
+  array, and a child shown the array is being taught the wrong one.
+- {"type":"shape","shapes":["triangle","quadrilateral","pentagon"]}
+  Up to THREE named flat shapes side by side, each labelled underneath. Known
+  names: triangle, quadrilateral, square, rectangle, rhombus, trapezium,
+  parallelogram, pentagon, hexagon, heptagon, octagon, nonagon, decagon,
+  circle. Set "label": false to draw them unlabelled, which is what a
+  "name this shape" question needs.
+- {"type":"place_value","value":342}
+  Hundreds as flats, tens as rods and ones as small squares, for any number
+  from 0 to 999, with the parts named underneath. Set "label": false when the
+  question is asking the student to read the number off the blocks.
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
   A composite figure showing 2-4 sub-diagrams side by side, each labelled underneath. USE THIS whenever the question asks the student to compare things ("which has more shaded", "which is bigger", "which fraction is larger", "put these in order"). Any of the other types can be a sub-spec.
 

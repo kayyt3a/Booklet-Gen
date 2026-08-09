@@ -763,6 +763,256 @@ def _compare(spec: dict, out: Path, f: _Fonts) -> None:
     canvas.save(out, "PNG")
 
 
+def _clock(spec: dict, out: Path, f: _Fonts) -> None:
+    """An analogue clock face showing one time.
+
+    A booklet taught clock reading with no clock on the page, so its questions
+    had to describe the picture in words: "what time is shown on a clock where
+    the short hand is at 3 and the long hand is at 2". That is not reading a
+    clock, it is decoding a sentence about one, and it is the whole skill
+    missing. A child learning the hour hand has to see the hour hand.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle
+
+    hour = int(spec.get("hour", 12)) % 12
+    minute = int(spec.get("minute", 0)) % 60
+
+    fig, ax = plt.subplots(figsize=(2.6, 2.6), dpi=DPI)
+    ax.add_patch(Circle((0, 0), 1.0, fill=False,
+                        edgecolor=LINE_COLOR, linewidth=LINE_WIDTH * 1.4))
+
+    for tick in range(60):
+        angle = math.radians(90 - tick * 6)
+        inner = 0.90 if tick % 5 else 0.84
+        ax.plot([inner * math.cos(angle), 0.97 * math.cos(angle)],
+                [inner * math.sin(angle), 0.97 * math.sin(angle)],
+                color=LINE_COLOR,
+                linewidth=LINE_WIDTH * (0.9 if tick % 5 == 0 else 0.4))
+
+    # The numerals are the thing being read, so they get label size, not note.
+    for n in range(1, 13):
+        angle = math.radians(90 - n * 30)
+        ax.text(0.72 * math.cos(angle), 0.72 * math.sin(angle), str(n),
+                ha="center", va="center", fontsize=f.label(13),
+                color=LINE_COLOR)
+
+    # Minute hand first so the hour hand sits on top where they overlap.
+    minute_angle = math.radians(90 - minute * 6)
+    ax.plot([0, 0.80 * math.cos(minute_angle)], [0, 0.80 * math.sin(minute_angle)],
+            color=LINE_COLOR, linewidth=LINE_WIDTH * 1.6,
+            solid_capstyle="round")
+    # The hour hand creeps between numerals, which is what makes "just past
+    # seven" legible. Drawing it exactly on the numeral teaches the wrong thing.
+    hour_angle = math.radians(90 - (hour + minute / 60.0) * 30)
+    ax.plot([0, 0.52 * math.cos(hour_angle)], [0, 0.52 * math.sin(hour_angle)],
+            color=LINE_COLOR, linewidth=LINE_WIDTH * 2.8,
+            solid_capstyle="round")
+    ax.add_patch(Circle((0, 0), 0.045, facecolor=LINE_COLOR, edgecolor="none"))
+
+    ax.set_xlim(-1.12, 1.12)
+    ax.set_ylim(-1.12, 1.12)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
+    plt.close(fig)
+
+
+def _array(spec: dict, out: Path, f: _Fonts) -> None:
+    """Rows by columns of counters: the picture multiplication is built on.
+
+    "Arrays and equal groups" is a named Year 2 to 4 subtopic and there was no
+    way to draw one, so a booklet taught arrays entirely in prose.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle
+
+    rows = int(spec.get("rows", 3))
+    cols = int(spec.get("columns", spec.get("cols", 4)))
+    if not (1 <= rows <= 12 and 1 <= cols <= 12):
+        raise ValueError(f"an array must be 1-12 by 1-12, got {rows}x{cols}")
+
+    fig, ax = plt.subplots(figsize=(0.42 * cols + 0.6, 0.42 * rows + 0.6), dpi=DPI)
+    for r in range(rows):
+        for c in range(cols):
+            ax.add_patch(Circle((c, -r), 0.32, facecolor=SHADE_COLOR,
+                                alpha=SHADE_ALPHA, edgecolor=LINE_COLOR,
+                                linewidth=LINE_WIDTH * 0.8))
+    ax.set_xlim(-0.6, cols - 0.4)
+    ax.set_ylim(-rows + 0.4, 0.6)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
+    plt.close(fig)
+
+
+def _groups(spec: dict, out: Path, f: _Fonts) -> None:
+    """Equal groups of counters, for sharing and division.
+
+    Distinct from an array on purpose: sharing twelve stickers among three
+    friends is three rings of four, not a three by four grid, and a child who
+    is shown the grid is being taught a different idea.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle, Ellipse
+
+    groups = int(spec.get("groups", 3))
+    each = int(spec.get("each", 4))
+    if not (1 <= groups <= 8 and 1 <= each <= 12):
+        raise ValueError(f"groups must be 1-8 of 1-12, got {groups} of {each}")
+
+    per_row = min(each, 4)
+    rows = math.ceil(each / per_row)
+    # The counters in a group span (per_row - 1) * 0.55 plus a radius each
+    # side. The ring has to be centred on that, not on the cell.
+    span = (per_row - 1) * 0.55
+    gw = span + 1.05
+    fig, ax = plt.subplots(figsize=(gw * groups + 0.4, rows * 0.55 + 0.9), dpi=DPI)
+
+    for g in range(groups):
+        x0 = g * gw
+        ax.add_patch(Ellipse((x0 + span / 2, -(rows - 1) * 0.55 / 2),
+                             span + 0.75, rows * 0.55 + 0.45,
+                             fill=False, edgecolor=LINE_COLOR,
+                             linewidth=LINE_WIDTH, linestyle="--"))
+        for i in range(each):
+            r, c = divmod(i, per_row)
+            ax.add_patch(Circle((x0 + c * 0.55, -r * 0.55), 0.2,
+                                facecolor=SHADE_COLOR, alpha=SHADE_ALPHA,
+                                edgecolor=LINE_COLOR, linewidth=LINE_WIDTH * 0.7))
+    ax.set_xlim(-0.55, gw * groups - 0.1)
+    ax.set_ylim(-(rows - 1) * 0.55 - 0.55, 0.55)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
+    plt.close(fig)
+
+
+# Regular polygons a primary booklet names, by side count.
+_SHAPE_SIDES = {
+    "triangle": 3, "quadrilateral": 4, "square": 4, "rectangle": 4,
+    "rhombus": 4, "trapezium": 4, "parallelogram": 4,
+    "pentagon": 5, "hexagon": 6, "heptagon": 7, "octagon": 8,
+    "nonagon": 9, "decagon": 10,
+}
+
+
+def _shape(spec: dict, out: Path, f: _Fonts) -> None:
+    """One or more named flat shapes, optionally labelled underneath.
+
+    A booklet taught "a triangle has 3 sides, a pentagon has 5 sides" and drew
+    none of them, leaving most of the page blank. Naming shapes is a looking
+    task before it is a counting one.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle, RegularPolygon, Rectangle
+
+    names = spec.get("shapes") or [spec.get("shape", "triangle")]
+    # Three is the most that fits across 7.5cm with a readable name under
+    # each. A fourth forces the whole figure to be scaled down on the page,
+    # the legibility pass then enlarges the text to clear its floor, and the
+    # names collide. Ask for two figures instead of a crowded one.
+    names = [str(n).strip().lower() for n in names][:3]
+    if not names:
+        raise ValueError("a shape diagram needs at least one shape")
+    show_labels = bool(spec.get("label", True))
+
+    # The figure is kept near the 7.5cm the formatter allows, so the page
+    # barely scales it and the legibility pass barely enlarges the text.
+    # Drawing it wide and letting the page shrink it is what ran the names
+    # into each other: the shapes shrink, the words do not.
+    step = 1.5
+    fig, ax = plt.subplots(figsize=(1.32 * len(names) + 0.25, 1.75), dpi=DPI)
+    for i, name in enumerate(names):
+        cx = i * step
+        if name == "circle":
+            ax.add_patch(Circle((cx, 0), 0.55, facecolor=SHADE_COLOR,
+                                alpha=SHADE_ALPHA, edgecolor=LINE_COLOR,
+                                linewidth=LINE_WIDTH))
+        elif name == "rectangle":
+            ax.add_patch(Rectangle((cx - 0.65, -0.4), 1.3, 0.8,
+                                   facecolor=SHADE_COLOR, alpha=SHADE_ALPHA,
+                                   edgecolor=LINE_COLOR, linewidth=LINE_WIDTH))
+        else:
+            sides = _SHAPE_SIDES.get(name)
+            if sides is None:
+                raise ValueError(f"unknown shape {name!r}")
+            # Square and triangle read wrong resting on a vertex.
+            rotation = math.pi / 4 if sides == 4 else 0.0
+            ax.add_patch(RegularPolygon((cx, 0), sides, radius=0.6,
+                                        orientation=rotation,
+                                        facecolor=SHADE_COLOR, alpha=SHADE_ALPHA,
+                                        edgecolor=LINE_COLOR,
+                                        linewidth=LINE_WIDTH))
+        if show_labels:
+            ax.text(cx, -0.85, name, ha="center", va="top",
+                    fontsize=f.label(11), color=LINE_COLOR)
+    ax.set_xlim(-step / 2 - 0.1, step * (len(names) - 1) + step / 2 + 0.1)
+    ax.set_ylim(-1.35 if show_labels else -0.8, 0.8)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
+    plt.close(fig)
+
+
+def _place_value(spec: dict, out: Path, f: _Fonts) -> None:
+    """Hundreds, tens and ones as blocks, the standard classroom picture.
+
+    "Three-digit numbers" was taught with no picture of a three-digit number.
+    Place value is the one idea in early primary that is genuinely spatial.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    value = int(spec.get("value", 0))
+    if not (0 <= value <= 999):
+        raise ValueError(f"place value blocks cover 0-999, got {value}")
+    hundreds, rest = divmod(value, 100)
+    tens, ones = divmod(rest, 10)
+
+    fig, ax = plt.subplots(figsize=(5.4, 2.3), dpi=DPI)
+    u = 0.16
+    x = 0.0
+
+    def block(x0, y0, w, h):
+        ax.add_patch(Rectangle((x0, y0), w, h, facecolor=SHADE_COLOR,
+                               alpha=SHADE_ALPHA, edgecolor=LINE_COLOR,
+                               linewidth=LINE_WIDTH * 0.7))
+
+    for _ in range(hundreds):
+        for r in range(10):
+            for c in range(10):
+                block(x + c * u, -r * u, u, u)
+        x += 10 * u + 0.35
+    for _ in range(tens):
+        for r in range(10):
+            block(x, -r * u, u, u)
+        x += u + 0.14
+    if tens:
+        x += 0.2
+    for i in range(ones):
+        block(x + i * (u + 0.06), 0, u, u)
+
+    if spec.get("label", True):
+        parts = []
+        if hundreds:
+            parts.append(f"{hundreds} hundred{'s' if hundreds > 1 else ''}")
+        if tens:
+            parts.append(f"{tens} ten{'s' if tens > 1 else ''}")
+        if ones:
+            parts.append(f"{ones} one{'s' if ones > 1 else ''}")
+        if parts:
+            ax.text(0, -10 * u - 0.22, ", ".join(parts), ha="left", va="top",
+                    fontsize=f.label(11), color=LINE_COLOR)
+
+    ax.set_xlim(-0.2, max(x + ones * (u + 0.06), 1.0) + 0.2)
+    ax.set_ylim(-10 * u - 0.72, 0.3)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
+    plt.close(fig)
+
+
 _RENDERERS = {
     "circle_slices": _circle_slices,
     "bar_model": _bar_model,
@@ -772,4 +1022,9 @@ _RENDERERS = {
     "cuboid": _cuboid,
     "cylinder": _cylinder,
     "compare": _compare,
+    "clock": _clock,
+    "array": _array,
+    "groups": _groups,
+    "shape": _shape,
+    "place_value": _place_value,
 }

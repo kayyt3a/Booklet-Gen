@@ -327,6 +327,66 @@ def main() -> int:
     finally:
         diagrams.CACHE_DIR = old_cache
 
+    # ---------------------------------------------------------------------------
+    # The primitives a primary booklet cannot teach without
+    #
+    # A Year 3 booklet taught "Reading analogue clocks" across three pages with no
+    # clock on any of them, so its questions had to describe the dial in words:
+    # "what time is shown on a clock where the short hand is at 3 and the long hand
+    # is at 2". It taught arrays with no array and named 2D shapes with none drawn.
+    # The renderer had no type for any of it, so the model could not have asked.
+    # ---------------------------------------------------------------------------
+    print("\nPrimitives for early primary")
+    # Isolate the cache. render_diagram hands back a cached PNG without
+    # drawing, so a stale file from an earlier run makes every case below pass
+    # whatever the renderer does, which is exactly how this block first went
+    # green with the renderers deleted.
+    primary_cache = Path(tempfile.mkdtemp(prefix="folio-primary-"))
+    old_primary_cache = diagrams.CACHE_DIR
+    diagrams.CACHE_DIR = primary_cache
+
+    _PRIMARY_CASES = [
+        ({"type": "clock", "hour": 3, "minute": 10}, "a clock at 3:10"),
+        ({"type": "clock", "hour": 7, "minute": 20}, "a clock at 7:20"),
+        ({"type": "clock", "hour": 12, "minute": 0}, "a clock on the hour"),
+        ({"type": "array", "rows": 3, "columns": 4}, "a 3 by 4 array"),
+        ({"type": "array", "rows": 1, "columns": 1}, "the smallest array"),
+        ({"type": "groups", "groups": 3, "each": 4}, "3 groups of 4"),
+        ({"type": "groups", "groups": 5, "each": 2}, "5 groups of 2"),
+        ({"type": "shape", "shapes": ["triangle", "quadrilateral", "pentagon"]},
+         "three named shapes"),
+        ({"type": "shape", "shape": "hexagon"}, "one named shape"),
+        ({"type": "shape", "shapes": ["circle", "octagon"], "label": False},
+         "unlabelled shapes, for a name-this question"),
+        ({"type": "place_value", "value": 342}, "place value blocks for 342"),
+        ({"type": "place_value", "value": 7}, "place value blocks for a single digit"),
+    ]
+    for spec, note in _PRIMARY_CASES:
+        path = diagrams.render_diagram(spec)
+        check(path is not None and Path(path).exists(), f"renders {note}")
+
+    # Nonsense must be refused rather than drawn wrong.
+    for spec, note in [
+        ({"type": "array", "rows": 0, "columns": 4}, "an array with no rows"),
+        ({"type": "array", "rows": 40, "columns": 40}, "an array too big to read"),
+        ({"type": "groups", "groups": 99, "each": 2}, "more groups than fit"),
+        ({"type": "shape", "shape": "dodecahedron"}, "a shape it cannot draw"),
+        ({"type": "place_value", "value": 4200}, "a number past 999"),
+    ]:
+        check(diagrams.render_diagram(spec) is None, f"refuses {note}")
+
+    # The clock is the one whose correctness is invisible in a smoke test: a dial
+    # drawn with the hour hand parked on the numeral teaches that 7:20 looks like
+    # 7:00. Check the hands actually differ where they should.
+    import math as _math  # noqa: E402
+
+    _hour_angle = lambda h, m: _math.radians(90 - (h % 12 + m / 60.0) * 30)
+    check(abs(_hour_angle(7, 20) - _hour_angle(7, 0)) > 0.15,
+          "the hour hand moves between numerals, so 7:20 is not drawn as 7:00")
+    check(abs(_hour_angle(12, 0) - _math.radians(90)) < 1e-9,
+          "and twelve o'clock points straight up")
+    diagrams.CACHE_DIR = old_primary_cache
+
     print(f"\n{PASSED}/{TOTAL} behaved as expected")
     return 0 if PASSED == TOTAL else 1
 
