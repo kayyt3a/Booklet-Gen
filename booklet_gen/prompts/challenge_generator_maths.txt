@@ -39,6 +39,26 @@ Populate `diagram_spec` only when a diagram is clearly helpful, and only ever wi
   A 3D cylinder labelled with radius and height. Use for volume/surface-area of cylinders.
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
   For "which is bigger / smaller / order these" questions. Sub-figures MUST be meaningfully different (e.g. different denominators for fraction comparisons). Refer to the labels in the question text. Never ask a comparison question with only one figure.
+- {"type":"clock","hour":3,"minute":10}, {"type":"array","rows":3,"columns":4,"shaded":9}, {"type":"groups","groups":3,"each":4}, {"type":"shape","shapes":["triangle","pentagon"]}, {"type":"place_value","value":342}, {"type":"part_whole","whole":"45","parts":["28","?"]}, {"type":"factor_tree","value":60}
+  Number and early-primary pictures. `array` with "shaded" is a fraction of a collection.
+- {"type":"money","items":["$2","50c"]}, {"type":"ruler","length":7,"max":10,"unit":"cm"}, {"type":"jug","capacity":1000,"level":650,"unit":"mL"}, {"type":"scale_dial","max":1000,"value":450,"unit":"g"}
+  Money and reading a measuring instrument.
+- {"type":"angle","angles":[130,50],"base":"line","labels":["130°","x"]}, {"type":"parallel_lines","angle":62,"labels":{"1":"118°","6":"x"}}
+  Angles. base is "open", "line" (must total 180) or "point" (must total 360). On parallel lines the eight angles run 1-4 anticlockwise from the upper right at the top crossing, 5-8 at the bottom.
+- {"type":"triangle","base":10,"height":6,"unit":"cm"}, {"type":"parallelogram","base":9,"height":4,"unit":"cm"}, {"type":"trapezium","top":5,"bottom":9,"height":4,"unit":"cm"}, {"type":"circle","radius":7,"unit":"cm"}, {"type":"grid_area","width":6,"height":4}, {"type":"symmetry","shape":"hexagon","mirror":"vertical"}
+  Flat shapes. Each area shape draws its perpendicular height dashed.
+- {"type":"right_triangle","a":4,"b":3,"c":5,"unit":"cm","unknown":["c"]}
+  Pythagoras and trigonometry. ALWAYS list the side being asked for in "unknown". "angle":37 marks the acute angle at the bottom right.
+- {"type":"shape_3d","solids":["cube","cone"]}, {"type":"net","solid":"cube","edge":4,"unit":"cm"}
+  Naming solids, and the net for surface area.
+- {"type":"coordinate_plane","x_range":[-5,5],"y_range":[-5,5],"points":[[2,3]],"labels":["A"],"lines":[{"m":2,"c":-1}],"curves":[{"a":1,"b":0,"c":-4}]}
+  Points, lines and parabolas. Keep each range to 12 units or fewer.
+- {"type":"bar_chart","categories":["Mon","Tue"],"values":[4,7]}, {"type":"picture_graph","each":2,"rows":[{"label":"Cats","count":8}]}, {"type":"tally","rows":[{"label":"Red","count":7}]}, {"type":"dot_plot","values":[3,4,4,5]}, {"type":"stem_leaf","values":[12,15,21]}, {"type":"scatter","points":[[1,2],[2,3]]}, {"type":"box_plot","plots":[{"label":"9A","min":2,"q1":5,"median":7,"q3":9,"max":14}]}
+  Data displays. Every picture-graph count must divide by "each".
+- {"type":"spinner","sectors":["red","blue","green"]}, {"type":"tree_diagram","stages":[{"branches":[{"label":"H","p":"1/2"},{"label":"T","p":"1/2"}]}]}, {"type":"venn","sets":["Dogs","Cats"],"regions":{"a":"9","b":"7","ab":"4","none":"3"}}
+  Chance and sets.
+
+DIMENSION: area and perimeter are flat (rectangle, l_shape, grid_area, triangle, parallelogram, trapezium, circle). Volume and capacity are solid (cuboid, cylinder). Surface area takes a solid or a net.
 
 AUSTRALIAN CONTEXT (NAPLAN)
 For NAPLAN year levels (3, 5, 7, 9), lean into NAPLAN-style: multi-step word problems, real-world contexts (dollars/cents, metric units, timetables, sport), and interpret-a-diagram items. Use Australian conventions. Don't label questions "NAPLAN".

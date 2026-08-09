@@ -242,7 +242,17 @@ _ASK_TERMS = {
     "width": (r"wide", r"(?:width|breadth)", ""),
     # A question that asks for the diameter is given away just as badly by a
     # labelled radius, so both map to the radius label.
-    "radius": (None, r"(?:radius|diameter)", ""),
+    # "Find the length of the radius" is how half of these are worded, and the
+    # lead pattern only allows an article, so the phrase goes in the noun. Not
+    # widened for every key on purpose: "find the area of the base" would then
+    # read as a question about the base and hide the one label the student
+    # needs to work out the area.
+    "radius": (None, r"(?:length\s+of\s+(?:the\s+)?)?(?:radius|diameter)", ""),
+    # The hypotenuse is the `c` key of a right_triangle, and it is what almost
+    # every Pythagoras question asks for. Printing it on the drawing turns
+    # "use the theorem" into "read the label".
+    "c": (None, r"(?:length\s+of\s+(?:the\s+)?)?hypotenuse", ""),
+    "base": (None, r"base", ""),
 }
 
 
@@ -301,6 +311,38 @@ def unknown_dimensions(spec: dict, question_text: str) -> list:
     return sorted(hidden)
 
 
+# Shapes that print every dimension they are given, but whose numbers must not
+# be rewritten from the question text.
+#
+# For a cuboid, "the tank is 40 cm long" names the same thing the spec calls
+# `length`, so a mismatched drawing can be corrected. These shapes have no such
+# correspondence: a triangle's `base` and `height` are not what a question
+# calls its three sides, and a right triangle's `a` and `b` are whichever two
+# legs the model chose. Forcing values there would invent a wrong drawing out
+# of a right one. Hiding a label cannot: the worst case is a "?" on a side the
+# question happens to state, which costs a little information and leaks none.
+_LEAK_ONLY_TYPES = frozenset({"right_triangle", "triangle", "parallelogram",
+                              "trapezium", "circle"})
+
+
+def _hide_the_answer(spec: dict, kind: str, question_text: str) -> tuple[dict, bool]:
+    """Mark as "?" any label on `spec` that states what the question asks for."""
+    hidden = set(unknown_dimensions(spec, question_text))
+    if kind == "circle":
+        # The spec carries whichever of radius or diameter it was given, and
+        # either one hands over the other. `unknown_dimensions` looks for its
+        # own key name in the spec, so neither is found unless it is mapped.
+        asked = asked_dimensions(question_text)
+        stated = dimensions_in_text(question_text)
+        if "radius" in asked and "radius" not in stated:
+            hidden |= {k for k in ("radius", "diameter") if k in spec}
+    if not hidden or sorted(_unknown_keys(spec)) == sorted(hidden):
+        return spec, False
+    out = dict(spec)
+    out["unknown"] = sorted(hidden)
+    return out, True
+
+
 def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
     """Correct a diagram spec so its labels match the question.
 
@@ -320,6 +362,8 @@ def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
         return spec, False
 
     kind = str(spec.get("type", "")).lower()
+    if kind in _LEAK_ONLY_TYPES:
+        return _hide_the_answer(spec, kind, question_text)
     if kind not in {"cuboid", "cylinder", "rectangle"}:
         return spec, False       # only shapes whose labels are literal measurements
 
@@ -371,8 +415,15 @@ def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
 # surface area live on a solid. Drawing a rectangle beside "find the volume"
 # teaches that a box is a square, which is worse than drawing nothing, and it
 # is the confusion this stage of primary maths exists to undo.
-_SOLID_TYPES = frozenset({"cuboid", "cylinder"})
-_FLAT_TYPES = frozenset({"rectangle", "l_shape", "circle_slices", "bar_model"})
+_SOLID_TYPES = frozenset({"cuboid", "cylinder", "shape_3d"})
+_FLAT_TYPES = frozenset({
+    "rectangle", "l_shape", "circle_slices", "bar_model",
+    # Every flat figure that carries a measurement. A net is deliberately NOT
+    # here: it is a flat drawing of a solid, so it is the right picture for a
+    # surface-area question and the wrong one to reject for naming a prism.
+    "triangle", "right_triangle", "parallelogram", "trapezium", "circle",
+    "grid_area", "shape", "symmetry",
+})
 
 # "Volume", "capacity" and "surface area" need a solid. Note surface area is
 # deliberately here and not below: it is a property of a 3D object.

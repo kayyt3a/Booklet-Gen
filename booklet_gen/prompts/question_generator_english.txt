@@ -18,7 +18,8 @@ Output rules:
         "working": string,       // brief reasoning that walks a student through arriving at the answer
         "difficulty": "easy" | "medium" | "hard",
         "passage_id": string,    // the id of the passage this question is about, or null if it needs no reading
-        "image_query": string    // or null (see IMAGES)
+        "image_query": string,   // or null (see IMAGES)
+        "diagram_spec": object   // or null (see DIAGRAMS)
       }
     ]
   }
@@ -90,6 +91,26 @@ An `image_query` must name an OBJECT, ANIMAL, PLANT, PLACE, BUILDING or MACHINE.
 
 - We search Wikimedia Commons and print the top free-licensed photograph. A query that matches nothing renders text-only, so write 2 to 5 words naming a concrete thing that photographs exist of: "Sydney Harbour Bridge", "emperor penguin colony", "wheat harvester", "1950s classroom".
 - Never query an abstraction, a feeling, a plot event or a made-up name: "courage", "the theme of friendship", "Amara at the lighthouse" all return nothing or return something misleading. Query the real-world thing the reading is set among.
+
+DIAGRAMS (optional per question)
+A passage is words, and words are not a picture. Almost everything TAUGHT about a passage is a structure, though, and a structure explained only in prose is the one thing a student cannot hold in their head while also reading the prose. Four figures are available. Use one whenever the subtopic is about how language is put together rather than about what a particular text says. Do not decorate a comprehension question with one.
+
+- {"type":"sentence_parts","parts":[{"text":"The old brown dog","role":"subject"},{"text":"chased","role":"verb"},{"text":"the tennis ball","role":"object"}]}
+  A whole sentence with a bracket under each named part. 2-5 parts, and the parts must join up into the sentence in order. Use for subject and verb, noun and verb groups, main and subordinate clauses, and for showing where a comma or an apostrophe belongs. This is the figure that lets a question POINT at part of a sentence instead of quoting it out of one.
+- {"type":"text_structure","title":"Narrative","stages":[{"name":"Orientation","note":"who, where, when"},{"name":"Complication","note":"the problem"},{"name":"Resolution","note":"how it ends"}]}
+  The stages of a text type in order, numbered, with a short note on each. 2-6 stages. Use for narrative, information report, procedure, persuasive text, and for the analytical paragraph (topic sentence, evidence, explanation, link). Keep each note to about four words.
+- {"type":"narrative_arc","stages":["Orientation","Rising action","Climax","Falling action","Resolution"]}
+  The story mountain, with 3-5 labelled points along it. Use when the question is about where the tension sits, not about the stages themselves.
+- {"type":"word_web","centre":"port","around":["import","export","portable","transport"]}
+  One word in the middle with 3-6 related words around it. Use for synonyms and antonyms, for a root and the words built on it, and for a prefix or suffix and what it does.
+
+Also: {"type":"venn","sets":["Text A","Text B"],"regions":{"a":"only A","b":"only B","ab":"both","none":""}} for comparing two texts. Keep each region to a few words, not a sentence.
+
+Rules:
+- A question may carry a diagram_spec OR an image_query, never both.
+- If the question text refers to a figure ("the diagram below", "the sentence shown"), a diagram_spec is MANDATORY.
+- Never put the answer on the diagram. A question asking which part is the subject must not label the subject.
+- Only these exact type names and keys. Anything else is ignored and the question prints text-only.
 
 AUSTRALIAN CONTEXT (NAPLAN)
 This booklet may be used to prepare Australian students for both regular school work and for NAPLAN (National Assessment Program, Literacy and Numeracy, sat in Years 3, 5, 7 and 9). For years that align with NAPLAN (3, 5, 7, 9), lean into NAPLAN-style items where they fit the subtopic: reading passages followed by targeted questions, language conventions items on grammar and punctuation, and short constructed-response writing tasks. Use Australian English spelling (colour, favourite, realise). Do NOT label questions "NAPLAN", just let the style come through.

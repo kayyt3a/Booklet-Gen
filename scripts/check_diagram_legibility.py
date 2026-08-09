@@ -387,8 +387,285 @@ def main() -> int:
           "and twelve o'clock points straight up")
     diagrams.CACHE_DIR = old_primary_cache
 
+    rc = _check_full_curriculum_coverage()
     print(f"\n{PASSED}/{TOTAL} behaved as expected")
-    return 0 if PASSED == TOTAL else 1
+    return 0 if PASSED == TOTAL and rc == 0 else 1
+
+
+# ---------------------------------------------------------------------------
+# Every year, every subject
+#
+# The library grew up around Year 5 fractions and measurement, so a Year 3
+# booklet taught clock reading with no clock and a Year 9 booklet taught
+# scatterplots by describing one. English had no figure of any kind. These
+# cases walk the curriculum bands in booklet_gen/guidance/accelerate_practice.txt
+# and assert that the thing each band is taught can actually be drawn.
+# ---------------------------------------------------------------------------
+
+# (spec, the curriculum subtopic it exists for)
+CURRICULUM_CASES = [
+    # Years 1-2
+    ({"type": "picture_graph", "each": 2, "unit": "pets",
+      "rows": [{"label": "Cats", "count": 8}, {"label": "Dogs", "count": 6}]},
+     "picture graphs"),
+    ({"type": "tally", "rows": [{"label": "Red", "count": 7},
+                                {"label": "Blue", "count": 12}]}, "tally marks"),
+    ({"type": "part_whole", "whole": "20", "parts": ["12", "?"]},
+     "part-part-whole"),
+    ({"type": "array", "rows": 3, "columns": 4, "shaded": 6},
+     "fractions of a collection"),
+    ({"type": "shape_3d", "solids": ["cube", "sphere", "cone"]},
+     "naming three dimensional shapes"),
+    ({"type": "money", "items": ["$2", "50c", "20c", "$5"]}, "money"),
+    ({"type": "ruler", "length": 7, "max": 10, "unit": "cm"}, "length"),
+    ({"type": "jug", "capacity": 1000, "level": 650, "unit": "mL"}, "capacity"),
+    ({"type": "scale_dial", "max": 1000, "value": 450, "unit": "g"}, "mass"),
+    # Years 3-4
+    ({"type": "grid_area", "width": 6, "height": 4}, "area by counting squares"),
+    ({"type": "grid_area", "width": 7, "height": 5, "cut_width": 3,
+      "cut_height": 2}, "composite area by counting squares"),
+    ({"type": "angle", "angles": [130]}, "angles as a turn"),
+    ({"type": "symmetry", "shape": "hexagon", "mirror": "vertical"}, "symmetry"),
+    ({"type": "bar_chart", "categories": ["Mon", "Tue", "Wed"],
+      "values": [4, 7, 3], "y_label": "Laps"}, "column graphs"),
+    ({"type": "spinner", "sectors": ["red", "blue", "green"]}, "chance"),
+    # Years 5-6
+    ({"type": "triangle", "base": 10, "height": 6, "unit": "cm"},
+     "area of a triangle"),
+    ({"type": "parallelogram", "base": 9, "height": 4, "unit": "cm"},
+     "area of a parallelogram"),
+    ({"type": "angle", "angles": [130, 50], "base": "line",
+      "labels": ["130°", "x"]}, "angles on a straight line"),
+    ({"type": "angle", "angles": [90, 120, 150], "base": "point"},
+     "angles at a point"),
+    ({"type": "coordinate_plane", "x_range": [-5, 5], "y_range": [-5, 5],
+      "points": [[2, 3], [-3, -2]], "labels": ["A", "B"]}, "the Cartesian plane"),
+    ({"type": "dot_plot", "values": [3, 4, 4, 5, 5, 5, 6]}, "mean, median, mode"),
+    ({"type": "bar_chart", "categories": ["Y5", "Y6"],
+      "series": [{"name": "Girls", "values": [12, 9]},
+                 {"name": "Boys", "values": [8, 13]}]},
+     "side by side column graphs"),
+    # Years 7-8
+    ({"type": "factor_tree", "value": 60}, "prime factorisation"),
+    ({"type": "circle", "radius": 7, "unit": "cm"}, "area of a circle"),
+    ({"type": "circle", "diameter": 12, "unit": "mm"},
+     "a circle given its diameter"),
+    ({"type": "trapezium", "top": 5, "bottom": 9, "height": 4, "unit": "cm"},
+     "area of a trapezium"),
+    ({"type": "net", "solid": "cube", "edge": 4, "unit": "cm"},
+     "surface area from a net"),
+    ({"type": "net", "solid": "rectangular prism", "length": 6, "width": 3,
+      "height": 2, "unit": "cm"}, "the net of a rectangular prism"),
+    ({"type": "parallel_lines", "angle": 62,
+      "labels": {"1": "118°", "6": "x"}}, "angles with parallel lines"),
+    ({"type": "right_triangle", "a": 4, "b": 3, "c": 5, "unit": "cm",
+      "unknown": ["c"]}, "Pythagoras"),
+    ({"type": "stem_leaf", "values": [12, 15, 15, 21, 24, 31]},
+     "stem and leaf plots"),
+    ({"type": "tree_diagram", "stages": [
+        {"branches": [{"label": "H", "p": "1/2"}, {"label": "T", "p": "1/2"}]},
+        {"branches": [{"label": "H", "p": "1/2"}, {"label": "T", "p": "1/2"}]}]},
+     "two step chance experiments"),
+    ({"type": "coordinate_plane", "x_range": [-4, 4], "y_range": [-6, 6],
+      "lines": [{"m": 2, "c": -1}]}, "linear relationships"),
+    # Years 9-10
+    ({"type": "coordinate_plane", "x_range": [-4, 4], "y_range": [-5, 6],
+      "curves": [{"a": 1, "b": 0, "c": -4}]}, "quadratic graphs"),
+    ({"type": "coordinate_plane", "x_range": [-5, 5], "y_range": [-5, 5],
+      "lines": [{"m": 1, "c": 1}, {"points": [[0, 4], [4, 0]]}]},
+     "simultaneous equations"),
+    ({"type": "right_triangle", "a": 8, "b": 6, "unit": "m", "angle": 37},
+     "right angled trigonometry"),
+    ({"type": "scatter", "line_of_best_fit": True,
+      "points": [[1, 2], [2, 3], [3, 5], [4, 4], [5, 7]]}, "bivariate data"),
+    ({"type": "box_plot", "plots": [
+        {"label": "9A", "min": 2, "q1": 5, "median": 7, "q3": 9, "max": 14},
+        {"label": "9B", "min": 4, "q1": 6, "median": 10, "q3": 12, "max": 15}]},
+     "comparing distributions"),
+    ({"type": "venn", "sets": ["Dogs", "Cats"],
+      "regions": {"a": "9", "b": "7", "ab": "4", "none": "3"}}, "Venn diagrams"),
+    ({"type": "venn", "sets": ["A", "B", "C"],
+      "regions": {"a": "5", "b": "3", "c": "6", "ab": "2", "ac": "4",
+                  "bc": "1", "abc": "2"}}, "three set Venn diagrams"),
+    # English
+    ({"type": "sentence_parts", "parts": [
+        {"text": "The old brown dog", "role": "subject"},
+        {"text": "chased", "role": "verb"},
+        {"text": "the tennis ball", "role": "object"}]},
+     "the parts of a sentence"),
+    ({"type": "text_structure", "title": "Narrative", "stages": [
+        {"name": "Orientation", "note": "who, where, when"},
+        {"name": "Complication", "note": "the problem"},
+        {"name": "Resolution", "note": "how it ends"}]}, "text structure"),
+    ({"type": "narrative_arc", "stages": ["Orientation", "Rising action",
+                                          "Climax", "Falling action",
+                                          "Resolution"]}, "the narrative arc"),
+    ({"type": "word_web", "centre": "port",
+      "around": ["import", "export", "portable", "transport"]},
+     "word roots and families"),
+]
+
+# Nonsense the renderer must refuse rather than draw wrong. Each one is a way
+# the model can produce a figure that contradicts itself, and a contradictory
+# figure marks a correct answer wrong.
+REFUSAL_CASES = [
+    ({"type": "angle", "angles": [130, 60], "base": "line"},
+     "angles on a straight line that do not total 180"),
+    ({"type": "angle", "angles": [90, 90], "base": "point"},
+     "angles at a point that do not total 360"),
+    ({"type": "circle", "radius": 5, "diameter": 10},
+     "a circle given both a radius and a diameter"),
+    ({"type": "circle"}, "a circle given neither"),
+    ({"type": "trapezium", "top": 6, "bottom": 6, "height": 4},
+     "a trapezium whose parallel sides are equal"),
+    ({"type": "box_plot", "plots": [{"min": 5, "q1": 2, "median": 7, "q3": 9,
+                                     "max": 14}]},
+     "a five-number summary out of order"),
+    ({"type": "picture_graph", "each": 2,
+      "rows": [{"label": "Cats", "count": 7}, {"label": "Dogs", "count": 6}]},
+     "a picture graph needing half a symbol"),
+    ({"type": "factor_tree", "value": 37}, "a factor tree for a prime"),
+    ({"type": "money", "items": ["30c"]}, "a coin that does not exist"),
+    ({"type": "net", "solid": "sphere"}, "the net of a sphere"),
+    ({"type": "shape_3d", "solids": ["dodecahedron"]},
+     "a solid it cannot draw"),
+    ({"type": "jug", "capacity": 500, "level": 900},
+     "a jug holding more than it holds"),
+    ({"type": "grid_area", "width": 40, "height": 40},
+     "a counting grid too big to count"),
+    ({"type": "coordinate_plane", "x_range": [-5, 5], "y_range": [-5, 5]},
+     "an empty grid with nothing plotted"),
+    ({"type": "coordinate_plane", "x_range": [-100, 100], "y_range": [-5, 5],
+      "points": [[0, 0]]}, "an axis too long to read"),
+    ({"type": "sentence_parts", "parts": [{"text": "one part", "role": "all"}]},
+     "a sentence broken into one part"),
+    ({"type": "parallel_lines", "angle": 62, "labels": {"9": "x"}},
+     "an angle position that does not exist"),
+    ({"type": "parallel_lines", "angle": 90, "labels": {"1": "x"}},
+     "a transversal at right angles, where the eight angles collapse to two"),
+    ({"type": "venn", "sets": ["A", "B"], "regions": {"abc": "3"}},
+     "a two set Venn given a three set region"),
+    ({"type": "tally", "rows": [{"label": "Red", "count": 90}]},
+     "a tally too long to read"),
+]
+
+
+def worst_declared_shortfall(spec: dict, max_w: float, max_h: float):
+    """Does every piece of text clear the floor its renderer asked for?
+
+    Returns (worst printed pt, its floor, png size), or (None, None, png) when
+    the figure carries no text.
+
+    Spying on `Axes.text` is not good enough here. It cannot tell a measurement
+    from a caption, so it fails a figure whose stage numbers are deliberately
+    caption-sized; and it misses text drawn through `tick_params`, so it passes
+    a chart whose axis numbers are too small to read. The renderer already
+    declares which floor each piece of text has to clear, through `f.label` and
+    `f.note`. This checks that declaration against the finished PNG, which is
+    both stricter and the thing the pipeline actually relies on.
+    """
+    captured = []
+    real_fonts = diagrams._Fonts
+
+    class Spy(real_fonts):
+        def __init__(self, scale: float = 1.0) -> None:
+            super().__init__(scale)
+            captured.append(self)
+
+    for stale in diagrams.CACHE_DIR.glob("*.png"):
+        stale.unlink()
+    diagrams._Fonts = Spy
+    try:
+        path = diagrams.render_diagram(dict(spec))
+    finally:
+        diagrams._Fonts = real_fonts
+    if path is None or not path.exists() or not captured:
+        return None, None, None
+    png_w, png_h = PILImage.open(path).size
+    flowable = formatter._make_image(str(path), max_w=max_w, max_h=max_h)
+    if flowable is None:
+        return None, None, (png_w, png_h)
+    # The last pass is the one left on disk. Points per pixel comes off the
+    # flowable the page will really draw, so this moves if the formatter does.
+    per_pt = (diagrams.DPI / 72) * (flowable.drawWidth / png_w)
+    used = captured[-1].used
+    if not used:
+        return None, None, (png_w, png_h)
+    worst_pt, worst_floor, worst_ratio = None, None, None
+    for pt, floor in used:
+        printed = pt * per_pt
+        ratio = printed / floor
+        if worst_ratio is None or ratio < worst_ratio:
+            worst_pt, worst_floor, worst_ratio = printed, floor, ratio
+    return worst_pt, worst_floor, (png_w, png_h)
+
+
+def _check_full_curriculum_coverage() -> int:
+    """Render every curriculum figure and assert it prints legibly.
+
+    Isolates the cache first. render_diagram hands back a cached PNG without
+    drawing, so a stale file makes every case below pass whatever the renderer
+    does. That is not a theoretical worry: it is how the early-primary block
+    above first went green with its renderers deleted.
+    """
+    print("\nEvery year band and both subjects can be pictured")
+    cache = Path(tempfile.mkdtemp(prefix="folio-curriculum-"))
+    old = diagrams.CACHE_DIR
+    diagrams.CACHE_DIR = cache
+    try:
+        for spec, subtopic in CURRICULUM_CASES:
+            path = diagrams.render_diagram(dict(spec))
+            if path is None or not Path(path).exists():
+                check(False, f"{subtopic} can be drawn ({spec['type']})",
+                      "did not render")
+                continue
+            # Legibility is the reason the figure exists. A renderer that
+            # produces something too small to read has not solved the problem
+            # it was added for. Sized against the smaller of the formatter's
+            # two boxes, so it holds wherever the figure lands on the page.
+            pt, floor, png = worst_declared_shortfall(
+                dict(spec), formatter.WE_IMG_WIDTH, formatter.WE_IMG_HEIGHT)
+            if pt is None:
+                # Some figures carry no text at all (grid_area draws only
+                # squares). Nothing to size, so fitting the box is the whole
+                # requirement.
+                flow = formatter._make_image(
+                    str(diagrams.render_diagram(dict(spec))),
+                    max_w=formatter.WE_IMG_WIDTH, max_h=formatter.WE_IMG_HEIGHT)
+                check(flow is not None, f"{subtopic} fits the page "
+                      f"({spec['type']}, no text on it)")
+                continue
+            check(pt >= floor,
+                  f"{subtopic}: worst text prints at {pt:.1f}pt "
+                  f"against its {floor:.0f}pt floor ({spec['type']})",
+                  f"{pt:.2f}pt is below {floor:.0f}pt (png {png})")
+
+        print("\nA figure that would contradict itself is refused, not drawn")
+        for spec, note in REFUSAL_CASES:
+            check(diagrams.render_diagram(dict(spec)) is None, f"refuses {note}")
+
+        print("\nThe prompts offer every type the renderer supports")
+        # A renderer no prompt names will never be asked for, so adding one
+        # without wiring the prompt changes nothing a customer sees. The
+        # reverse is worse: a prompt naming a type that does not exist makes
+        # the model emit specs that silently render as nothing.
+        prompts = Path("booklet_gen/prompts")
+        offered = set()
+        for name in ("question_generator_maths.txt", "question_generator_english.txt",
+                     "intro_writer_maths.txt", "intro_writer_english.txt",
+                     "challenge_generator_maths.txt"):
+            text = (prompts / name).read_text(encoding="utf-8")
+            for kind in diagrams.SUPPORTED_TYPES:
+                if f'"type":"{kind}"' in text or f'"type": "{kind}"' in text:
+                    offered.add(kind)
+        # `compare` is a wrapper around the others and `l_shape` is named in
+        # prose in some prompts, so both are checked by their own cases above.
+        missing = sorted(diagrams.SUPPORTED_TYPES - offered)
+        check(not missing, "every renderer is reachable from a prompt",
+              f"never offered: {missing}")
+    finally:
+        diagrams.CACHE_DIR = old
+    return 0
 
 
 if __name__ == "__main__":

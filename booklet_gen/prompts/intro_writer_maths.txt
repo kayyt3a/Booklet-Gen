@@ -55,8 +55,64 @@ Supported spec types:
   A 3D cylinder labelled with radius and height. Use when teaching volume or surface area of cylinders.
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
   For comparison examples. Sub-figures must be meaningfully different; refer to labels in the question text.
+- {"type":"clock","hour":3,"minute":10}
+  An analogue clock face, hands drawn correctly. NEVER teach clock reading by describing a dial in words.
+- {"type":"array","rows":3,"columns":4}
+  Counters in rows and columns. Add "shaded":9 for a fraction of a collection.
+- {"type":"groups","groups":3,"each":4}
+  Equal groups of counters, each ringed. For sharing and division: three rings of four is a different idea from a three by four array.
+- {"type":"shape","shapes":["triangle","pentagon"]}
+  Up to three named flat shapes. "label": false leaves them unnamed.
+- {"type":"shape_3d","solids":["cube","cone","cylinder"]}
+  Up to three named solids: cube, rectangular prism, sphere, cone, cylinder, square pyramid, triangular prism.
+- {"type":"place_value","value":342}
+  Hundreds, tens and ones as blocks, 0 to 999.
+- {"type":"part_whole","whole":"45","parts":["28","?"]}
+  A bar split into labelled parts under a brace naming the whole.
+- {"type":"money","items":["$2","50c"]}
+  Australian coins and notes, drawn to their real relative sizes.
+- {"type":"ruler","length":7,"max":10,"unit":"cm","object":"ribbon"} and
+  {"type":"jug","capacity":1000,"level":650,"unit":"mL"} and
+  {"type":"scale_dial","max":1000,"value":450,"unit":"g"}
+  Reading a length, a capacity and a mass off the instrument.
+- {"type":"angle","angles":[130,50],"base":"line","labels":["130°","x"]}
+  base is "open", "line" (must total 180) or "point" (must total 360).
+- {"type":"parallel_lines","angle":62,"labels":{"1":"118°","6":"x"}}
+  Angles numbered 1-4 anticlockwise from upper right at the top crossing, 5-8 at the bottom.
+- {"type":"triangle","base":10,"height":6,"unit":"cm"} and
+  {"type":"parallelogram","base":9,"height":4,"unit":"cm"} and
+  {"type":"trapezium","top":5,"bottom":9,"height":4,"unit":"cm"}
+  Area shapes, each with the perpendicular height drawn dashed.
+- {"type":"right_triangle","a":4,"b":3,"c":5,"unit":"cm","unknown":["c"]}
+  Pythagoras and trigonometry. "angle":37 marks the acute angle at the bottom right.
+- {"type":"circle","radius":7,"unit":"cm"}
+  A circle with its radius (or "diameter") drawn and named, for circumference and area.
+- {"type":"grid_area","width":6,"height":4}
+  A shape on squared paper, for area by counting.
+- {"type":"symmetry","shape":"hexagon","mirror":"vertical"}
+  A shape with a dashed mirror line. "show_mirror": false to ask where it goes.
+- {"type":"net","solid":"cube","edge":4,"unit":"cm"}
+  The unfolded net, for surface area.
+- {"type":"factor_tree","value":60}
+  Prime factorisation, worked out by the renderer from the number alone.
+- {"type":"coordinate_plane","x_range":[-5,5],"y_range":[-5,5],"points":[[2,3]],"labels":["A"],"lines":[{"m":2,"c":-1}],"curves":[{"a":1,"b":0,"c":-4}]}
+  Points, straight lines and parabolas. Keep each range to 12 units or fewer.
+- {"type":"bar_chart","categories":["Mon","Tue"],"values":[4,7],"y_label":"Laps"} and
+  {"type":"picture_graph","each":2,"rows":[{"label":"Cats","count":8}]} and
+  {"type":"tally","rows":[{"label":"Red","count":7}]} and
+  {"type":"dot_plot","values":[3,4,4,5]} and
+  {"type":"stem_leaf","values":[12,15,21]} and
+  {"type":"scatter","points":[[1,2],[2,3]]} and
+  {"type":"box_plot","plots":[{"label":"9A","min":2,"q1":5,"median":7,"q3":9,"max":14}]}
+  Data displays. Every picture-graph count must divide by "each".
+- {"type":"spinner","sectors":["red","blue","green"]} and
+  {"type":"tree_diagram","stages":[{"branches":[{"label":"H","p":"1/2"},{"label":"T","p":"1/2"}]}]} and
+  {"type":"venn","sets":["Dogs","Cats"],"regions":{"a":"9","b":"7","ab":"4"}}
+  Chance and sets.
 
 Only use the exact type names and keys listed. Any other structure is ignored and the example renders text-only.
+
+DIMENSION: area and perimeter are flat (rectangle, l_shape, grid_area, triangle, parallelogram, trapezium, circle). Volume and capacity are solid (cuboid, cylinder). Surface area takes a solid or a net. A flat shape beside a volume example teaches that a box is a square.
 
 - If the example's text refers to a figure ("this object", "the shape below", "the diagram"), a diagram_spec is MANDATORY. An example that asks "how many cubes are needed to build this object" with nothing drawn is unusable. Either emit a spec or describe the object completely in words.
 - A diagram may show only what the example STATES, never the value being worked out.

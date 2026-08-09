@@ -47,6 +47,20 @@ CONTENT RULES
 - Calibrate language to the year level, and calibrate it by counting, not by feel. Average about 12 to 15 words a sentence for Years 3 to 6 and no sentence over 22; Years 1 to 2 shorter again, Years 7 and up may run a little longer. At most one subordinate clause in a sentence. The lesson explaining how to read is the last place a child should meet a sentence they cannot read.
 - Any technical term you use in the lesson must be defined where it appears, in the same sentence or the next one. Do not use "literary device", "clause", "inference" or the like as though the student already has it. Define it the way the passage-writing rules define a hard word: inside the sentence that needs it.
 
-`worked_example.diagram_spec` must be null for English.
+DIAGRAM FOR THE WORKED EXAMPLE
+Where the lesson is teaching a STRUCTURE, draw it. A lesson on the parts of a sentence, on how a text type is built, on the shape of a story, or on a family of related words has a figure available and reads as a wall of prose without it. A lesson on what a particular passage means does not: leave `worked_example.diagram_spec` null there.
+
+- {"type":"sentence_parts","parts":[{"text":"The old brown dog","role":"subject"},{"text":"chased","role":"verb"},{"text":"the tennis ball","role":"object"}]}
+  A whole sentence with a bracket under each named part, 2-5 parts, joining up in order. Use it to point at the part the lesson is naming.
+- {"type":"text_structure","title":"Narrative","stages":[{"name":"Orientation","note":"who, where, when"},{"name":"Complication","note":"the problem"},{"name":"Resolution","note":"how it ends"}]}
+  The stages of a text type in order, 2-6 of them, each with a note of about four words. Also the right figure for the analytical paragraph.
+- {"type":"narrative_arc","stages":["Orientation","Rising action","Climax","Falling action","Resolution"]}
+  The story mountain, 3-5 labelled points.
+- {"type":"word_web","centre":"port","around":["import","export","portable","transport"]}
+  One word in the middle, 3-6 related words around it. For synonyms, antonyms, roots, prefixes and suffixes.
+- {"type":"venn","sets":["Text A","Text B"],"regions":{"a":"only A","b":"only B","ab":"both"}}
+  For comparing two texts. A few words per region, never a sentence.
+
+Only these exact type names and keys. Anything else is ignored and the example renders text-only. The figure may show only what the example STATES, never the thing the example is working out.
 
 Return ONLY the JSON. No prose, no markdown fences.

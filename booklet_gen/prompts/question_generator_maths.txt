@@ -20,7 +20,7 @@ Content rules:
 - STAY INSIDE THE YEAR LEVEL. As a guide: Years 1-4 are whole-number arithmetic, simple fractions, money, time, and length/mass/capacity. Years 5-6 add the four operations on fractions and decimals, percentages, area of rectangles, volume of rectangular prisms by counting or by length x width x height, and finding an unknown by an inverse operation described in words; they do NOT include pronumeral algebra, squares or square roots, or surface area. Years 7-8 add directed numbers, indices, rate and ratio, linear equations in a pronumeral, and area and volume of composite and round shapes. Years 9-10 add index laws and surds, quadratics, Pythagoras and trigonometry, and surface area.
 - A question is out of scope if solving it needs any method the student has not met at this year level, however tidy the arithmetic. "A cube has a total surface area of 150 square cm, what is its volume?" needs 6 x side^2 and a square root, so it is not a Year 5 question.
 - Every question must be an instance of the NAMED subtopic. If it would sit more naturally under a different heading, it does not belong in this set: "Solve for x: x/5 + 1/5 = 4/5" is not a question about adding fractions with the same denominator.
-- AVOID: word problems that hinge on real-world interpretation you can't verify (e.g. "how many buses"), geometry whose figure cannot be built from the supported diagram types below, probability trees, anything requiring a table.
+- AVOID: word problems that hinge on real-world interpretation you can't verify (e.g. "how many buses"), geometry whose figure cannot be built from the supported diagram types below, and anything needing a table the diagram list cannot draw (a two-way table has no type; a stem and leaf plot and a Venn diagram do).
 - AVOID multiple-choice phrasing entirely. The schema has no options field, so "Which of these is the simplest form of 4/12?" prints with nothing to choose from and the child hunts for a missing page. Ask for the answer directly: "Write 4/12 in its simplest form."
 - The `answer` field must be the exact final answer only. If it's an equation solution, use the form "x = 3" or "x = -1/2".
 - The `working` field is a short worked solution students can read, 2-5 lines.
@@ -40,25 +40,73 @@ VISUAL DIAGRAMS (optional per question)
 Any question may include an OPTIONAL `diagram_spec` field. Pages of unbroken symbols are a wall a child bounces off, and a booklet with no figures at all reads as a word processor document rather than a maths book.
 
 REQUIRED COVERAGE: if the subtopic can be pictured at all, AT LEAST ONE THIRD of the questions in the set must carry a diagram_spec, and never fewer than two. These subtopics can always be pictured, so a set with no figures is wrong:
+
+Number and place value
+- place value, reading or building a number to 999 -> place_value
+- part and whole, "how many more to make", missing addend -> part_whole
+- placing or reading a value, including decimals and negatives -> number_line
+- fractions of a shape -> circle_slices or bar_model
+- fractions of a collection -> array with "shaded"
+- comparing or ordering anything visual -> compare
+- factors, multiples, prime factorisation -> factor_tree
+
+Multiplication, division and money
+- multiplication as equal rows, "how many altogether" -> array
+- sharing, division, "into groups of" -> groups
+- money, change, "how much altogether" -> money. Australian coins and notes
+  only, drawn to their real relative sizes.
+
+Time, measurement and mass
 - reading a clock, elapsed time, "what time is shown" -> clock. NEVER describe
   a clock in words. "The short hand is at 3 and the long hand is at 2" is not a
   clock question, it is a riddle about one, and the skill being taught is
   looking at a dial.
-- multiplication as equal rows, "how many altogether" -> array
-- sharing, division, "into groups of" -> groups
+- measuring a length with a ruler -> ruler
+- capacity, "how much is in the jug" -> jug
+- mass, reading a scale -> scale_dial
+
+Shape and space
 - naming or counting the sides of flat shapes -> shape. Never describe a shape
   and ask what it is called without drawing it.
-- place value, reading or building a three-digit number -> place_value
-- fractions of a shape or a collection -> circle_slices or bar_model
-- comparing or ordering fractions -> compare
-- placing or reading a value, including decimals -> number_line
-- perimeter or area -> rectangle or l_shape
-- volume, capacity or surface area -> cuboid or cylinder
+- naming solids: cube, sphere, cone, cylinder, pyramid, prism -> shape_3d
+- lines of symmetry -> symmetry
+- angles as a turn, comparing to a right angle -> angle with base "open"
+- angles on a straight line -> angle with base "line"
+- angles at a point -> angle with base "point"
+- angle relationships across parallel lines -> parallel_lines
+- area by counting squares -> grid_area
+- perimeter or area of a rectangle -> rectangle or l_shape
+- area of a triangle -> triangle; of a parallelogram -> parallelogram;
+  of a trapezium -> trapezium
+- circumference or area of a circle -> circle
+- Pythagoras or right-angled trigonometry -> right_triangle
+- volume or capacity of a solid -> cuboid or cylinder
+- surface area -> net, or cuboid or cylinder
+- coordinates, plotting points, translations -> coordinate_plane
+
+Statistics and probability
+- picture graphs -> picture_graph; tally charts -> tally
+- column graphs, including side by side -> bar_chart
+- mean, median, mode from a display -> dot_plot
+- stem and leaf plots -> stem_leaf
+- scatterplots and association -> scatter
+- box plots, comparing two distributions -> box_plot
+- chance, spinners, likely and unlikely -> spinner
+- sample space, two-stage experiments, conditional probability -> tree_diagram
+- sets, "both", "neither", two-way classification -> venn
+
+Algebra and graphs
+- plotting a linear relationship, gradient and intercept -> coordinate_plane
+  with "lines"
+- simultaneous equations -> coordinate_plane with two lines
+- quadratics and parabolas -> coordinate_plane with "curves"
+
 Leave it out only for pure symbolic computation, and never bolt a picture onto a question that does not use it.
 
 DIMENSION, the rule that matters most:
-- Area and perimeter are FLAT. Use rectangle or l_shape. Never draw a solid for them.
-- Volume, capacity and surface area are SOLID. Use cuboid or cylinder. Never draw a flat rectangle for them.
+- Area and perimeter are FLAT. Use rectangle, l_shape, grid_area, triangle, parallelogram, trapezium or circle. Never draw a solid for them.
+- Volume and capacity are SOLID. Use cuboid or cylinder. Never draw a flat rectangle for them.
+- Surface area is a property of a solid, so it takes a cuboid, a cylinder or a net. A net is a flat drawing OF a solid, which is exactly the right picture for it.
 A rectangle beside "find the volume" teaches a child that a box is a square, which is worse than printing no picture at all. A question whose figure has the wrong number of dimensions has its figure deleted before printing, so the question then stands alone in words: get it right rather than lose it.
 
 Supported spec types (use exactly these keys):
@@ -82,7 +130,9 @@ Supported spec types (use exactly these keys):
   just past 7. Use for every question about reading a clock.
 - {"type":"array","rows":3,"columns":4}
   Rows by columns of counters, up to 12 by 12. The picture multiplication is
-  built on.
+  built on. Add "shaded":9 to fill only the first 9, which is how a fraction
+  of a COLLECTION is shown: 9 of 12 counters is a different picture from 3
+  quarters of one circle, and both are taught.
 - {"type":"groups","groups":3,"each":4}
   Equal groups of counters, each ringed. Up to 8 groups of 12. Use for sharing
   and division: three rings of four is a different idea from a three by four
@@ -97,6 +147,105 @@ Supported spec types (use exactly these keys):
   Hundreds as flats, tens as rods and ones as small squares, for any number
   from 0 to 999, with the parts named underneath. Set "label": false when the
   question is asking the student to read the number off the blocks.
+- {"type":"part_whole","whole":"45","parts":["28","?"]}
+  A bar split into 2-5 labelled parts under a brace naming the whole. Parts are
+  sized by their own numbers. Use "?" for the part being asked for. Good for
+  missing addends, ratio and percentage as well as part-part-whole.
+- {"type":"factor_tree","value":60}
+  The prime factorisation branched out. Give only the number: the tree is
+  worked out by the renderer, so it cannot disagree with the arithmetic.
+- {"type":"money","items":["$2","50c","20c"]}
+  Australian coins and notes: 5c, 10c, 20c, 50c, $1, $2, $5, $10, $20, $50,
+  $100. Up to 8 items. Coins are drawn to their real relative sizes, so the 50c
+  is the largest coin and the $2 the smallest.
+- {"type":"ruler","length":7,"max":10,"unit":"cm","object":"ribbon"}
+  An object laid against a ruler from zero. Use for "how long is this?".
+- {"type":"jug","capacity":1000,"level":650,"unit":"mL","divisions":10}
+  A measuring jug with graduations and a liquid level.
+- {"type":"scale_dial","max":1000,"value":450,"unit":"g","divisions":10}
+  A kitchen-scale dial with a needle, for reading a mass.
+- {"type":"shape_3d","solids":["cube","cone","square pyramid"]}
+  Up to THREE named solids side by side, labelled underneath. Known names:
+  cube, rectangular prism, sphere, cone, cylinder, square pyramid, triangular
+  prism. Set "label": false for a "name this solid" question.
+- {"type":"symmetry","shape":"hexagon","mirror":"vertical","show_mirror":true}
+  A shape with a dashed mirror line through it. mirror is vertical, horizontal
+  or diagonal. Set "show_mirror": false to ask where the line would go. Shapes:
+  any from the `shape` list, plus kite and arrow.
+- {"type":"angle","angles":[130,50],"base":"line","labels":["130°","x"]}
+  Angles at a shared vertex, each arc marked and labelled. base is "open" (one
+  angle alone), "line" (angles filling a straight line, so they MUST total
+  180) or "point" (a full turn, so they MUST total 360). A 90 degree angle is
+  drawn with the right-angle square instead of an arc. Use "labels" to write
+  "x" over the one being asked for, and list "unknown" so the figure is
+  captioned not to scale.
+- {"type":"parallel_lines","angle":62,"labels":{"1":"118°","6":"x"}}
+  Two parallel lines cut by a transversal. The eight angles are numbered 1-4
+  anticlockwise from the upper right at the top crossing, and 5-8 the same at
+  the bottom one. Label only the angles the question uses.
+- {"type":"triangle","base":10,"height":6,"unit":"cm"}
+  A triangle with its base and its PERPENDICULAR height, drawn dashed with a
+  right-angle mark. Optionally "sides":[base,right,left] to label all three for
+  a perimeter question.
+- {"type":"right_triangle","a":4,"b":3,"c":5,"unit":"cm","unknown":["c"]}
+  A right-angled triangle: a along the bottom, b up the left, c the
+  hypotenuse. Use for Pythagoras and for trigonometry, where "angle":37 marks
+  the acute angle at the bottom-right. ALWAYS list the side being asked for in
+  "unknown", or the drawing prints the answer.
+- {"type":"parallelogram","base":9,"height":4,"unit":"cm"}
+  Base and perpendicular height, with the slant side labelled only if you also
+  give "side". Optional, and the mistake the shape invites, so leave it out
+  unless the question gives it.
+- {"type":"trapezium","top":5,"bottom":9,"height":4,"unit":"cm"}
+  The two parallel sides and the height between them.
+- {"type":"circle","radius":7,"unit":"cm"}
+  A circle with its radius drawn and labelled, for circumference and area. Use
+  "diameter":14 instead when the question gives the diameter. Give one or the
+  other, never both. This is NOT circle_slices, which is a fraction picture.
+- {"type":"grid_area","width":6,"height":4,"cut_width":2,"cut_height":2}
+  A shape drawn on squared paper, for area by counting squares. The cut is
+  optional and makes an L.
+- {"type":"net","solid":"cube","edge":4,"unit":"cm"}
+  The unfolded net of a cube, or of a rectangular prism with "length", "width"
+  and "height". Use for surface area.
+- {"type":"coordinate_plane","x_range":[-5,5],"y_range":[-5,5],
+   "points":[[2,3]],"labels":["A"],"lines":[{"m":2,"c":-1}],
+   "curves":[{"a":1,"b":0,"c":-4}]}
+  Axes with plotted points, straight lines and parabolas. A line is {"m","c"}
+  or {"points":[[x1,y1],[x2,y2]]}; a curve is y = ax^2 + bx + c. Keep each
+  range to 12 units or fewer or the grid is too fine to read.
+- {"type":"bar_chart","categories":["Mon","Tue"],"values":[4,7],
+   "y_label":"Laps"}
+  A column graph, 2-8 categories. For side-by-side columns give
+  "series":[{"name":"Girls","values":[...]},{"name":"Boys","values":[...]}].
+- {"type":"picture_graph","each":2,"unit":"pets",
+   "rows":[{"label":"Cats","count":8}]}
+  A pictograph with a key. Every count must be a whole number of symbols, so
+  each count has to divide by "each".
+- {"type":"tally","rows":[{"label":"Red","count":7}]}
+  Tally marks grouped in fives with the diagonal.
+- {"type":"dot_plot","values":[3,4,4,5,5,5,6],"x_label":"Goals"}
+  Stacked dots over a number line. Use for mode, median and range.
+- {"type":"stem_leaf","values":[12,15,21,24,28]}
+  A stem and leaf plot built from the data, with a key.
+- {"type":"scatter","points":[[1,2],[2,3]],"line_of_best_fit":true,
+   "x_label":"Hours","y_label":"Score"}
+  A scatterplot, with an optional line of best fit computed from the points.
+- {"type":"box_plot","plots":[{"label":"9A","min":2,"q1":5,"median":7,"q3":9,
+   "max":14}]}
+  One to three five-number summaries. They must be in increasing order.
+- {"type":"spinner","sectors":["red","blue","green"]}
+  A spinner with equal named sectors, or weighted ones with
+  [{"label":"win","size":1},{"label":"lose","size":3}].
+- {"type":"tree_diagram","stages":[{"branches":[{"label":"H","p":"1/2"},
+   {"label":"T","p":"1/2"}]}]}
+  A one or two stage probability tree. Use for sample spaces and for
+  conditional probability.
+- {"type":"venn","sets":["Dogs","Cats"],
+   "regions":{"a":"9","b":"7","ab":"4","none":"3"}}
+  A two or three set Venn. Regions are a, b, ab and none for two sets; a, b, c,
+  ab, ac, bc, abc and none for three. Giving "none" draws the universal-set
+  rectangle around it.
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
   A composite figure showing 2-4 sub-diagrams side by side, each labelled underneath. USE THIS whenever the question asks the student to compare things ("which has more shaded", "which is bigger", "which fraction is larger", "put these in order"). Any of the other types can be a sub-spec.
 

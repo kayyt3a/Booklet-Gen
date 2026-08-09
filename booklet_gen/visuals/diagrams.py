@@ -61,146 +61,63 @@ from the question text; the model is not asked to.
     A composite figure showing 2-4 sub-diagrams side by side, each with a
     label underneath. Use this for "which is bigger?" style comparison
     questions. Sub-specs may be any of the other types.
+
+Everything else
+---------------
+The rest of the library lives in three sibling modules, registered into
+`_RENDERERS` at the bottom of this file. Each renderer's own docstring names
+the curriculum subtopic it exists for.
+
+    shapes.py    angle, triangle, right_triangle, parallelogram, trapezium,
+                 circle, grid_area, symmetry, ruler, jug, scale_dial, money,
+                 shape_3d, net, parallel_lines, part_whole, factor_tree
+    data.py      bar_chart, picture_graph, tally, dot_plot, scatter, box_plot,
+                 stem_leaf, spinner, tree_diagram, venn, coordinate_plane
+    literacy.py  sentence_parts, text_structure, narrative_arc, word_web
+
+The prompts are the other half of this: a renderer no prompt routes a subtopic
+to will never be asked for, so adding one here without naming it in
+`prompts/question_generator_*.txt` changes nothing a customer sees.
 """
 from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import math
 import re
 from pathlib import Path
 from typing import Optional
 
-log = logging.getLogger(__name__)
+# The drawing constants and the legibility machinery now live in `style`, so
+# the renderer modules below can share them without importing this dispatcher,
+# which imports them. Re-exported here because callers and check scripts reach
+# for `diagrams.DPI`, `diagrams.CACHE_DIR` and friends.
+from .style import (                                              # noqa: F401
+    DIAGRAM_PRINT_BOX_PT,
+    DPI,
+    LINE_COLOR,
+    LINE_WIDTH,
+    MIN_COMPARE_LABEL_PT,
+    MIN_DIAGRAM_LABEL_PT,
+    MIN_DIAGRAM_NOTE_PT,
+    SHADE_ALPHA,
+    SHADE_COLOR,
+    UNKNOWN_LABEL,
+    _COMPARE_LABEL_PX_MAX,
+    _COMPARE_LABEL_PX_MIN,
+    _dim_label,
+    _FLOOR_MARGIN,
+    _Fonts,
+    _label_font,
+    _MAX_FONT_SCALE,
+    _pretty_num,
+    _scale_note,
+    _SHAPE_SIDES,
+    _side_rotation,
+    log,
+)
 
 CACHE_DIR = Path("output/diagrams")
-SHADE_COLOR = "#1F3A5F"
-SHADE_ALPHA = 0.55
-LINE_COLOR = "#1F3A5F"
-LINE_WIDTH = 1.8
-
-
-UNKNOWN_LABEL = "?"
-
-DPI = 180
-
-# Every figure here is drawn large and then scaled bodily into a small box on
-# the page by the formatter, so the size a label is written at says nothing
-# about the size it prints at. A figure authored at 4.9 inches wide and placed
-# 2.4 inches wide loses half of everything written on it, including the
-# measurements the question turns on.
-#
-# DIAGRAM_PRINT_BOX_PT is the *smallest* box the formatter scales a diagram
-# into (WE_IMG_WIDTH x WE_IMG_HEIGHT in formatter.py, 6cm x 4cm). Question
-# figures get a larger box and so come out larger still. Sizing for the
-# smaller box therefore covers both.
-# scripts/check_diagram_legibility.py asserts these two stay in agreement.
-DIAGRAM_PRINT_BOX_PT = (6 * 72 / 2.54, 4 * 72 / 2.54)
-# Body text in the booklet is around 10pt. A measurement written on a figure
-# is read at a glance, not in a paragraph, so 9pt is a floor rather than a
-# target. The "not to scale" caption is a footnote and may sit lower.
-MIN_DIAGRAM_LABEL_PT = 9.0
-MIN_DIAGRAM_NOTE_PT = 7.0
-# The compare composite draws its own labels with Pillow rather than
-# matplotlib, so it applies the same floor through its own layout.
-MIN_COMPARE_LABEL_PT = MIN_DIAGRAM_LABEL_PT
-# A figure that cannot be made legible without swamping the drawing is
-# stopped here rather than growing without bound.
-_MAX_FONT_SCALE = 4.0
-# Clear the floor by a little, so rounding cannot drop text back under it.
-_FLOOR_MARGIN = 1.03
-
-
-class _Fonts:
-    """The font sizes one figure uses, and the floor each must clear in print.
-
-    Renderers ask for sizes through this rather than writing `fontsize=11`,
-    because 11 is a size on a canvas nobody looks at. Recording the request
-    lets render_diagram measure the finished PNG, work out what the formatter
-    will scale it by, and re-draw at a larger size if anything lands under its
-    floor. One instance per render, so concurrent subtopics cannot collide.
-    """
-
-    def __init__(self, scale: float = 1.0) -> None:
-        self.scale = scale
-        self.used: list[tuple[float, float]] = []   # (size drawn, floor in print)
-
-    def label(self, base: float = 11.0) -> float:
-        """A measurement or value the child has to read."""
-        return self._add(base, MIN_DIAGRAM_LABEL_PT)
-
-    def note(self, base: float = 7.0) -> float:
-        """Secondary caption text."""
-        return self._add(base, MIN_DIAGRAM_NOTE_PT)
-
-    def _add(self, base: float, floor: float) -> float:
-        pt = base * self.scale
-        self.used.append((pt, floor))
-        return pt
-
-    def shortfall(self, png_w: int, png_h: int) -> float:
-        """How many times too small the worst text is once printed.
-
-        1.0 or less means everything clears its floor. The scale factor is
-        exactly the one formatter._make_image applies: the figure DPI cancels,
-        leaving points on the page per point in the figure.
-
-        Aims a little over the floor rather than exactly at it. Landing on the
-        boundary makes the floor a coin toss decided by rounding, and a floor
-        that is sometimes missed is not a floor.
-        """
-        if not self.used:
-            return 1.0
-        box_w, box_h = DIAGRAM_PRINT_BOX_PT
-        px_to_pt = min(box_w / png_w, box_h / png_h, 1.0)
-        worst = 1.0
-        for pt, floor in self.used:
-            printed = pt * DPI / 72 * px_to_pt
-            if printed > 0:
-                worst = max(worst, floor * _FLOOR_MARGIN / printed)
-        return worst
-
-
-# Where the search for a compare label size starts and stops. The ceiling only
-# binds on a composite so wide that no font size can be both legible and in
-# proportion; growing without bound there would push the figures themselves
-# down to nothing.
-_COMPARE_LABEL_PX_MIN = 26
-_COMPARE_LABEL_PX_MAX = 160
-
-
-def _dim_label(spec: dict, key: str, value: float, unit_suffix: str) -> str:
-    """The text drawn against one side: the measurement, or "?" if unknown.
-
-    The value stays in the spec because the shape still has to be drawn to
-    roughly the right proportions. Only the label is withheld.
-    """
-    raw = spec.get("unknown") or []
-    if isinstance(raw, str):
-        raw = [raw]
-    if key in {str(k).strip().lower() for k in raw}:
-        return UNKNOWN_LABEL
-    return f"{_pretty_num(value)}{unit_suffix}"
-
-
-def _side_rotation(label: str) -> int:
-    """Measurements read up the side; a lone "?" reads better upright."""
-    return 0 if label == UNKNOWN_LABEL else 90
-
-
-def _scale_note(ax, spec: dict, f: _Fonts) -> None:
-    """Caption a figure whose unknown side is still drawn in proportion.
-
-    Hiding the label stops the number being printed, but the shape is drawn
-    to scale, so a child with a ruler can still read the answer off the
-    page. Every textbook says "not to scale" for exactly this reason.
-    """
-    if not (spec.get("unknown") or []):
-        return
-    ax.annotate("Diagram not to scale", xy=(0.5, -0.06),
-                xycoords="axes fraction", ha="center", va="top",
-                fontsize=f.note(7), color=LINE_COLOR, alpha=0.75)
 
 
 def _cache_path(spec: dict) -> Path:
@@ -634,45 +551,6 @@ def _cylinder(spec: dict, out: Path, f: _Fonts) -> None:
     plt.close(fig)
 
 
-def _pretty_num(x: float) -> str:
-    """Render numbers without gratuitous decimals: 4.0 -> "4", 3.5 -> "3.5"."""
-    if abs(x - round(x)) < 1e-9:
-        return str(int(round(x)))
-    return f"{x:g}"
-
-
-def _label_font(size_px: int):
-    """A bold sans face at `size_px`, wherever the font happens to live.
-
-    The formatter finds DejaVu Sans through matplotlib's font manager rather
-    than by path, because matplotlib bundles the font and is already a hard
-    dependency. Do the same here: an absolute /usr/share path is a Linux-only
-    assumption, and the booklet is generated on Windows too, where it would
-    silently drop to Pillow's bitmap default and print labels smaller still.
-    """
-    from PIL import ImageFont
-
-    try:
-        from matplotlib import font_manager
-
-        prop = font_manager.FontProperties()
-        prop.set_family("DejaVu Sans")
-        prop.set_weight("bold")
-        return ImageFont.truetype(
-            font_manager.findfont(prop, fallback_to_default=False), size_px)
-    except Exception:
-        pass
-    try:
-        return ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size_px)
-    except Exception:
-        pass
-    try:
-        return ImageFont.load_default(size=size_px)
-    except Exception:
-        return ImageFont.load_default()
-
-
 def _compare(spec: dict, out: Path, f: _Fonts) -> None:
     """Render 2-4 sub-diagrams side by side, each with a label underneath.
 
@@ -831,12 +709,22 @@ def _array(spec: dict, out: Path, f: _Fonts) -> None:
     cols = int(spec.get("columns", spec.get("cols", 4)))
     if not (1 <= rows <= 12 and 1 <= cols <= 12):
         raise ValueError(f"an array must be 1-12 by 1-12, got {rows}x{cols}")
+    # "Shaded" turns the array into a fraction of a collection: three quarters
+    # of twelve counters is a picture, and it is a different picture from three
+    # quarters of one circle. Both are on the Year 2 curriculum and only the
+    # circle could be drawn.
+    shaded = int(spec.get("shaded", rows * cols))
+    if not (0 <= shaded <= rows * cols):
+        raise ValueError(f"cannot shade {shaded} of {rows * cols} counters")
 
     fig, ax = plt.subplots(figsize=(0.42 * cols + 0.6, 0.42 * rows + 0.6), dpi=DPI)
     for r in range(rows):
         for c in range(cols):
-            ax.add_patch(Circle((c, -r), 0.32, facecolor=SHADE_COLOR,
-                                alpha=SHADE_ALPHA, edgecolor=LINE_COLOR,
+            filled = r * cols + c < shaded
+            ax.add_patch(Circle((c, -r), 0.32,
+                                facecolor=SHADE_COLOR if filled else "white",
+                                alpha=SHADE_ALPHA if filled else 1.0,
+                                edgecolor=LINE_COLOR,
                                 linewidth=LINE_WIDTH * 0.8))
     ax.set_xlim(-0.6, cols - 0.4)
     ax.set_ylim(-rows + 0.4, 0.6)
@@ -886,15 +774,6 @@ def _groups(spec: dict, out: Path, f: _Fonts) -> None:
     ax.axis("off")
     fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
     plt.close(fig)
-
-
-# Regular polygons a primary booklet names, by side count.
-_SHAPE_SIDES = {
-    "triangle": 3, "quadrilateral": 4, "square": 4, "rectangle": 4,
-    "rhombus": 4, "trapezium": 4, "parallelogram": 4,
-    "pentagon": 5, "hexagon": 6, "heptagon": 7, "octagon": 8,
-    "nonagon": 9, "decagon": 10,
-}
 
 
 def _shape(spec: dict, out: Path, f: _Fonts) -> None:
@@ -1013,6 +892,10 @@ def _place_value(spec: dict, out: Path, f: _Fonts) -> None:
     plt.close(fig)
 
 
+from . import data as _data_figures            # noqa: E402
+from . import literacy as _literacy_figures    # noqa: E402
+from . import shapes as _shape_figures         # noqa: E402
+
 _RENDERERS = {
     "circle_slices": _circle_slices,
     "bar_model": _bar_model,
@@ -1027,4 +910,21 @@ _RENDERERS = {
     "groups": _groups,
     "shape": _shape,
     "place_value": _place_value,
+    # Geometry, measurement and number pictures.
+    **_shape_figures.RENDERERS,
+    # Statistics, chance and the Cartesian plane.
+    **_data_figures.RENDERERS,
+    # English: how language is put together.
+    **_literacy_figures.RENDERERS,
 }
+
+# Two modules must never claim the same type name: the later import would win
+# silently and a subtopic would get somebody else's picture.
+_claimed = [set(_shape_figures.RENDERERS), set(_data_figures.RENDERERS),
+            set(_literacy_figures.RENDERERS)]
+for _i, _a in enumerate(_claimed):
+    for _b in _claimed[_i + 1:]:
+        if _a & _b:
+            raise RuntimeError(f"duplicate diagram types: {sorted(_a & _b)}")
+
+SUPPORTED_TYPES = frozenset(_RENDERERS)

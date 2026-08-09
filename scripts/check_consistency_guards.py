@@ -107,6 +107,46 @@ LEAK_CASES = [
      "A rectangle has an area of 24 square cm. Its width is 4 cm. "
      "What is the length?",
      ["length"], "rectangle: the length is the answer"),
+
+    # The shapes added for Years 5 to 10. Each of them prints every dimension
+    # it is given, so each of them can hand over the answer, and Pythagoras is
+    # the worst case: the whole point of the question is that the third side
+    # is not measured off the page.
+    ({"type": "right_triangle", "a": 4, "b": 3, "c": 5, "unit": "cm"},
+     "A ramp rises 3 m over a run of 4 m. Find the length of the hypotenuse.",
+     ["c"], "Pythagoras: the hypotenuse label is the answer"),
+    ({"type": "right_triangle", "a": 4, "b": 3, "c": 5, "unit": "cm"},
+     "What is the hypotenuse of this triangle?",
+     ["c"], "and the same asked without the word length"),
+    ({"type": "right_triangle", "a": 4, "b": 3, "c": 5, "unit": "cm"},
+     "The hypotenuse is 5 cm and one leg is 3 cm. Find the area.",
+     [], "but a stated hypotenuse leaks nothing and stays on the drawing"),
+    ({"type": "circle", "radius": 7, "unit": "cm"},
+     "A circular garden bed has an area of about 154 square cm. "
+     "Work out its radius.",
+     ["radius"], "circle: the radius label is the answer"),
+    ({"type": "circle", "diameter": 14, "unit": "cm"},
+     "The circumference of a wheel is 44 cm. Find its diameter.",
+     ["diameter"], "and a diameter-labelled circle hides the diameter"),
+    ({"type": "circle", "radius": 7, "unit": "cm"},
+     "The circle has a radius of 7 cm. Find its circumference.",
+     [], "a stated radius stays, since the drawing is then worth more"),
+    ({"type": "triangle", "base": 10, "height": 6, "unit": "cm"},
+     "A triangle has an area of 30 square cm and a base of 10 cm. "
+     "Find the height.",
+     ["height"], "triangle: the perpendicular height is the answer"),
+    ({"type": "triangle", "base": 10, "height": 6, "unit": "cm"},
+     "Find the area of the base of the triangle.",
+     [], "but 'the area of the base' asks for the area, not the base, and "
+         "hiding the base would make it unanswerable"),
+    ({"type": "parallelogram", "base": 9, "height": 4, "unit": "cm"},
+     "A parallelogram has an area of 36 square cm and a height of 4 cm. "
+     "What is the base?",
+     ["base"], "parallelogram: the base is the answer"),
+    ({"type": "trapezium", "top": 5, "bottom": 9, "height": 4, "unit": "cm"},
+     "A trapezium has parallel sides of 5 cm and 9 cm and an area of "
+     "28 square cm. Find the height.",
+     ["height"], "trapezium: the height is the answer"),
     ({"type": "cylinder", "radius": 3, "height": 5, "unit": "cm"},
      "A cylinder is 5 cm high and holds about 141 cubic cm. Find the radius.",
      ["radius"], "cylinder: the radius is the answer"),
@@ -521,6 +561,40 @@ DIMENSION_CASES = [
     ({"type": "rectangle", "length": 8, "width": 5},
      "What is the perimeter of a rectangle 8 cm long and 5 cm wide?",
      True, "perimeter is flat"),
+
+    # The wider library. Every new shape that carries a measurement had to be
+    # classified, or the guard waves it through and the whole rule is only
+    # enforced for the four types it happened to be written against.
+    ({"type": "triangle", "base": 10, "height": 6},
+     "Find the volume of a prism with a triangular cross-section.",
+     False, "a flat triangle cannot show a volume"),
+    ({"type": "triangle", "base": 10, "height": 6},
+     "Find the area of a triangle with base 10 cm and height 6 cm.",
+     True, "but it can show the area"),
+    ({"type": "grid_area", "width": 6, "height": 4},
+     "Find the area of this shape by counting squares.",
+     True, "counting squares is a flat area"),
+    ({"type": "circle", "radius": 7},
+     "Find the volume of a cylinder with radius 7 cm.",
+     False, "a flat circle cannot show a cylinder's volume"),
+    ({"type": "shape_3d", "solids": ["cube"]},
+     "Find the volume of this solid.",
+     True, "a drawn solid can"),
+    ({"type": "shape_3d", "solids": ["cube"]},
+     "Find the area of a rectangle 8 cm long and 5 cm wide.",
+     False, "and cannot show a flat area"),
+    # A net is a flat drawing OF a solid, which makes it the right picture for
+    # surface area and the wrong thing to reject as flat. It is in neither set
+    # for that reason, so the guard leaves it alone.
+    ({"type": "net", "solid": "cube", "edge": 4},
+     "Find the surface area of a cube with edge 4 cm.",
+     True, "a net is the textbook figure for surface area"),
+    ({"type": "cuboid", "length": 4, "width": 4, "height": 4},
+     "Find the surface area of a cube with edge 4 cm.",
+     True, "and so is the solid itself"),
+    ({"type": "rectangle", "length": 4, "width": 4},
+     "Find the surface area of a cube with edge 4 cm.",
+     False, "but one face of it is not"),
     ({"type": "cuboid", "length": 3, "width": 3, "height": 3},
      "Find the surface area of this cube.",
      True, "surface area is a property of a solid"),
