@@ -172,6 +172,12 @@ def generate():
     args = dict(program=program, year=year, subject=subject or None,
                 topic=topic or None, name=name, is_term=is_term,
                 is_exam=is_exam)
+    available, why = generation_is_available()
+    if not available:
+        log.error("refusing generation: the queue has no live worker (%s)", why)
+        flash("Booklet generation is paused for maintenance right now. "
+              "Nothing has been charged. Please try again shortly.")
+        return redirect(url_for("views.index"))
     if not db.enqueue_job(
             job_id, g.user["id"], label, units, args,
             reserve_credits=payments_enabled(),
@@ -187,6 +193,29 @@ def _run_job(job_id: str, _args: dict | None = None):
     """Compatibility wrapper for local inline execution and existing checks."""
     from ..jobs import run_job_by_id
     return run_job_by_id(job_id)
+
+
+# How stale a worker heartbeat may be before the queue counts as unattended.
+# The worker beats once per poll (2s by default), so this is generous.
+WORKER_HEARTBEAT_MAX_AGE = int(
+    os.environ.get("FOLIO_WORKER_HEARTBEAT_MAX_AGE", "120"))
+
+
+def generation_is_available() -> tuple[bool, str]:
+    """(ok, reason). False when queue mode has nothing behind it.
+
+    In queue mode the web service only enqueues; a separate worker generates.
+    With no worker running, every booklet sits at "generating" for ever, which
+    is worse than an outage because the site looks like it is working and the
+    customer's credit is already spent. Refusing up front costs them nothing
+    and tells them the truth.
+    """
+    if JOB_MODE != "queue":
+        return True, ""
+    status = db.worker_status(WORKER_HEARTBEAT_MAX_AGE)["status"]
+    if status == "healthy":
+        return True, ""
+    return False, status
 
 
 def _dispatch_job(job_id: str, args: dict | None = None) -> None:
@@ -314,6 +343,12 @@ def retry(job_id: str):
     if not _quota_allows(g.user["id"], units):
         return redirect(url_for("views.library"))
     new_id = uuid.uuid4().hex
+    available, why = generation_is_available()
+    if not available:
+        log.error("refusing generation: the queue has no live worker (%s)", why)
+        flash("Booklet generation is paused for maintenance right now. "
+              "Nothing has been charged. Please try again shortly.")
+        return redirect(url_for("views.index"))
     if not db.enqueue_job(
             new_id, g.user["id"], original["label"], units,
             args, reserve_credits=payments_enabled(),

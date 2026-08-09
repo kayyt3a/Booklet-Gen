@@ -43,7 +43,20 @@ def main() -> int:
         log.warning("settled %d stale queued or running jobs", recovered)
 
     poll_seconds = max(0.5, float(os.environ.get("FOLIO_WORKER_POLL_SECONDS", "2")))
+    # The web service enqueues but never generates, so if this loop is not
+    # running a customer's booklet sits at "generating" for ever and the site
+    # looks like it is working. The heartbeat is how the web service knows the
+    # difference. db had the writer and the reader already; nothing called
+    # either, so the table stayed empty and the outage stayed invisible.
+    started_at = int(time.time())
+    db.record_worker_heartbeat(started_at=started_at)
     while not _stopping:
+        try:
+            db.record_worker_heartbeat(started_at=started_at)
+        except Exception:
+            # A missed beat must not stop the worker generating. The reader
+            # treats a stale beat as down, which is the safe direction.
+            log.exception("could not record the worker heartbeat")
         try:
             job = db.claim_next_job()
         except Exception:

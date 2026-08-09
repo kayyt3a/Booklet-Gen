@@ -321,6 +321,10 @@ saved_mode = views.JOB_MODE
 saved_global_limit = views.GLOBAL_DAILY_BOOKLET_LIMIT
 views.JOB_MODE = "queue"
 views.GLOBAL_DAILY_BOOKLET_LIMIT = 1000
+# This case models a working queue deployment, so it needs a live worker.
+# Without one the web service now refuses the order outright rather than
+# queueing a booklet nothing will ever generate.
+db.record_worker_heartbeat(started_at=int(time.time()))
 request_client = app.test_client()
 try:
     request_client.post(
@@ -369,6 +373,56 @@ finally:
     views.GLOBAL_DAILY_BOOKLET_LIMIT = saved_global_limit
     os.environ.pop(WEB_PROGRAM_ALLOWLIST_ENV, None)
 passed("server validation keeps booklet years and exam credit costs honest")
+
+# Queue mode with no worker behind it. The web service only enqueues, so a
+# missing worker leaves every booklet sitting at "generating" for ever with the
+# credit already spent. That is worse than an outage, because the site looks
+# like it is working. db had a heartbeat writer and reader already and nothing
+# called either, so the table stayed empty and the outage stayed invisible.
+saved_job_mode = views.JOB_MODE
+with client.session_transaction() as session:
+    saved_session_user = session.get("user_id")
+try:
+    views.JOB_MODE = "queue"
+    # A worker that has stopped beating, which is what a crashed or
+    # unprovisioned worker looks like from the web service.
+    stale_beat = int(time.time()) - (views.WORKER_HEARTBEAT_MAX_AGE + 600)
+    db.record_worker_heartbeat(started_at=stale_beat, now=stale_beat)
+    assert views.generation_is_available() == (False, "stale")
+    health = client.get("/healthz")
+    assert health.status_code == 503, health.status_code
+    assert health.get_json()["worker"] == "stale"
+
+    worker_user = db.create_user("noworker@test.com", "correct-horse-battery")
+    db.grant_credits(worker_user, 5, reason="test", reference="worker-seed")
+    before_balance = db.credit_balance(worker_user)
+    before_jobs = len(db.list_jobs(worker_user))
+    with client.session_transaction() as session:
+        session["user_id"] = worker_user
+    refused = client.post(
+        "/generate",
+        data={"program": "accelerate", "year": "Year 5",
+              "subject": "Mathematics", "student_name": "Sam",
+              "csrf_token": page_token(client, "/")},
+        follow_redirects=True,
+    )
+    assert b"paused for maintenance" in refused.data
+    assert len(db.list_jobs(worker_user)) == before_jobs, "no job may be queued"
+    assert db.credit_balance(worker_user) == before_balance, "no credit may be spent"
+
+    db.record_worker_heartbeat(started_at=int(time.time()))
+    assert views.generation_is_available() == (True, "")
+    assert client.get("/healthz").status_code == 200
+finally:
+    views.JOB_MODE = saved_job_mode
+    # This block signs the shared client in as a throwaway account. Later
+    # cases reuse that client and expect the original buyer.
+    with client.session_transaction() as session:
+        if saved_session_user is None:
+            session.pop("user_id", None)
+        else:
+            session["user_id"] = saved_session_user
+passed("queue mode refuses to take an order it has no worker to fill")
 
 logout_token = token("/")
 assert client.get("/logout").status_code == 405

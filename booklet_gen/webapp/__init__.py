@@ -244,8 +244,19 @@ def create_app() -> Flask:
     def _healthz():
         try:
             from . import db as _db
-            return ({"status": "ok"}, 200) if _db.health_check() else (
-                {"status": "error"}, 503)
+            if not _db.health_check():
+                return {"status": "error"}, 503
+            # In queue mode a healthy database is not a healthy service: the
+            # web dyno only enqueues, so with no worker behind it every booklet
+            # hangs. Report that here or the outage is invisible to monitoring.
+            from .views import JOB_MODE, WORKER_HEARTBEAT_MAX_AGE
+            if JOB_MODE == "queue":
+                worker = _db.worker_status(WORKER_HEARTBEAT_MAX_AGE)
+                if worker["status"] != "healthy":
+                    return {"status": "degraded",
+                            "worker": worker["status"]}, 503
+                return {"status": "ok", "worker": "healthy"}, 200
+            return {"status": "ok"}, 200
         except Exception:
             log.exception("health check failed")
             return {"status": "error"}, 503
