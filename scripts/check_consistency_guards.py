@@ -548,6 +548,37 @@ def _pipeline_checks() -> list:
 # A figure with the wrong number of dimensions. The critic's complaint was the
 # absence of diagrams; this is the failure that arrives with them. A child who
 # reads "volume" off a flat rectangle learns that a box is a square.
+# (spec, question, caption should still be on, note)
+#
+# Some figures print a caption naming what they show, and that caption is the
+# answer whenever the question asks the student to read the figure. Both
+# directions are load-bearing here: switching the caption off when the question
+# does not ask for it strips a real teaching aid off the worked example.
+CAPTION_CASES = [
+    ({"type": "place_value", "value": 234},
+     "What number is shown by the blocks in the diagram?",
+     False, "the shipped case: '2 hundreds, 3 tens, 4 ones' printed under it"),
+    ({"type": "place_value", "value": 253},
+     "Use the place value blocks to identify the number shown.",
+     False, "and the same asked with 'identify'"),
+    ({"type": "place_value", "value": 427},
+     "What is the value of the number 427 in a place value chart?",
+     True, "but a question that states 427 leaks nothing, so the caption "
+           "stays and the example keeps its teaching"),
+    ({"type": "place_value", "value": 342},
+     "Draw 342 using place value blocks and explain each part.",
+     True, "and a build-it question keeps it too"),
+    ({"type": "shape", "shapes": ["pentagon"]},
+     "Name this shape.",
+     False, "a name-this-shape question cannot print the name"),
+    ({"type": "shape", "shapes": ["pentagon"]},
+     "How many sides does a pentagon have?",
+     True, "but the name is already in a question that names the shape"),
+    ({"type": "shape_3d", "solids": ["cone"]},
+     "What solid is shown?",
+     False, "the same rule for solids"),
+]
+
 DIMENSION_CASES = [
     ({"type": "rectangle", "length": 5, "width": 4},
      "Find the volume of a box 5 cm long, 4 cm wide and 3 cm high.",
@@ -688,6 +719,15 @@ def main() -> int:
         failures += not ok
         print(f"  {'ok  ' if ok else 'FAIL'}  hidden={str(got):<12} {note or question[:44]}")
 
+    print("\nDiagram captions that answer the question")
+    print("-" * 62)
+    for spec, question, want, note in CAPTION_CASES:
+        out, _ = reconcile_diagram_spec(dict(spec), question)
+        got = out.get("label", True)
+        ok = got == want
+        failures += not ok
+        print(f"  {'ok  ' if ok else 'FAIL'}  caption={'on ' if got else 'off'}  {note}")
+
     rendered = _render_checks()
     print("\nRendered labels (the number must not reach the page)")
     print("-" * 62)
@@ -731,7 +771,8 @@ def main() -> int:
         print(f"  {'ok  ' if ok else 'FAIL'}  {line}")
 
     total = (len(ANSWER_CASES) + len(SPOILER_CASES) + len(DIMENSION_CASES) + len(DIAGRAM_CASES)
-             + len(LEAK_CASES) + len(FIGURE_CASES) + len(MAGNITUDE_CASES)
+             + len(LEAK_CASES) + len(CAPTION_CASES) + len(FIGURE_CASES)
+             + len(MAGNITUDE_CASES)
              + len(rendered) + len(wiring) + len(teaching))
     print(f"\n{total - failures}/{total} behaved as expected")
     return 1 if failures else 0

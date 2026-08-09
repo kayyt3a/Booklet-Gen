@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .style import (
     ACCENT_COLOR,
+    DPI,
     LINE_COLOR,
     LINE_WIDTH,
     SHADE_ALPHA,
@@ -26,7 +27,10 @@ from .style import (
     _dim_label,
     _finish,
     _Fonts,
+    _measure,
+    _pixel_axes,
     _pretty_num,
+    _px,
     _scale_note,
     _SHAPE_SIDES,
     _side_rotation,
@@ -1097,7 +1101,162 @@ def factor_tree(spec: dict, out: Path, f: _Fonts) -> None:
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# Algebra
+# ---------------------------------------------------------------------------
+
+def expand(spec: dict, out: Path, f: _Fonts) -> None:
+    """The arcs joining each pair of terms in an expansion (Years 7-10).
+
+    A Year 9 booklet taught expanding binomial products with the word FOIL, a
+    five step list and no picture, so the one thing the mnemonic stands for,
+    which term is multiplied by which, was the thing left in prose. This is the
+    figure every teacher draws on the board: the expression written out once,
+    with a looping line from each term in the first bracket to each term in the
+    second.
+
+    Arcs from the first term go above the expression and arcs from the second
+    go below, so no two arcs cross, and nested arcs bow further out the further
+    apart their terms are. That is what makes them traceable rather than a
+    tangle.
+
+    Covers the distributive law too: `left` with a single term draws 3(x + 4)
+    with two arcs, which is the same picture one step earlier.
+    """
+    from matplotlib.patches import FancyArrowPatch
+
+    left = [str(t).strip() for t in (spec.get("left") or []) if str(t).strip()]
+    right = [str(t).strip() for t in (spec.get("right") or []) if str(t).strip()]
+    if not (1 <= len(left) <= 2) or not (1 <= len(right) <= 3):
+        raise ValueError(
+            f"expand takes 1-2 terms on the left and 1-3 on the right, "
+            f"got {len(left)} and {len(right)}")
+    if len(left) * len(right) < 2:
+        raise ValueError("an expansion with one product has nothing to trace")
+    labels = [str(v) for v in (spec.get("labels") or [])]
+    if labels and len(labels) != len(left) * len(right):
+        raise ValueError(
+            f"expand needs a label for every arc: {len(left) * len(right)} "
+            f"arcs, {len(labels)} labels")
+
+    size = f.label(13)
+    arc_label_size = f.note(9)
+    # Chunks are laid out one after another so each TERM's position is known.
+    # Measuring the whole expression as one string would give its width and
+    # nothing about where "x" or "+ 3" sits inside it, and the arcs have to
+    # land on the terms.
+    chunks: list[tuple[str, int | None]] = []      # (text, term index or None)
+    def add_side(terms: list[str], offset: int) -> None:
+        bracket = len(terms) > 1
+        if bracket:
+            chunks.append(("(", None))
+        for i, term in enumerate(terms):
+            if i:
+                # A leading sign belongs to the operator, not the term, so the
+                # arc lands on the number rather than halfway through " + ".
+                sign, body = ("-", term[1:]) if term.startswith("-") else ("+", term.lstrip("+"))
+                chunks.append((f" {sign} ", None))
+                chunks.append((body.strip(), offset + i))
+            else:
+                chunks.append((term, offset + i))
+        if bracket:
+            chunks.append((")", None))
+    add_side(left, 0)
+    add_side(right, len(left))
+
+    fig, ax = _pixel_axes(3.0, 2.0)
+    artists = [ax.text(0, -50000, text, fontsize=size, color=LINE_COLOR,
+                       ha="left", va="center") for text, _ in chunks]
+    widths = _measure(fig, artists)
+
+    total = sum(widths)
+    bow = _px(size) * 0.55
+    pad_x = _px(size) * 0.5
+    # Arcs leaving the same term are stacked one clear step apart. Letting the
+    # chord length set the bow, which is the obvious thing to do, spaces two
+    # arcs by only a few pixels when their end points are close, and their
+    # labels then overlap: "2x²" and "-6x" printed as "2x²6x". When there are
+    # labels the step is a label height, so each one gets its own row.
+    step = max(_px(size) * 0.42,
+               _px(arc_label_size) * 1.35 if labels else 0.0)
+    tallest = bow + step * (len(right) - 1)
+    label_band = _px(arc_label_size) * 1.5 if labels else _px(size) * 0.18
+    # Arcs from the second left term go below the expression, so the space
+    # under it is only reserved when there is a second left term. A
+    # distributive figure otherwise prints with an inch of nothing beneath it.
+    has_below = len(left) > 1
+    above_h = tallest + label_band + _px(size) * 0.62
+    below_h = above_h if has_below else _px(size) * 0.75
+    width_in = (total + pad_x * 2) / DPI
+    height_in = (above_h + below_h) / DPI
+    fig.set_size_inches(width_in, height_in)
+    px_w, px_h = width_in * DPI, height_in * DPI
+    ax.set_xlim(0, px_w)
+    ax.set_ylim(0, px_h)
+
+    mid_y = below_h
+    centres: dict[int, float] = {}
+    x = pad_x
+    for (text, term), artist, w in zip(chunks, artists, widths):
+        artist.set_position((x, mid_y))
+        if term is not None:
+            centres[term] = x + w / 2
+        x += w
+    top = mid_y + _px(size) * 0.60
+    bottom = mid_y - _px(size) * 0.60
+
+    for i in range(len(left)):
+        above = (i == 0)
+        anchor = top if above else bottom
+        for j in range(len(right)):
+            start = centres[i]
+            end = centres[len(left) + j]
+            # Each successive right term gets a taller arc, so arcs from one
+            # term nest instead of tracing over each other.
+            chord = max(1.0, abs(end - start))
+            # matplotlib puts an arc3 control point one `rad` chord-length off
+            # the chord, and a quadratic Bezier reaches half that, so the apex
+            # sits at rad * chord / 2. Solving that for the height wanted is
+            # the only way a label can be placed ON the arc rather than under
+            # it, which is where the first version put every one of them. The
+            # cap stops the shortest arc, where the two terms are neighbours,
+            # curling into a loop that reads as a letter rather than a link.
+            rad_mag = min(2 * (bow + step * j) / chord, 1.15)
+            height = rad_mag * chord / 2
+            rad = (-1 if above else 1) * rad_mag
+            ax.add_patch(FancyArrowPatch(
+                (start, anchor), (end, anchor),
+                connectionstyle=f"arc3,rad={rad}",
+                arrowstyle="-|>", mutation_scale=_px(size) * 0.26,
+                linewidth=LINE_WIDTH * 0.8, color=ACCENT_COLOR,
+                shrinkA=1, shrinkB=1, zorder=1))
+            idx = i * len(right) + j
+            if idx < len(labels):
+                apex = anchor + (height if above else -height)
+                # Sat on a white patch. Arcs leaving the same term fan out
+                # from one point, so the apex of an inner arc lies directly
+                # under the outer arc sweeping over it, and there is no
+                # offset that clears both. Masking the line behind the label
+                # is what a textbook does and the only thing that works here.
+                ax.text((start + end) / 2,
+                        apex + (1 if above else -1) * _px(arc_label_size) * 0.45,
+                        labels[idx], ha="center",
+                        va="bottom" if above else "top",
+                        fontsize=arc_label_size, color=ACCENT_COLOR, zorder=3,
+                        bbox=dict(boxstyle="round,pad=0.14", facecolor="white",
+                                  edgecolor="none"))
+    _save_pixel(fig, out)
+
+
+def _save_pixel(fig, out: Path) -> None:
+    import matplotlib.pyplot as plt
+
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.10, transparent=False)
+    plt.close(fig)
+
+
 RENDERERS = {
+    "expand": expand,
     "angle": angle,
     "triangle": triangle,
     "right_triangle": right_triangle,

@@ -17,76 +17,22 @@ from pathlib import Path
 
 from .style import (
     ACCENT_COLOR,
-    DIAGRAM_PRINT_BOX_PT,
+    DPI,
     LINE_COLOR,
     LINE_WIDTH,
-    MIN_DIAGRAM_LABEL_PT,
     SHADE_ALPHA,
     SHADE_COLOR,
-    _FLOOR_MARGIN,
     _Fonts,
     _finish,
+    _measure,
+    _pixel_axes,
+    _px,
+    _width_budget,
 )
 
-DPI = 180
 
 
-def _pixel_axes(width_in: float, height_in: float):
-    """A figure whose data coordinates are pixels, with the axes filling it.
 
-    Text is the content of every figure in this module, and text width is not
-    known until it has been drawn. Working in pixels lets a label be measured
-    with `get_window_extent` and then placed, instead of guessed at from
-    character counts, which is how "the old dog" and "she" end up the same
-    width on a diagram of sentence parts.
-    """
-    import matplotlib.pyplot as plt
-
-    fig = plt.figure(figsize=(width_in, height_in), dpi=DPI)
-    ax = fig.add_axes((0, 0, 1, 1))
-    ax.set_xlim(0, width_in * DPI)
-    ax.set_ylim(0, height_in * DPI)
-    ax.set_aspect("auto")
-    ax.axis("off")
-    return fig, ax
-
-
-def _measure(fig, artists) -> list[float]:
-    """Width in pixels of each already-added text artist."""
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    return [a.get_window_extent(renderer).width for a in artists]
-
-
-def _px(points: float) -> float:
-    """Points of type into pixels of canvas.
-
-    Every gap in this module is expressed through this rather than as a pixel
-    constant. The legibility pass re-draws a figure with its fonts scaled up
-    when the text would print too small, so a layout built from fixed pixel
-    gaps holds still while the type inside it grows, and the rows run into each
-    other. That is not a hypothetical: the first version of `text_structure`
-    printed its three stage names on top of its own title.
-    """
-    return points * DPI / 72.0
-
-
-def _width_budget(size_pt: float) -> float:
-    """Widest this figure may be, in pixels, for `size_pt` to survive printing.
-
-    A wide figure is scaled bodily into the print box, and its text with it.
-    For a single line of type the two cancel out exactly: doubling the font
-    doubles the canvas, so the printed size never moves and the legibility
-    pass loops until it gives up. `sentence_parts` hit that head on, printing
-    a nine word sentence at 6.1pt no matter how big the type was drawn.
-
-    The fix is to cap the canvas rather than the type. Because the cap scales
-    with the type, wrapping decided against it is stable, and the printed size
-    lands just over the floor on the first pass.
-    """
-    budget_pt = size_pt * DIAGRAM_PRINT_BOX_PT[0] / (MIN_DIAGRAM_LABEL_PT
-                                                     * _FLOOR_MARGIN)
-    return budget_pt / 72.0 * DPI
 
 
 def _wrap(slots: list[float], gap: float, budget: float) -> list[list[int]]:

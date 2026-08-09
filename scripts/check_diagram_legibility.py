@@ -468,6 +468,15 @@ CURRICULUM_CASES = [
      "two step chance experiments"),
     ({"type": "coordinate_plane", "x_range": [-4, 4], "y_range": [-6, 6],
       "lines": [{"m": 2, "c": -1}]}, "linear relationships"),
+    ({"type": "expand", "left": ["3"], "right": ["x", "+4"]},
+     "the distributive law"),
+    ({"type": "expand", "left": ["x", "+3"], "right": ["x", "+5"],
+      "labels": ["F", "O", "I", "L"]}, "expanding binomial products"),
+    ({"type": "expand", "left": ["2x", "+1"], "right": ["x", "-3"],
+      "labels": ["2x²", "-6x", "x", "-3"]},
+     "an expansion with the products written on the arcs"),
+    ({"type": "expand", "left": ["x", "+2"],
+      "right": ["x²", "+3x", "-1"]}, "expanding by a trinomial"),
     # Years 9-10
     ({"type": "coordinate_plane", "x_range": [-4, 4], "y_range": [-5, 6],
       "curves": [{"a": 1, "b": 0, "c": -4}]}, "quadratic graphs"),
@@ -547,6 +556,13 @@ REFUSAL_CASES = [
      "a two set Venn given a three set region"),
     ({"type": "tally", "rows": [{"label": "Red", "count": 90}]},
      "a tally too long to read"),
+    ({"type": "expand", "left": ["x"], "right": ["3"]},
+     "an expansion with a single product and nothing to trace"),
+    ({"type": "expand", "left": ["a", "+b", "+c"], "right": ["x", "+1"]},
+     "an expansion with three terms on the left"),
+    ({"type": "expand", "left": ["x", "+3"], "right": ["x", "+5"],
+      "labels": ["F", "O"]},
+     "an expansion labelling only half its arcs"),
 ]
 
 

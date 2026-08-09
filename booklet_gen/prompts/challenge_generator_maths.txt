@@ -51,6 +51,8 @@ Populate `diagram_spec` only when a diagram is clearly helpful, and only ever wi
   Pythagoras and trigonometry. ALWAYS list the side being asked for in "unknown". "angle":37 marks the acute angle at the bottom right.
 - {"type":"shape_3d","solids":["cube","cone"]}, {"type":"net","solid":"cube","edge":4,"unit":"cm"}
   Naming solids, and the net for surface area.
+- {"type":"expand","left":["x","+3"],"right":["x","+5"]}
+  Looping lines from each term of the first bracket to each term of the second, drawn over the expression. Use for expanding and for the distributive law (a single left term). `labels` writes the products on the arcs, so leave it out on a practice question: the products are the answer.
 - {"type":"coordinate_plane","x_range":[-5,5],"y_range":[-5,5],"points":[[2,3]],"labels":["A"],"lines":[{"m":2,"c":-1}],"curves":[{"a":1,"b":0,"c":-4}]}
   Points, lines and parabolas. Keep each range to 12 units or fewer.
 - {"type":"bar_chart","categories":["Mon","Tue"],"values":[4,7]}, {"type":"picture_graph","each":2,"rows":[{"label":"Cats","count":8}]}, {"type":"tally","rows":[{"label":"Red","count":7}]}, {"type":"dot_plot","values":[3,4,4,5]}, {"type":"stem_leaf","values":[12,15,21]}, {"type":"scatter","points":[[1,2],[2,3]]}, {"type":"box_plot","plots":[{"label":"9A","min":2,"q1":5,"median":7,"q3":9,"max":14}]}

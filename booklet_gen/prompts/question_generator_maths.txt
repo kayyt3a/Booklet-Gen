@@ -96,6 +96,9 @@ Statistics and probability
 - sets, "both", "neither", two-way classification -> venn
 
 Algebra and graphs
+- expanding brackets, binomial products, the distributive law -> expand. A
+  question about expanding is a question about which term meets which, and
+  that is a picture. Never write FOIL without drawing the arcs.
 - plotting a linear relationship, gradient and intercept -> coordinate_plane
   with "lines"
 - simultaneous equations -> coordinate_plane with two lines
@@ -151,6 +154,19 @@ Supported spec types (use exactly these keys):
   A bar split into 2-5 labelled parts under a brace naming the whole. Parts are
   sized by their own numbers. Use "?" for the part being asked for. Good for
   missing addends, ratio and percentage as well as part-part-whole.
+- {"type":"expand","left":["x","+3"],"right":["x","+5"],"labels":["F","O","I","L"]}
+  The looping lines that show WHICH term multiplies which, drawn over the
+  expression itself. Arcs from the first term arch above it and arcs from the
+  second dip below, so none of them cross. Use it for every expanding
+  question: FOIL named without the picture leaves the one thing the mnemonic
+  stands for still in words.
+  `left` takes 1-2 terms and `right` 1-3, each written the way it appears
+  ("2x", "+1", "-3"). A single left term is the distributive law, 3(x + 4).
+  `labels` is optional and goes on the arcs, one per product in reading order
+  (every left term against every right term). Use "F","O","I","L" when
+  teaching the mnemonic, and the four products when the working is being
+  shown. LEAVE IT OUT on a practice question, because the products ARE the
+  answer.
 - {"type":"factor_tree","value":60}
   The prime factorisation branched out. Give only the number: the tree is
   worked out by the renderer, so it cannot disagree with the arithmetic.

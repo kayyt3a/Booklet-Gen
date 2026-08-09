@@ -325,6 +325,45 @@ _LEAK_ONLY_TYPES = frozenset({"right_triangle", "triangle", "parallelogram",
                               "trapezium", "circle"})
 
 
+# Figures that print a caption naming what they show, where that caption is
+# the answer whenever the question asks the student to read the figure.
+#
+# From a shipped Year 3 booklet: "What number is shown by the blocks in the
+# diagram?" with "2 hundreds, 3 tens, 4 ones" printed under the blocks. The
+# prompt asks for "label": false on exactly this question and the model did not
+# do it, which is what a prompt instruction is worth on its own.
+_ASKS_TO_READ_NUMBER = re.compile(
+    r"\b(?:what|which)\s+number\b"
+    r"|\bnumber\s+(?:is\s+)?(?:shown|represented|made)\b"
+    r"|\b(?:read|identify|name|write|state)\s+(?:the\s+)?number\b"
+    r"|\bwhat\s+(?:is\s+the\s+)?value\s+(?:is\s+)?shown\b",
+    re.IGNORECASE,
+)
+_ASKS_TO_NAME_SHAPE = re.compile(
+    r"\b(?:name|identify)\s+(?:this|the|each)\s+(?:shape|solid|figure)\b"
+    r"|\bwhat\s+(?:shape|solid)\b"
+    r"|\bwhich\s+(?:shape|solid)\b"
+    r"|\bwhat\s+is\s+(?:this|the\s+name\s+of)\b",
+    re.IGNORECASE,
+)
+_CAPTIONED_TYPES = {
+    "place_value": _ASKS_TO_READ_NUMBER,
+    "shape": _ASKS_TO_NAME_SHAPE,
+    "shape_3d": _ASKS_TO_NAME_SHAPE,
+}
+
+
+def _hide_caption(spec: dict, kind: str, question_text: str) -> tuple[dict, bool]:
+    """Turn off a figure's caption when the caption answers the question."""
+    if spec.get("label", True) is False:
+        return spec, False
+    if not _CAPTIONED_TYPES[kind].search(question_text or ""):
+        return spec, False
+    out = dict(spec)
+    out["label"] = False
+    return out, True
+
+
 def _hide_the_answer(spec: dict, kind: str, question_text: str) -> tuple[dict, bool]:
     """Mark as "?" any label on `spec` that states what the question asks for."""
     hidden = set(unknown_dimensions(spec, question_text))
@@ -362,6 +401,8 @@ def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
         return spec, False
 
     kind = str(spec.get("type", "")).lower()
+    if kind in _CAPTIONED_TYPES:
+        return _hide_caption(spec, kind, question_text)
     if kind in _LEAK_ONLY_TYPES:
         return _hide_the_answer(spec, kind, question_text)
     if kind not in {"cuboid", "cylinder", "rectangle"}:
