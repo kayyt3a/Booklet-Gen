@@ -113,7 +113,6 @@ def audit(env: dict[str, str], stage: str) -> list[Finding]:
 
     for key, explanation in (
         ("FOLIO_BUSINESS_NAME", "enter the seller's real business or trading name"),
-        ("FOLIO_BUSINESS_NUMBER", "enter the applicable ABN or business number"),
         ("FOLIO_BUSINESS_ADDRESS", "enter the public business contact address"),
         ("FOLIO_SUPPORT_EMAIL", "enter a monitored support address"),
         ("FOLIO_ADMIN_EMAILS", "enter at least one administrator login email"),
@@ -121,6 +120,24 @@ def audit(env: dict[str, str], stage: str) -> list[Finding]:
         value = _present(findings, env, key, explanation)
         if value and ("example.com" in value.casefold() or "yourdomain" in value.casefold()):
             findings.append(Finding("FAIL", key, "replace the example value"))
+
+    # An ABN is not required to sell as an individual, and Stripe registers
+    # sole traders without one. This used to be a hard FAIL, which would have
+    # blocked a legitimate seller from ever reaching a green board. Privacy,
+    # Terms and Support already drop the line when it is unset, so an absent
+    # number is a supported configuration rather than a missing setting. It is
+    # still validated when present, and still worth revisiting at the A$75,000
+    # turnover mark where GST registration becomes compulsory.
+    business_number = _value(env, "FOLIO_BUSINESS_NUMBER")
+    findings.append(Finding(
+        "PASS", "FOLIO_BUSINESS_NUMBER",
+        "configured" if business_number
+        else "not set, selling as an individual without an ABN",
+    ))
+    if business_number and ("example" in business_number.casefold()
+                            or "your" in business_number.casefold()):
+        findings.append(Finding("FAIL", "FOLIO_BUSINESS_NUMBER",
+                                "replace the example value"))
 
     queue_mode = _value(env, "FOLIO_JOB_MODE").casefold()
     findings.append(Finding(

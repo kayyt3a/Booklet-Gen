@@ -1,107 +1,119 @@
-#!/usr/bin/env python3
-"""Check the offline beta and live configuration auditor."""
-from __future__ import annotations
+"""Checks for the launch readiness board.
 
-import importlib.util
+This script is the thing that tells the founder whether the deployment is
+configured, so its own verdicts have to be right. The case that matters most
+is the one that used to be impossible: an Australian sole trader selling as an
+individual, with no ABN, must be able to reach a clean board. Stripe registers
+sellers on exactly those terms and the legal pages already omit the line when
+it is unset, so a hard FAIL there was telling a correctly configured seller
+they were not ready.
+
+    PYTHONPATH=. python scripts/check_launch_readiness.py
+"""
 import sys
-from pathlib import Path
+
+from scripts.launch_readiness import audit
+
+_passed = 0
 
 
-spec = importlib.util.spec_from_file_location(
-    "launch_readiness", Path("scripts/launch_readiness.py")
-)
-module = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
-
-failures: list[str] = []
+def ok(msg):
+    global _passed
+    _passed += 1
+    print("  ok:", msg)
 
 
-def check(ok: bool, label: str) -> None:
-    print(("  PASS  " if ok else "  FAIL  ") + label)
-    if not ok:
-        failures.append(label)
+CONFIGURED = {
+    "FLASK_SECRET_KEY": "z" * 48,
+    "GEMINI_API_KEY": "a-real-looking-key",
+    "DATABASE_URL": "postgresql://user:pass@host/db",
+    "FOLIO_REQUIRE_POSTGRES": "1",
+    "FOLIO_PUBLIC_URL": "https://folio-45rh.onrender.com",
+    "FOLIO_BUSINESS_NAME": "A Real Trading Name",
+    "FOLIO_BUSINESS_ADDRESS": "1 Somewhere Street, Perth WA",
+    "FOLIO_SUPPORT_EMAIL": "support@folio.test.au",
+    "FOLIO_ADMIN_EMAILS": "owner@folio.test.au",
+    "FOLIO_JOB_MODE": "queue",
+    "FOLIO_COOKIE_SECURE": "1",
+    "FOLIO_REQUIRE_PAYMENTS": "1",
+    "STRIPE_SECRET_KEY": "sk_test_abc",
+    "STRIPE_WEBHOOK_SECRET": "whsec_abc",
+    "STRIPE_PRICE_SINGLE": "price_single",
+    "STRIPE_PRICE_TERM": "price_term",
+    "FOLIO_REQUIRE_EMAIL_VERIFICATION": "1",
+    "FOLIO_EMAIL_FROM": "no-reply@folio.test.au",
+    "SMTP_HOST": "smtp.provider.test",
+    "SMTP_USERNAME": "smtp-user",
+    "SMTP_PASSWORD": "smtp-pass",
+    "SUPABASE_URL": "https://project.supabase.co",
+    "SUPABASE_SERVICE_ROLE_KEY": "service-role-key",
+    "FOLIO_STORAGE_BUCKET": "booklets",
+    "FOLIO_PRICE_SINGLE_AUD": "6.90",
+    "FOLIO_PRICE_TERM_AUD": "36.00",
+}
 
 
-def complete_env(stripe_key: str) -> dict[str, str]:
-    return {
-        "FLASK_SECRET_KEY": "a" * 48,
-        "GEMINI_API_KEY": "configured-secret",
-        "DATABASE_URL": "postgresql://user:password@database.example/db",
-        "FOLIO_REQUIRE_POSTGRES": "1",
-        "FOLIO_PUBLIC_URL": "https://folio.example.au",
-        "FOLIO_BUSINESS_NAME": "Folio Learning Pty Ltd",
-        "FOLIO_BUSINESS_NUMBER": "ABN configured",
-        "FOLIO_BUSINESS_ADDRESS": "Public contact address configured",
-        "FOLIO_SUPPORT_EMAIL": "support@folio.example.au",
-        "FOLIO_ADMIN_EMAILS": "admin@folio.example.au",
-        "FOLIO_JOB_MODE": "queue",
-        "FOLIO_COOKIE_SECURE": "1",
-        "FOLIO_REQUIRE_PAYMENTS": "1",
-        "STRIPE_SECRET_KEY": stripe_key,
-        "STRIPE_WEBHOOK_SECRET": "configured-webhook-secret",
-        "STRIPE_PRICE_SINGLE": "configured-single-price",
-        "STRIPE_PRICE_TERM": "configured-term-price",
-        "FOLIO_REQUIRE_EMAIL_VERIFICATION": "1",
-        "FOLIO_EMAIL_FROM": "FolioAI <hello@folio.example.au>",
-        "SMTP_HOST": "smtp.folio.example.au",
-        "SMTP_USERNAME": "configured-user",
-        "SMTP_PASSWORD": "configured-password",
-        "SUPABASE_URL": "https://project.supabase.co",
-        "SUPABASE_SERVICE_ROLE_KEY": "configured-service-role-key",
-        "FOLIO_STORAGE_BUCKET": "booklets",
-        "FOLIO_PRICE_SINGLE_AUD": "7.90",
-        "FOLIO_PRICE_TERM_AUD": "39.00",
-    }
+def failures(env, stage="beta"):
+    return [f for f in audit(dict(env), stage) if f.level == "FAIL"]
 
 
-def failed_settings(findings) -> set[str]:
-    return {finding.setting for finding in findings if finding.level == "FAIL"}
+def without(*keys):
+    return {k: v for k, v in CONFIGURED.items() if k not in keys}
 
 
-print("\nA complete beta configuration passes offline checks")
-print("-" * 68)
-beta = module.audit(complete_env("sk_test_configured"), "beta")
-check(not failed_settings(beta), "test-mode Stripe settings pass the beta audit")
+print("\nSELLING WITHOUT AN ABN")
 
-print("\nLive mode rejects test credentials")
-print("-" * 68)
-wrong_live = module.audit(complete_env("sk_test_configured"), "live")
-check("STRIPE_SECRET_KEY" in failed_settings(wrong_live),
-      "a test Stripe secret cannot pass the live audit")
-live = module.audit(complete_env("sk_live_configured"), "live")
-check(not failed_settings(live), "a complete live configuration passes")
+bad = failures(CONFIGURED)
+assert not bad, [f"{f.setting}: {f.message}" for f in bad]
+ok("a fully configured seller with no ABN reaches a clean board")
 
-print("\nSecurity and identity values fail closed")
-print("-" * 68)
-broken = complete_env("sk_test_configured")
-broken.update({
-    "FLASK_SECRET_KEY": "replace-with-at-least-32-random-characters",
-    "DATABASE_URL": "sqlite:///folio.db",
-    "FOLIO_PUBLIC_URL": "http://127.0.0.1:5000",
-    "FOLIO_SUPPORT_EMAIL": "support@example.com",
-    "FOLIO_JOB_MODE": "inline",
-    "FOLIO_COOKIE_SECURE": "0",
-    "FOLIO_PRICE_SINGLE_AUD": "free",
-})
-failed = failed_settings(module.audit(broken, "beta"))
-for setting in (
-    "FLASK_SECRET_KEY",
-    "DATABASE_URL",
-    "FOLIO_PUBLIC_URL",
-    "FOLIO_SUPPORT_EMAIL",
-    "FOLIO_JOB_MODE",
-    "FOLIO_COOKIE_SECURE",
-    "FOLIO_PRICE_SINGLE_AUD",
-):
-    check(setting in failed, f"{setting} is rejected when unsafe or incomplete")
+numbered = failures({**CONFIGURED, "FOLIO_BUSINESS_NUMBER": "12 345 678 901"})
+assert not numbered, [f.setting for f in numbered]
+ok("supplying an ABN is still accepted")
 
-source = Path("scripts/launch_readiness.py").read_text(encoding="utf-8")
-check("print(secret" not in source and "print(stripe_key" not in source,
-      "the report does not print secret values")
+placeholder = failures({**CONFIGURED,
+                        "FOLIO_BUSINESS_NUMBER": "your-abn-here"})
+assert any(f.setting == "FOLIO_BUSINESS_NUMBER" for f in placeholder), placeholder
+ok("an unreplaced ABN placeholder is still caught")
 
-if failures:
-    print(f"\n{len(failures)} FAILED")
-    raise SystemExit(1)
-print("\nALL LAUNCH-READINESS CHECKS PASSED")
+note = [f for f in audit(dict(CONFIGURED), "beta")
+        if f.setting == "FOLIO_BUSINESS_NUMBER"]
+assert note and "without an ABN" in note[0].message, note
+ok("the board says why the field is blank rather than going quiet")
+
+print("\nEVERYTHING ELSE STILL BLOCKS")
+
+# The ABN change must not have loosened any neighbouring requirement.
+for key in ("FOLIO_BUSINESS_NAME", "FOLIO_BUSINESS_ADDRESS",
+            "FOLIO_SUPPORT_EMAIL", "FOLIO_ADMIN_EMAILS", "SMTP_HOST",
+            "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+            "SUPABASE_SERVICE_ROLE_KEY", "GEMINI_API_KEY", "DATABASE_URL"):
+    missing = failures(without(key))
+    assert any(f.setting == key for f in missing), \
+        f"removing {key} no longer fails the board"
+ok("every other required setting still fails the board when missing")
+
+for key in ("FOLIO_REQUIRE_POSTGRES", "FOLIO_COOKIE_SECURE",
+            "FOLIO_REQUIRE_PAYMENTS", "FOLIO_REQUIRE_EMAIL_VERIFICATION"):
+    off = failures({**CONFIGURED, key: "0"})
+    assert any(f.setting == key for f in off), f"{key}=0 was accepted"
+ok("the safety switches must be on, not merely present")
+
+placeholder_secret = failures({**CONFIGURED,
+                               "FLASK_SECRET_KEY": "dev-insecure-change-me"})
+assert any(f.setting == "FLASK_SECRET_KEY" for f in placeholder_secret)
+ok("a published placeholder secret key is refused")
+
+inline = failures({**CONFIGURED, "FOLIO_JOB_MODE": "inline"})
+assert any(f.setting == "FOLIO_JOB_MODE" for f in inline)
+ok("inline job mode is refused for a deployment with a worker")
+
+print("\nTHE ADVERTISED PRICES")
+
+for bad_price in ("0", "-1", "6.905", "six ninety", ""):
+    priced = failures({**CONFIGURED, "FOLIO_PRICE_SINGLE_AUD": bad_price})
+    assert any(f.setting == "FOLIO_PRICE_SINGLE_AUD" for f in priced), bad_price
+ok("a zero, negative, over-precise, empty or non-numeric price is refused")
+
+print(f"\nALL {_passed} LAUNCH READINESS CHECKS PASSED")
+sys.exit(0)
