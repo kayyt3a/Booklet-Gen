@@ -16,6 +16,7 @@ from .agents.question_generator import (QuestionGeneratorAgent, passage_quotas,
                                         wants_passages)
 from .agents.reasoning_validator import ReasoningValidator
 from .agents.spelling import SpellingAgent
+from .agents import tables as tables_agent
 from .agents.term_planner import TermPlannerAgent
 from .agents.validator import SympyValidator, ValidationResult
 from .timing import (section_minutes, round_display, round_total,
@@ -25,7 +26,7 @@ from .llm import get_client
 from .rag import Retriever
 from .schemas import (
     BookletData, ExamPaper, ExamSection, Passage, Question, SpellingList,
-    SubtopicOutput, SubtopicTeaching, ValidatedQuestion,
+    SubtopicOutput, SubtopicTeaching, TablesList, ValidatedQuestion,
 )
 
 # A tutoring session runs an hour, so the Class Work half of a booklet has to
@@ -323,9 +324,10 @@ class BookletPipeline:
             program.label, plan_subject, year_level, weeks, topic_hint,
         )
         spelling = self._spelling_applies(program, plan_subject)
+        tables = tables_agent.tables_apply(program, plan_subject, year_level)
         log.info("pipeline.term_plan.start",
                  extra={"program": program.key, "weeks": len(plan.weeks),
-                        "spelling": spelling})
+                        "spelling": spelling, "tables": tables})
 
         booklets: list[BookletData] = []
         prev_focus = None
@@ -333,6 +335,13 @@ class BookletPipeline:
         words_set: list[str] = []
         prev_list: SpellingList | None = None
         prev_list_week: int | None = None
+        # Same idea for tables, except the carried list is cleared the moment
+        # it is tested, so a week that sets nothing cannot make the week after
+        # it re-test a table the student has already been examined on.
+        tables_set: list[int] = []
+        prev_table: TablesList | None = None
+        prev_table_week: int | None = None
+        last_week = plan.weeks[-1].week if plan.weeks else None
         for wk in plan.weeks:
             log.info("pipeline.term_plan.week",
                      extra={"week": wk.week, "focus": wk.focus, "difficulty": wk.difficulty})
@@ -370,6 +379,29 @@ class BookletPipeline:
                                 if data.spelling_test else 0,
                                 "test_from_week": data.spelling_test.from_week
                                 if data.spelling_test else None})
+            if tables:
+                # Test first, on the table carried in from the previous
+                # booklet, then clear it: one table, tested exactly once.
+                data.tables_test = tables_agent.make_test(prev_table,
+                                                          prev_table_week)
+                prev_table, prev_table_week = None, None
+                # Nothing new in a revision week or in the final week. Both
+                # would set a table that no later booklet exists to test, which
+                # is homework the student is never asked about.
+                if not wk.revision and wk.week != last_week:
+                    this_table = tables_agent.next_list(tables_set, year_level)
+                    if this_table:
+                        data.tables_list = this_table
+                        tables_set.append(this_table.table)
+                        prev_table, prev_table_week = this_table, wk.week
+                log.info("pipeline.term_plan.tables",
+                         extra={"week": wk.week,
+                                "set": data.tables_list.table
+                                if data.tables_list else None,
+                                "tested": data.tables_test.table
+                                if data.tables_test else None,
+                                "test_from_week": data.tables_test.from_week
+                                if data.tables_test else None})
             booklets.append(data)
             prev_focus = wk.focus
         return booklets

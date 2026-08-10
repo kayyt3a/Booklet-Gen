@@ -277,6 +277,19 @@ def spelling_test_minutes(data) -> float:
         * _SPELLING_MINUTES_PER_WORD
 
 
+# A recalled fact takes a few seconds; one the student has to reconstruct takes
+# longer. This is the charge for a drill that is going well, which is the point
+# of setting it: a child spending four minutes on twelve facts has not learned
+# the table, and the estimate should not quietly make room for that.
+_TABLES_MINUTES_PER_FACT = 0.2
+
+
+def tables_test_minutes(data) -> float:
+    from .agents.tables import test_questions
+    return len(test_questions(getattr(data, "tables_test", None))) \
+        * _TABLES_MINUTES_PER_FACT
+
+
 def booklet_timing(data) -> dict:
     """Recompute every printed time from the booklet itself.
 
@@ -304,9 +317,12 @@ def booklet_timing(data) -> dict:
     # belongs to that heading.
     homework_total_raw = homework_raw + challenge_raw
     spelling_raw = spelling_test_minutes(data)
+    tables_raw = tables_test_minutes(data)
     return {
         "spelling_raw": spelling_raw,
         "spelling_minutes": round_display(spelling_raw) if spelling_raw else None,
+        "tables_raw": tables_raw,
+        "tables_minutes": round_display(tables_raw) if tables_raw else None,
         "section_raw": section_raw,
         "section_minutes": [round_display(m) for m in section_raw],
         "recap_raw": recap_raw,
@@ -324,6 +340,6 @@ def booklet_timing(data) -> dict:
         "homework_only_raw": homework_raw,
         "homework_only_minutes": round_display(homework_raw) if homework_raw else None,
         "challenge_minutes": round_display(challenge_raw) if data.challenge_questions else None,
-        "total_minutes": round_total(spelling_raw + recap_raw + classwork_raw
-                                     + homework_total_raw),
+        "total_minutes": round_total(spelling_raw + tables_raw + recap_raw
+                                     + classwork_raw + homework_total_raw),
     }

@@ -52,6 +52,29 @@ class SpellingTest(BaseModel):
     from_week: Optional[int] = None
 
 
+class TablesList(BaseModel):
+    """The times table set to memorise this week, printed at the back.
+
+    Only the table itself is stored. The twelve facts are `table x 1` through
+    `table x 12`, so deriving them at render time is the one way the printed
+    list and the test next week cannot disagree with each other.
+    """
+    table: int = 0
+
+
+class TablesTest(BaseModel):
+    """A recall drill on the table set in the previous booklet.
+
+    `order` is the twelve multipliers 1 to 12, shuffled, so the student cannot
+    answer it by skip counting down the page: knowing 7 x 8 without walking
+    through 7 x 7 is the whole point of the exercise. Shuffled once, when the
+    test is made, so the answer key and the question page stay in step.
+    """
+    table: int = 0
+    order: List[int] = Field(default_factory=list)
+    from_week: Optional[int] = None
+
+
 class Question(BaseModel):
     question: str
     answer: str
@@ -151,6 +174,8 @@ class BookletData(BaseModel):
     # next week's booklet opens with a test on it.
     spelling_list: Optional[SpellingList] = None
     spelling_test: Optional[SpellingTest] = None
+    tables_list: Optional[TablesList] = None
+    tables_test: Optional[TablesTest] = None
 
 
 class ExamSection(BaseModel):

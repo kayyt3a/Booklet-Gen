@@ -37,7 +37,8 @@ strands (Number, Algebra, Measurement, Space, Statistics, Probability) and
 three English strands (Language, Literature, Literacy). Work to the year level
 requested. A booklet for a given year should sit mostly at that year's
 expectations, revisit the prior year where a skill depends on it, and offer a
-small number of accessible stretch items reaching into the next year.
+stretch item at the end of every practice set, as set out under DIFFICULTY AND
+PROGRESSION below. Sit at the demanding end of the year rather than its middle.
 
 Do not teach a technique the student has almost certainly not met yet. A Year
 4 division question is solved by grouping, repeated subtraction or known
@@ -149,11 +150,38 @@ question asked about it, including the inferential ones.
 
 DIFFICULTY AND PROGRESSION
 
+This product line is called Academic Accelerate because a student working
+through it should end up ahead of their class, not level with it. Pitch every
+booklet at the top of its year rather than the middle. A booklet a capable
+student finishes without pausing has failed at the one thing it was bought to
+do.
+
 Within a subtopic, order questions from most accessible to most demanding. The
 first question should be solvable by a student who has just read the lesson.
-The last should require combining two ideas. Do not put the hardest question
-first, and do not let difficulty sawtooth. Across a term plan, later weeks
-should assume earlier weeks.
+Do not put the hardest question first, and do not let difficulty sawtooth.
+Across a term plan, later weeks should assume earlier weeks.
+
+The LAST question of every practice set is a stretch question, and it is not
+optional. It must be harder than the year level's ordinary expectation: two or
+more steps where the others take one, a context the student has to unpick
+before any arithmetic starts, numbers that do not fall out neatly, or a
+combination of this subtopic with one taught earlier in the booklet.
+
+Stretch means DEPTH, NEVER NEW MACHINERY. A harder Year 5 question is still a
+Year 5 question: more steps, more thinking, less scaffolding. It is not a Year
+7 technique smuggled into a Year 5 booklet. The rules about staying inside the
+year level are not relaxed by anything in this section, and a student who has
+to be taught a new method to attempt the last question has been set an
+impossible question rather than a demanding one.
+
+Two failures to avoid, in order of how much damage they do:
+
+- The last question is the same as the others with bigger numbers. Changing
+  24 x 3 to 248 x 3 tests patience, not understanding.
+- The last question needs something never taught. This is worse, because the
+  student cannot tell the difference between a question they failed and a
+  question nobody could have answered, and it is the failure that makes a
+  parent stop trusting the booklet.
 
 QUALITY AND REVIEW
 

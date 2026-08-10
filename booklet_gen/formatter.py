@@ -1477,6 +1477,10 @@ def part_counts(data: BookletData) -> list[tuple[str, int]]:
     spelling = spelling_words(getattr(data, "spelling_test", None))
     if spelling:
         rows.append(("Spelling Test", len(spelling)))
+    from .agents.tables import test_questions
+    tables = test_questions(getattr(data, "tables_test", None))
+    if tables:
+        rows.append(("Times Tables Test", len(tables)))
     if data.recap_questions:
         rows.append(("Warm-up Recap", len(data.recap_questions)))
     cw = sum(len(s.questions) for s in data.sections)
@@ -1673,6 +1677,117 @@ def _spelling_list_block(styles, spelling_list):
     return [KeepTogether([band, Spacer(1, 0.45 * cm), grid])]
 
 
+# ---------------------------------------------------------------------------
+# Times tables. Same weekly shape as spelling and rendered with the same grid
+# metrics, but the cell carries the question rather than being left blank: a
+# spelling test is dictated aloud, so its page must hold no clues, while a
+# tables test is read off the page and every fact has to be printed.
+# ---------------------------------------------------------------------------
+
+TABLES_COLUMNS = 2
+_TABLES_ROW_CM = 1.15
+_TABLES_BAND = "#7A4E8F"
+
+
+def _tables_grid(styles, items: list, ruled: bool):
+    """A numbered grid of `table x multiplier`, filled down each column.
+
+    With `ruled` set, each row ends in a rule for the product, which is what
+    makes it a test rather than a list to read.
+    """
+    count = len(items)
+    columns = TABLES_COLUMNS if count > 6 else 1
+    rows = (count + columns - 1) // columns
+    body_w = A4[0] - 2 * PAGE_MARGIN
+    num_w = 0.95 * cm
+    q_w = 2.5 * cm
+    rest_w = body_w / columns - num_w - q_w
+    data, style = [], [
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]
+    for r in range(rows):
+        row = []
+        for c in range(columns):
+            i = c * rows + r
+            if i < count:
+                table, mult, product = items[i]
+                row.append(Paragraph(f"{i + 1}.", styles["spelling_num"]))
+                row.append(Paragraph(f"{table} &times; {mult} =",
+                                     styles["spelling_word"]))
+                row.append(Paragraph("" if ruled else f"<b>{product}</b>",
+                                     styles["spelling_word"]))
+                if ruled:
+                    style.append(("LINEBELOW", (3 * c + 2, r), (3 * c + 2, r),
+                                  0.6, colors.HexColor("#9AA6B8")))
+            else:
+                row.extend(["", "", ""])
+        data.append(row)
+    tbl = Table(data, colWidths=[num_w, q_w, rest_w] * columns,
+                rowHeights=[_TABLES_ROW_CM * cm] * rows)
+    tbl.setStyle(TableStyle(style))
+    return tbl
+
+
+def _tables_test_block(styles, test, minutes: int | None = None):
+    """The recall drill on last week's table, at the front of the booklet."""
+    from .agents.tables import test_questions
+    items = test_questions(test)
+    if not items:
+        return []
+    table = items[0][0]
+    from_week = getattr(test, "from_week", None)
+    source = (f"the {table} times table set in week {from_week}"
+              if from_week else f"the {table} times table set last week")
+    band = _part_band(
+        styles, "Times Tables Test", _TABLES_BAND,
+        f"All 12 facts from {source}, in mixed order. Write the answer on "
+        "each line. No working, no counting up: these are meant to be known."
+        + (f" About {minutes} min." if minutes else ""))
+    grid = _tables_grid(styles, items, ruled=True)
+    return [KeepTogether([band, Spacer(1, 0.45 * cm), grid]),
+            Spacer(1, 0.5 * cm)]
+
+
+def _tables_list_block(styles, tables_list):
+    """The table to memorise before the next booklet, printed in full."""
+    from .agents.tables import facts
+    table = getattr(tables_list, "table", 0) or 0
+    if not table:
+        return []
+    band = _part_band(
+        styles, "Times Table to Learn", _TABLES_BAND,
+        f"The {table} times table. Learn it before your next booklet: you "
+        "will be tested on all 12 facts, in mixed order.")
+    grid = _tables_grid(styles, facts(table), ruled=False)
+    return [KeepTogether([band, Spacer(1, 0.45 * cm), grid])]
+
+
+def _tables_key_block(styles, test):
+    """The marker's copy of the shuffled test, in the order it was asked."""
+    from .agents.tables import test_questions
+    items = test_questions(test)
+    if not items:
+        return []
+    table = items[0][0]
+    from_week = getattr(test, "from_week", None)
+    source = (f"set in week {from_week}" if from_week else "set last week")
+    answers = ", ".join(f"{i}. {product}"
+                        for i, (_, _, product) in enumerate(items, 1))
+    return [KeepTogether([
+        Paragraph("Times Tables Test", styles["topic"]),
+        Paragraph(f"The {table} times table, {source}. Answers in the order "
+                  "the questions are printed on the test page.",
+                  styles["challenge_blurb"]),
+        Spacer(1, 0.2 * cm),
+        Paragraph(_escape(answers), styles["spelling_word"]),
+        Spacer(1, 0.4 * cm),
+    ])]
+
+
 def _spelling_key_block(styles, test):
     """The words to call out, printed in the key at the back.
 
@@ -1861,6 +1976,13 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     story.extend(_spelling_test_block(styles, getattr(data, "spelling_test", None),
                                       times.get("spelling_minutes")))
 
+    # ---- Times Tables Test (recall drill on last week's table) ----
+    # Also at the front, and before the recap: it is the one part of the
+    # booklet that has to be answered cold, so anything the student reads
+    # first is a chance to warm up on facts they were supposed to have known.
+    story.extend(_tables_test_block(styles, getattr(data, "tables_test", None),
+                                    times.get("tables_minutes")))
+
     # ---- Warm-up Recap ----
     if data.recap_questions:
         sub = f"Quick revision to warm up. About {times['recap_minutes']} min." \
@@ -2045,6 +2167,13 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         story.append(Spacer(1, 0.5 * cm))
         story.extend(spelling_block)
 
+    # ---- Times Table to Learn (for next week's test) ----
+    tables_block = _tables_list_block(
+        styles, getattr(data, "tables_list", None))
+    if tables_block:
+        story.append(Spacer(1, 0.5 * cm))
+        story.extend(tables_block)
+
     # ---- Closing ----
     # The booklet used to stop dead: the page after the last question was the
     # answer key. Say something to the student first, by name.
@@ -2077,6 +2206,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         "For whoever is marking. Page numbers in brackets point back to the "
         "question.", styles["challenge_blurb"]))
     story.extend(_spelling_key_block(styles, getattr(data, "spelling_test", None)))
+    story.extend(_tables_key_block(styles, getattr(data, "tables_test", None)))
     acount = {"n": 0}
 
     def render_answers(qs):
