@@ -53,7 +53,14 @@ cumulative "Final Challenge", with a verified answer key.
   booklets. Calculus answers are verified symbolically in
   `agents/validator.py`.
 - **Term plans**: `pipeline.run_term_plan()` generates N weekly booklets with a
-  difficulty ramp and revision weeks at the end.
+  difficulty ramp and revision weeks at the end. It is also the only place the
+  two cross-booklet routines can live, because each depends on the booklet
+  before it: **spelling** (`agents/spelling.py`, 20 words set at the back of
+  week N, 12 tested at the front of week N+1, English booklets only) and
+  **times tables** (`agents/tables.py`, one table set at the back, all 12 facts
+  tested shuffled the following week, Years 3-4 maths only, no LLM call at
+  all). A single booklet carries neither. Don't add a "test" to one: a test on
+  something the student was never set is not a test.
 - **Deployment**: `Dockerfile` + `DEPLOY.md`, gunicorn entrypoint
   `booklet_gen.webapp:create_app()`.
 
