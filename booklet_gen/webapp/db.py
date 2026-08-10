@@ -125,6 +125,17 @@ CREATE TABLE IF NOT EXISTS worker_heartbeats (
     started_at  BIGINT NOT NULL,
     heartbeat_at BIGINT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS booklet_feedback (
+    job_id       TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    rating       INTEGER NOT NULL,
+    question_ref TEXT,
+    comment      TEXT,
+    created_at   BIGINT NOT NULL,
+    updated_at   BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS feedback_created_idx
+    ON booklet_feedback (created_at DESC);
 """
 
 _SQLITE_SCHEMA = """
@@ -206,6 +217,19 @@ CREATE TABLE IF NOT EXISTS worker_heartbeats (
     started_at   INTEGER NOT NULL,
     heartbeat_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS booklet_feedback (
+    job_id       TEXT PRIMARY KEY,
+    user_id      INTEGER NOT NULL,
+    rating       INTEGER NOT NULL,
+    question_ref TEXT,
+    comment      TEXT,
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL,
+    FOREIGN KEY(job_id) REFERENCES jobs(id),
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS feedback_created_idx
+    ON booklet_feedback (created_at DESC);
 """
 
 
@@ -1011,6 +1035,100 @@ def operations_summary(window_seconds: int = 86400, *,
     }
 
 
+# ---------- booklet feedback ----------
+#
+# One row per booklet, keyed by job_id, so a customer rates a booklet rather
+# than accumulating votes on it. Re-rating updates the row: a parent who marks
+# a booklet 4 stars on download and drops it to 2 after actually teaching from
+# it is giving us the better number, not a second opinion.
+
+RATING_MIN = 1
+RATING_MAX = 5
+COMMENT_MAX = 1000
+QUESTION_REF_MAX = 60
+
+
+def save_feedback(job_id: str, user_id: int, rating: int,
+                  question_ref: str = "", comment: str = "") -> None:
+    rating = int(rating)
+    if not RATING_MIN <= rating <= RATING_MAX:
+        raise ValueError(f"rating must be {RATING_MIN} to {RATING_MAX}")
+    now = int(time.time())
+    with _cursor(transaction=True) as cur:
+        cur.execute(
+            _q("""INSERT INTO booklet_feedback
+                    (job_id,user_id,rating,question_ref,comment,
+                     created_at,updated_at)
+                  VALUES (?,?,?,?,?,?,?)
+                  ON CONFLICT (job_id) DO UPDATE SET
+                    rating=excluded.rating,
+                    question_ref=excluded.question_ref,
+                    comment=excluded.comment,
+                    updated_at=excluded.updated_at"""),
+            (job_id, user_id, rating,
+             (question_ref or "")[:QUESTION_REF_MAX].strip() or None,
+             (comment or "")[:COMMENT_MAX].strip() or None, now, now),
+        )
+
+
+def get_feedback(job_id: str):
+    with _cursor() as cur:
+        cur.execute(_q("SELECT * FROM booklet_feedback WHERE job_id=?"), (job_id,))
+        return cur.fetchone()
+
+
+def feedback_for_jobs(job_ids: list[str]) -> dict[str, int]:
+    """Ratings for a page of library rows, in one query rather than N."""
+    if not job_ids:
+        return {}
+    holes = ",".join("?" for _ in job_ids)
+    with _cursor() as cur:
+        cur.execute(
+            _q(f"SELECT job_id,rating FROM booklet_feedback WHERE job_id IN ({holes})"),
+            tuple(job_ids),
+        )
+        return {row["job_id"]: int(row["rating"]) for row in cur.fetchall()}
+
+
+def list_recent_feedback(limit: int = 200) -> list[dict]:
+    """Newest feedback for the support console.
+
+    Deliberately returns no customer email and no job label. The label carries
+    whatever name the parent typed for their child, and SUPPORT_PLAYBOOK.md
+    forbids putting that in the support log. What triage actually needs is the
+    year and subject, which `request_json` carries.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            _q("""SELECT b.job_id,b.rating,b.question_ref,b.comment,
+                       b.created_at,b.updated_at,j.request_json
+                FROM booklet_feedback b JOIN jobs j ON j.id=b.job_id
+                ORDER BY b.updated_at DESC LIMIT ?"""),
+            (limit,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def feedback_summary() -> dict:
+    counts = {rating: 0 for rating in range(RATING_MIN, RATING_MAX + 1)}
+    with _cursor() as cur:
+        cur.execute("SELECT rating,COUNT(*) AS n FROM booklet_feedback GROUP BY rating")
+        for row in cur.fetchall():
+            rating = int(row["rating"])
+            if rating in counts:
+                counts[rating] = int(row["n"])
+    total = sum(counts.values())
+    return {
+        "counts": counts,
+        "total": total,
+        # Under a few dozen ratings this average is noise. It is here to watch
+        # a trend over hundreds, not to decide anything during the beta.
+        "average": round(
+            sum(rating * n for rating, n in counts.items()) / total, 2
+        ) if total else None,
+    }
+
+
 # ---------- deliverable storage ----------
 
 def save_job_file(job_id: str, user_id: int, filename: str,
@@ -1096,6 +1214,13 @@ def export_account(user_id: int) -> dict:
     if user is None:
         return {}
     jobs = list_jobs(user_id, limit=10_000)
+    with _cursor() as cur:
+        cur.execute(
+            _q("""SELECT job_id,rating,question_ref,comment,created_at,updated_at
+                FROM booklet_feedback WHERE user_id=? ORDER BY created_at"""),
+            (user_id,),
+        )
+        feedback = [dict(row) for row in cur.fetchall()]
     return {
         "account": {
             "id": int(user["id"]),
@@ -1111,6 +1236,7 @@ def export_account(user_id: int) -> dict:
             "bytes": job["bytes"], "error": job["error"],
         } for job in jobs],
         "payments": list_payments(user_id, limit=10_000),
+        "feedback": feedback,
         "exported_at": int(time.time()),
     }
 
@@ -1131,6 +1257,11 @@ def delete_account(user_id: int) -> list:
             _q("DELETE FROM job_files WHERE job_id IN (SELECT id FROM jobs WHERE user_id=?)"),
             (user_id,),
         )
+        # Feedback goes with the account. Keeping an anonymised copy would be
+        # operationally useful, but Privacy and the deletion flash both promise
+        # everything goes, and a parent finding their typed comment still on
+        # file after deleting would have been misled.
+        cur.execute(_q("DELETE FROM booklet_feedback WHERE user_id=?"), (user_id,))
         cur.execute(_q("DELETE FROM credit_ledger WHERE user_id=?"), (user_id,))
         cur.execute(_q("DELETE FROM payments WHERE user_id=?"), (user_id,))
         cur.execute(_q("DELETE FROM jobs WHERE user_id=?"), (user_id,))

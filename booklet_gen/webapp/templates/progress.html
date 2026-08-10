@@ -26,6 +26,12 @@
     <div class="doneMark ink-green">{{ check(30) }}</div>
     <a class="btn" id="dl" href="#">Download</a>
     <a class="btn secondary" href="{{ url_for('views.index') }}">Make another</a>
+    {# Planted here, answered later. The useful rating comes after a parent has
+       actually taught from the booklet, so this points at the form rather than
+       asking for a verdict two seconds after generation. #}
+    <p class="muted rateNudge">Once you have used it,
+      <a class="link" href="{{ url_for('views.feedback', job_id=job['id']) }}">tell us how it went</a>.
+      It is the fastest way to make the next one better.</p>
   </div>
 
   <div id="err" style="display:none">

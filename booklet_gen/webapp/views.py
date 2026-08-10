@@ -20,6 +20,7 @@ from flask import (
 from . import db
 from .auth import login_required
 from .commerce import payments_enabled
+from .security import enforce_rate_limit
 from ..programs import (
     PROGRAMS, ACCELERATE_SUBJECTS, EXAM_PROGRAMS, EXAM_YEARS,
     customer_programs,
@@ -279,7 +280,9 @@ def library():
             jobs = db.list_jobs(g.user["id"])
         except Exception as e:
             log.warning("stale job sweep failed: %s", e)
-    return render_template("library.html", jobs=jobs,
+    ratings = db.feedback_for_jobs(
+        [j["id"] for j in jobs if j["status"] == "done"])
+    return render_template("library.html", jobs=jobs, ratings=ratings,
                            retention=db.FILE_RETENTION_PER_USER)
 
 
@@ -358,6 +361,97 @@ def retry(job_id: str):
         return redirect(url_for("payments.pricing"))
     _dispatch_job(new_id, args)
     return redirect(url_for("views.progress", job_id=new_id))
+
+
+# ---------- booklet feedback ----------
+#
+# The rating exists to open the comment box, not to be averaged. What the
+# star actually buys is a follow-up question chosen to suit it: a 2 needs
+# "what went wrong", a 3 needs "what would have made this a 5", and a 5 needs
+# "what worked best". Three stars is the reading a thumbs-up/down cannot
+# express, and for a product whose real risk is being dull rather than wrong,
+# it is the most valuable answer on the page.
+
+FEEDBACK_PROMPTS = {
+    1: "What went wrong?",
+    2: "What went wrong?",
+    3: "What would have made this a 5?",
+    4: "What worked best?",
+    5: "What worked best?",
+}
+FEEDBACK_DEFAULT_PROMPT = "Anything you would change?"
+
+
+def _redact_student_name(text: str, request_json) -> str:
+    """Take the child's name back out of free text.
+
+    SUPPORT_PLAYBOOK.md forbids a child's name in the support log and the form
+    says so in as many words, but a parent typing "question 4 was too hard for
+    Ella" is not reading form hints. Same discipline as the formatter's em
+    dash stripper: ask for clean input, then enforce it anyway.
+    """
+    if not text or not request_json:
+        return text
+    try:
+        name = (json.loads(request_json) or {}).get("name") or ""
+    except (TypeError, ValueError):
+        return text
+    for part in str(name).split():
+        # One-character fragments would only ever match a stray initial, and
+        # "Student" is the placeholder used when the parent left it blank.
+        if len(part) < 2 or part.lower() == "student":
+            continue
+        text = re.sub(rf"\b{re.escape(part)}\b", "[name]", text,
+                      flags=re.IGNORECASE)
+    return text
+
+
+def _rateable_job(job_id: str):
+    """The job, if this account may rate it. 404 otherwise.
+
+    Ownership and `done` are both required: another account's booklet is not
+    yours to rate, and a booklet that failed produced nothing to judge.
+    """
+    job = db.get_job(job_id)
+    if not job or job["user_id"] != g.user["id"] or job["status"] != "done":
+        abort(404)
+    return job
+
+
+@bp.route("/feedback/<job_id>")
+@login_required
+def feedback(job_id: str):
+    job = _rateable_job(job_id)
+    return render_template("feedback.html", job=job,
+                           existing=db.get_feedback(job_id),
+                           prompts=FEEDBACK_PROMPTS,
+                           default_prompt=FEEDBACK_DEFAULT_PROMPT,
+                           comment_max=db.COMMENT_MAX)
+
+
+@bp.route("/feedback/<job_id>", methods=["POST"])
+@login_required
+def feedback_save(job_id: str):
+    job = _rateable_job(job_id)
+    enforce_rate_limit("feedback", 40, 900)
+    try:
+        rating = int((request.form.get("rating") or "").strip())
+    except ValueError:
+        rating = 0
+    if not db.RATING_MIN <= rating <= db.RATING_MAX:
+        flash("Please choose a star rating from 1 to 5.")
+        return redirect(url_for("views.feedback", job_id=job_id))
+
+    raw = job["request_json"]
+    comment = _redact_student_name(
+        (request.form.get("comment") or "").strip()[:db.COMMENT_MAX], raw)
+    question_ref = _redact_student_name(
+        (request.form.get("question_ref") or "").strip()[:db.QUESTION_REF_MAX],
+        raw)
+    db.save_feedback(job_id, g.user["id"], rating, question_ref, comment)
+    log.info("feedback recorded: %s stars on job %s", rating, job_id)
+    flash("Thanks. That is genuinely useful.")
+    return redirect(url_for("views.library"))
 
 
 # ---------- account: export and deletion ----------

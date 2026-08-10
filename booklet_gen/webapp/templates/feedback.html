@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Rate this booklet - FolioAI{% endblock %}
+{% block body %}
+<div class="card narrow">
+  <p class="eyebrow">Your feedback</p>
+  <h1>How was this booklet?</h1>
+  <p class="sub">{{ job['label'] }}</p>
+
+  <form method="post" action="{{ url_for('views.feedback_save', job_id=job['id']) }}">
+    {{ csrf_field() }}
+
+    {# Radios rather than a script-driven widget: the rating still submits with
+       JavaScript switched off. The stars are the label, the input is real. #}
+    {# Listed 5 down to 1 and laid out row-reverse, so they read 1 to 5 on
+       screen while `input:checked ~ label` can still fill every star below
+       the chosen one. #}
+    <fieldset class="stars" id="stars">
+      <legend>Your rating</legend>
+      <div class="starRow">
+        {% for n in [5, 4, 3, 2, 1] %}
+          <input type="radio" id="star{{ n }}" name="rating" value="{{ n }}"
+                 {% if existing and existing['rating'] == n %}checked{% endif %}>
+          <label for="star{{ n }}" title="{{ n }} out of 5">
+            <span aria-hidden="true">★</span>
+            <span class="srOnly">{{ n }} star{% if n > 1 %}s{% endif %}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <label for="question_ref">Which question, if one was wrong?</label>
+    <input id="question_ref" name="question_ref" type="text" maxlength="60"
+           placeholder="e.g. Q7, or Final Challenge Q2"
+           value="{{ existing['question_ref'] if existing and existing['question_ref'] else '' }}">
+    <p class="fieldHelp">Leave blank if nothing was wrong. The booklet numbers
+      every question, and the answer key uses the same numbers.</p>
+
+    <label for="comment" id="commentLabel">{{ default_prompt }}</label>
+    <textarea id="comment" name="comment" rows="4" maxlength="{{ comment_max }}"
+              placeholder="A sentence is plenty.">{{ existing['comment'] if existing and existing['comment'] else '' }}</textarea>
+    <p class="fieldHelp">Please do not include your child's name. If you do, we
+      remove it before storing this.</p>
+
+    <button class="btn" type="submit">
+      {% if existing %}Update my rating{% else %}Send feedback{% endif %}
+    </button>
+    <a class="btn secondary" href="{{ url_for('views.library') }}">Back to my booklets</a>
+  </form>
+
+  <div class="hint">
+    This goes only to us. Nothing you write here is shown to other customers.
+  </div>
+</div>
+
+<script>
+  // Progressive enhancement only. Without this the label keeps its generic
+  // wording and the form still works; with it, the question suits the rating.
+  var prompts = {{ prompts | tojson }};
+  var label = document.getElementById('commentLabel');
+  Array.prototype.forEach.call(
+    document.querySelectorAll('#stars input[name=rating]'),
+    function (input) {
+      input.addEventListener('change', function () {
+        label.textContent = prompts[input.value] || label.textContent;
+      });
+      if (input.checked) label.textContent = prompts[input.value] || label.textContent;
+    });
+</script>
+{% endblock %}

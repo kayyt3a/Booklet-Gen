@@ -55,4 +55,41 @@
     </table>
   </div>
 </div>
+
+<div class="card">
+  <h2>Customer feedback</h2>
+  {% if feedback_summary.total %}
+    <p class="sub">
+      {{ feedback_summary.total }} rating{% if feedback_summary.total != 1 %}s{% endif %},
+      averaging {{ feedback_summary.average }} out of 5.
+      {% for stars in [5, 4, 3, 2, 1] %}
+        <span class="ratingCell">{{ "★" * stars }}</span> {{ feedback_summary.counts[stars] }}{% if not loop.last %} &middot; {% endif %}
+      {% endfor %}
+    </p>
+    <p class="muted">Below about fifty ratings the average is noise. Read the
+      comments; the number is only worth watching as a trend.</p>
+  {% else %}
+    <p class="sub">No ratings yet.</p>
+  {% endif %}
+  <div class="tableScroll">
+    <table class="adminTable">
+      <thead><tr><th>Rating</th><th>Booklet</th><th>Question</th><th>Comment</th><th>When</th></tr></thead>
+      <tbody>
+      {% for row in feedback %}
+        <tr>
+          <td class="ratingCell">{{ "★" * row.rating }}{{ "☆" * (5 - row.rating) }}</td>
+          <td>{{ row.booklet }}</td>
+          <td>{{ row.question_ref or '' }}</td>
+          <td class="feedbackComment">{{ row.comment or '' }}</td>
+          <td>{{ row.updated_at | timeago }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">Nothing yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted">Feedback is private to this console. Customer email and the
+    booklet label are left out on purpose: the label carries the child's name.</p>
+</div>
 {% endblock %}

@@ -36,10 +36,32 @@ def admin_required(view):
     return wrapped
 
 
+def _feedback_rows(limit: int = 200) -> list[dict]:
+    """Feedback with the booklet it is about, described by year and subject.
+
+    The job label is deliberately not used: it carries whatever name the
+    parent typed for their child, and the support log must not.
+    """
+    rows = []
+    for row in db.list_recent_feedback(limit):
+        try:
+            args = json.loads(row["request_json"] or "{}") or {}
+        except (TypeError, ValueError):
+            args = {}
+        parts = [args.get("program"), args.get("year"), args.get("subject")]
+        rows.append({
+            **row,
+            "booklet": " / ".join(p for p in parts if p) or "Booklet",
+        })
+    return rows
+
+
 @bp.route("")
 @admin_required
 def index():
-    return render_template("admin.html", jobs=db.list_recent_jobs(100))
+    return render_template("admin.html", jobs=db.list_recent_jobs(100),
+                           feedback=_feedback_rows(),
+                           feedback_summary=db.feedback_summary())
 
 
 # The most an adjustment may move a balance in one go, either way. A refund

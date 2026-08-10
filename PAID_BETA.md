@@ -52,6 +52,20 @@ Ask each tester to complete at least one real workflow:
 
 ## Feedback questions
 
+Every finished booklet carries a star rating and a comment box, reachable from
+My Booklets and from the page shown when generation completes. Ratings land in
+the support console at `/admin`, grouped by year and subject. Ask testers to
+use it rather than replying by email: the star opens a follow-up question
+chosen to suit it, and a rating attached to its booklet can be acted on, while
+a paragraph in an inbox usually cannot.
+
+The console shows no customer email and no booklet label, because the label
+carries the child's name. Anything a tester types is scrubbed of that name
+before it is stored.
+
+The list below is what to ask in a call or a survey. It goes wider than the
+in-product box, which is deliberately one question deep.
+
 1. What year level and subject did you choose?
 2. Was it clear what you would receive before generation?
 3. How long did generation feel?

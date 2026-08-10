@@ -32,6 +32,17 @@
           </div>
 
           {% if j.status == 'done' %}
+            {% set rating = ratings.get(j.id) %}
+            <a class="rate {% if rating %}rated{% endif %}"
+               href="{{ url_for('views.feedback', job_id=j.id) }}"
+               title="{% if rating %}You rated this {{ rating }} out of 5{% else %}Rate this booklet{% endif %}">
+              {% if rating %}
+                <span aria-hidden="true">{{ "★" * rating }}{{ "☆" * (5 - rating) }}</span>
+                <span class="srOnly">Rated {{ rating }} out of 5. Change your rating.</span>
+              {% else %}
+                Rate
+              {% endif %}
+            </a>
             {% if j.filename %}
               <a class="btn secondary small" href="{{ url_for('views.download', job_id=j.id) }}">Download</a>
             {% else %}
