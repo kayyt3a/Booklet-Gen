@@ -506,7 +506,8 @@ def _pipeline_checks() -> list:
         def validate(self, *a, **kw):
             return ValidationResult(True, "stub judge")
 
-        def validate_batch(self, subject, year_level, qs, chunks=None):
+        def validate_batch(self, subject, year_level, qs, chunks=None,
+                           passages=None):
             return [ValidationResult(True, "stub judge") for _ in qs]
 
     pipe = object.__new__(BookletPipeline)

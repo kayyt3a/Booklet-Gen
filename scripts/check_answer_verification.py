@@ -145,12 +145,13 @@ class _CountingJudge:
         self.seen: list[str] = []
         self._verdict = verdict
 
-    def validate(self, subject, year_level, q, chunks=None):
+    def validate(self, subject, year_level, q, chunks=None, passages=None):
         self.calls += 1
         self.seen.append(q.question)
         return ValidationResult(self._verdict, "stub judge")
 
-    def validate_batch(self, subject, year_level, questions, chunks=None):
+    def validate_batch(self, subject, year_level, questions, chunks=None,
+                       passages=None):
         self.batches += 1
         self.calls += 1
         self.seen.extend(q.question for q in questions)

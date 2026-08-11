@@ -4,7 +4,7 @@ import logging
 from pydantic import BaseModel, ValidationError
 
 from ..llm import LLMClient
-from ..schemas import Question
+from ..schemas import Passage, Question
 from ._shared import load_prompt, extract_json
 from .validator import ValidationResult, answers_conflict
 
@@ -23,6 +23,26 @@ class _JudgeResponse(BaseModel):
     verified: bool
     reason: str = ""
     solved_answer: str = ""
+
+
+def _passage_of(q: Question, passages) -> Passage | None:
+    """The reading a question asks about, or None.
+
+    Accepts the id->Passage pool the pipeline already keeps, or a plain list,
+    so callers can hand over whichever they have.
+    """
+    if not passages or not q.passage_id:
+        return None
+    if isinstance(passages, dict):
+        return passages.get(q.passage_id)
+    return next((p for p in passages if getattr(p, "id", None) == q.passage_id), None)
+
+
+def _passage_text(p: Passage) -> str:
+    body = "\n\n".join(t for t in (p.paragraphs or []) if t and t.strip())
+    if not body.strip():
+        return ""
+    return (f'"{p.title}"\n' if p.title else "") + body
 
 
 def _cross_check(q: Question, verified: bool, solved: str, reason: str) -> ValidationResult:
@@ -67,6 +87,7 @@ class LLMJudgeValidator:
         year_level: str,
         q: Question,
         reference_chunks: list[str] | None = None,
+        passages=None,
     ) -> ValidationResult:
         user = (
             f"Subject: {subject}\n"
@@ -77,6 +98,17 @@ class LLMJudgeValidator:
             "Solve the question yourself first, then grade the proposed answer "
             "against your own solution."
         )
+        # A comprehension question's answer is in the reading, not in the
+        # question. Without this the judge is asked to solve it from the
+        # question text alone, which it cannot do: it either fails every
+        # comprehension item or waves them all through, and the check mark on
+        # an English booklet stops meaning anything either way.
+        passage = _passage_of(q, passages)
+        if passage is not None:
+            text = _passage_text(passage)
+            if text:
+                user += ("\n\nThe reading this question is about, printed in "
+                         "full:\n\n" + text)
         if reference_chunks:
             joined = "\n\n---\n\n".join(reference_chunks)
             user += (
@@ -111,6 +143,7 @@ class LLMJudgeValidator:
         year_level: str,
         questions: list[Question],
         reference_chunks: list[str] | None = None,
+        passages=None,
     ) -> list[ValidationResult] | None:
         """Grade a whole set of questions in ONE call, cutting API usage from N
         calls to 1 for a subtopic. Returns a list aligned to `questions`, or
@@ -118,18 +151,45 @@ class LLMJudgeValidator:
         question grading)."""
         if not questions:
             return []
+        # Each distinct reading is printed ONCE, above the questions, and the
+        # questions name theirs. Repeating a three-paragraph passage under
+        # every question that cites it would multiply the tokens of the one
+        # call this method exists to save.
+        readings, seen_ids = [], set()
+        for q in questions:
+            p = _passage_of(q, passages)
+            if p is None or p.id in seen_ids:
+                continue
+            text = _passage_text(p)
+            if text:
+                seen_ids.add(p.id)
+                readings.append(f"[Reading {p.id}]\n{text}")
+
         blocks = []
         for i, q in enumerate(questions):
+            about = ""
+            if q.passage_id and q.passage_id in seen_ids:
+                about = f"About: [Reading {q.passage_id}]\n"
             blocks.append(
                 f"[Question {i}]\n"
+                f"{about}"
                 f"Question: {q.question}\n"
                 f"Proposed answer: {q.answer}\n"
                 f"Proposed working: {q.working}"
             )
+        reading_block = ""
+        if readings:
+            reading_block = (
+                "The readings these questions are about, printed in full. A "
+                "question marked with an \"About\" line must be graded against "
+                "its reading, not against what you already know:\n\n"
+                + "\n\n".join(readings) + "\n\n"
+            )
         user = (
             f"Subject: {subject}\n"
             f"Year level: {year_level}\n\n"
-            "Grade EACH question below independently, to the same standard as a "
+            + reading_block
+            + "Grade EACH question below independently, to the same standard as a "
             "single question. For each one: solve it yourself from the question "
             "text, record your own answer in solved_answer, and only then decide "
             "whether the proposed answer is correct and appropriate for the year "

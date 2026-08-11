@@ -1151,6 +1151,7 @@ class BookletPipeline:
     def _validate(
         self, subject: str, year_level: str, q: Question,
         reference_chunks: list[str] | None = None,
+        passages=None,
     ) -> ValidationResult:
         key = subject.strip().lower()
         if key in {"mathematics", "maths", "math"}:
@@ -1162,7 +1163,8 @@ class BookletPipeline:
             # check mark, because it also short-circuited the judge.
             if result.conclusive:
                 return result
-            fallback = self._judge.validate(subject, year_level, q, reference_chunks)
+            fallback = self._judge.validate(subject, year_level, q, reference_chunks,
+                                            passages=passages)
             fallback.notes = f"sympy inconclusive; {fallback.notes}"
             return fallback
         if key in {"reasoning", "verbal reasoning", "quantitative reasoning"}:
@@ -1172,12 +1174,15 @@ class BookletPipeline:
             det = self._reasoning.validate(q)
             if det is not None:
                 return det
-            return self._judge.validate(subject, year_level, q, reference_chunks)
-        return self._judge.validate(subject, year_level, q, reference_chunks)
+            return self._judge.validate(subject, year_level, q, reference_chunks,
+                                        passages=passages)
+        return self._judge.validate(subject, year_level, q, reference_chunks,
+                                    passages=passages)
 
     def _validate_many(
         self, subject: str, year_level: str, questions: list[Question],
         reference_chunks: list[str] | None = None,
+        passages=None,
     ) -> list[ValidationResult]:
         """Validate a whole set at once. Local checks (sympy, reasoning) run
         per question for free; every question that still needs the LLM judge is
@@ -1210,9 +1215,11 @@ class BookletPipeline:
 
         if needs_judge:
             batch_qs = [questions[i] for i in needs_judge]
-            judged = self._judge.validate_batch(subject, year_level, batch_qs, reference_chunks)
+            judged = self._judge.validate_batch(subject, year_level, batch_qs,
+                                                reference_chunks, passages=passages)
             if judged is None:  # batch failed: fall back to individual grading
-                judged = [self._judge.validate(subject, year_level, q, reference_chunks)
+                judged = [self._judge.validate(subject, year_level, q, reference_chunks,
+                                               passages=passages)
                           for q in batch_qs]
             for slot, i in enumerate(needs_judge):
                 r = judged[slot]
@@ -1296,8 +1303,9 @@ class BookletPipeline:
             classwork_count=cut_at, passage_quota=passage_quota))
         # Validate the whole set in one batched judge call up front; per-question
         # regeneration below still uses the single-question path.
-        initial = self._validate_many(subject, year_level, qs.questions, reference_chunks)
-        for q, result in zip(qs.questions, initial):
+        initial = self._validate_many(subject, year_level, qs.questions,
+                                      reference_chunks, passages=pool)
+        for slot, (q, result) in enumerate(zip(qs.questions, initial)):
             retry_count = 0
             # Regenerate while the question fails validation OR duplicates one we
             # already accepted. On each retry we pull a fresh BATCH and scan all
@@ -1319,10 +1327,20 @@ class BookletPipeline:
                     passage_quota=passage_quota,
                 ))
                 best_q, best_result = None, None
-                for cand in fresh.questions:
+                # Start at this question's OWN position in the fresh set, not
+                # at the top. The generator is told to sort a set easiest to
+                # hardest, so scanning from index 0 replaced a failed hard
+                # question with the easiest question the model can write, and
+                # dropped it into a late slot. Hard questions fail validation
+                # more often than easy ones, so the ramp the prompt builds was
+                # being eaten from the top down, exactly the "easy item late in
+                # the list" the generator prompt warns against.
+                candidates = fresh.questions[slot:] or fresh.questions
+                for cand in candidates:
                     if self._norm_q(cand.question) in seen:
                         continue
-                    cand_result = self._validate(subject, year_level, cand, reference_chunks)
+                    cand_result = self._validate(subject, year_level, cand,
+                                                 reference_chunks, passages=pool)
                     # Prefer a verified non-duplicate; otherwise keep the first
                     # non-duplicate as a fallback.
                     if cand_result.verified:
@@ -1424,20 +1442,32 @@ class BookletPipeline:
         except Exception as e:
             log.warning("pipeline.challenge_failed", extra={"error": str(e)[:200]})
             return []
-        results: list[ValidatedQuestion] = []
+        # Drop what needs no LLM to reject FIRST, then grade everything that
+        # survives in ONE batched call. This used to validate inside the loop,
+        # one judge call per question, which is the per-question pattern the
+        # project notes single out as the main lever on API cost and quota. It
+        # also ran serially, so it added five round trips to the tail of every
+        # booklet, and to each of the ten inside a term plan.
+        #
+        # Skip duplicate challenge questions outright: the challenge set is a
+        # single batch, so we dedupe rather than regenerate. `seen` spans the
+        # whole booklet: the Final Challenge is meant to combine the skills,
+        # not reprint a question already answered in the practice.
+        candidates = []
         for q in qs.questions:
-            # Skip duplicate challenge questions outright: the challenge set is
-            # a single batch, so we dedupe rather than regenerate. `seen` spans
-            # the whole booklet: the Final Challenge is meant to combine the
-            # skills, not reprint a question already answered in the practice.
-            norm = self._norm_q(q.question)
-            if norm in seen:
+            if self._norm_q(q.question) in seen:
                 continue
             if self._reasoning_reject(subject, q):
                 log.info("pipeline.drop_broken_challenge",
                          extra={"subject": subject})
                 continue
-            result = self._validate(subject, year_level, q, reference_chunks)
+            candidates.append(q)
+        verdicts = self._validate_many(subject, year_level, candidates,
+                                       reference_chunks)
+
+        results: list[ValidatedQuestion] = []
+        for q, result in zip(candidates, verdicts):
+            norm = self._norm_q(q.question)
             # For the challenge set we tolerate the LLM's first attempt more,
             # regeneration would cost another full-set call. Just record the
             # verification status.
