@@ -573,8 +573,10 @@ def passages() -> None:
           "the fixture English booklet really is over the hour",
           f"{over:.0f} min against a {CLASSWORK_CAP_MINUTES} min cap")
 
+    before_names = [s.subtopic for s in booklet]
     BookletPipeline._fit_classwork_to_cap(booklet)
     taught = [s for s in booklet if s.questions]
+    left = [n for n in before_names if n not in {s.subtopic for s in booklet}]
     check(all(len(s.questions) > 1 for s in taught),
           "no subtopic is left in the session holding a single token question",
           str([(s.subtopic, len(s.questions)) for s in taught]))
@@ -582,15 +584,20 @@ def passages() -> None:
     check("Language Conventions" in topics and "Vocabulary and Word Study" in topics,
           "grammar and vocabulary are still taught, not always the ones dropped",
           str(sorted(topics)))
-    check(sum(1 for s in booklet if not s.questions) == 1
-          and not [s for s in booklet if not s.questions][0].questions,
-          "one subtopic left the session, and it came from the doubled topic",
-          str([s.subtopic for s in booklet if not s.questions]))
-    check([s for s in booklet if not s.questions][0].topic
-          == "Reading and Comprehension",
-          "which is the reading, because Reading still has another subtopic in")
-    check(len([s for s in booklet if not s.questions][0].homework_questions) == 5,
-          "and it took all five of its questions with it")
+    # A subtopic that will not fit now leaves the booklet outright rather than
+    # being emptied and kept, so it is identified by comparing the roster
+    # before and after. What it must not do is take grammar or vocabulary with
+    # it: the reading is the expensive item and the doubled topic, so it is
+    # the one that should go.
+    check(len(left) == 1,
+          "exactly one subtopic left the booklet",
+          str(left))
+    check(left and left[0].startswith("Reading"),
+          "and it is a reading, because Reading still has another subtopic in",
+          str(left))
+    check(all(s.questions for s in booklet),
+          "nothing is left behind holding homework with no lesson in the session",
+          str([(s.subtopic, len(s.questions)) for s in booklet]))
 
     print("\n== homework is charged for the reading it asks about ==")
     # Class Work has always charged for a passage; Homework charged nothing, so

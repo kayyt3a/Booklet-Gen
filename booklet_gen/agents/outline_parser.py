@@ -18,11 +18,28 @@ class OutlineParserAgent:
         self._min_topics = max(1, min_topics)
         self._system = load_prompt("outline_parser.txt")
 
-    def parse(self, description: str) -> Outline:
+    def parse(self, description: str,
+              authoring_guidance: str | None = None) -> Outline:
+        """Turn a description into an outline.
+
+        `authoring_guidance` is the product line's own guide. This agent picks
+        which skills the booklet covers and stamps each with a difficulty
+        hint, so it is the agent that actually decides the level of the
+        booklet, and it used to be the only one that never read the guide.
+        Everything downstream inherits what is chosen here: a subtopic named
+        "simplifying fractions" cannot be rescued into demanding work by any
+        later prompt.
+        """
         error_feedback = ""
+        guide = ""
+        if authoring_guidance:
+            guide = ("\n\nAuthoring instructions for this product line. Follow "
+                     "them as rules when choosing the topics, the subtopics and "
+                     "each difficulty_hint:\n\n" + authoring_guidance.strip())
         for attempt in range(1, self._max_retries + 1):
-            user = description if not error_feedback else (
-                f"{description}\n\nYour previous attempt failed validation:\n{error_feedback}\n"
+            base = description + guide
+            user = base if not error_feedback else (
+                f"{base}\n\nYour previous attempt failed validation:\n{error_feedback}\n"
                 "Return a corrected JSON object."
             )
             log.info("outline_parser.attempt", extra={"attempt": attempt})

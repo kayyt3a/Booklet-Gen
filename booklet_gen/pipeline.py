@@ -247,7 +247,7 @@ class BookletPipeline:
         seen = _SeenQuestions()
         for subj in subjects:
             description = program.describe(subj, year_level, topic)
-            outline = self._parser.parse(description)
+            outline = self._parser.parse(description, authoring_guidance)
             # Force the engine subject: the parser normalises to a known
             # subject, but the program is authoritative about which engine runs.
             outline.subject = subj
@@ -590,6 +590,16 @@ class BookletPipeline:
         with nothing to try immediately afterwards is worse than a slightly
         long session.
 
+        A subtopic that cannot fit the hour LEAVES THE BOOKLET, taking its
+        homework with it. It used to move to Homework with its mini-lesson
+        attached, which quietly turned Homework into a second, longer lesson:
+        one shipped Year 5 booklet taught three subtopics in the session and
+        eight more inside Homework, 66 homework questions against 12 in class,
+        and a printed estimate of 230 minutes. Homework is practice on what was
+        taught in the session. A child working alone at the kitchen table on
+        Wednesday cannot be taught a new method by a box of text, and a parent
+        cannot help with one they never saw covered.
+
         The hour is held in every case but one. A reading and its five
         questions move as a unit and are never split, so an English session
         already down to `MIN_CLASSWORK_SUBTOPICS` readings can only get under
@@ -652,10 +662,10 @@ class BookletPipeline:
         while (leanest() > CLASSWORK_CAP_MINUTES
                and BookletPipeline._may_drop(in_session())):
             dropped = BookletPipeline._leaves_the_session(in_session())
-            dropped.homework_questions[:0] = dropped.questions
-            dropped.questions = []
-            log.info("pipeline.subtopic_to_homework",
+            sections.remove(dropped)
+            log.info("pipeline.subtopic_dropped",
                      extra={"subtopic": dropped.subtopic,
+                            "homework_lost": len(dropped.homework_questions),
                             "still_over_by": round(total() - CLASSWORK_CAP_MINUTES, 1)})
 
         # Step 2: thin the practice on what remains.
@@ -678,31 +688,30 @@ class BookletPipeline:
                 biggest = max(movable, key=lambda s: len(s.questions))
                 BookletPipeline._move_tail_to_homework(biggest)
                 continue
-            # Everything left is a single reading and the questions about it.
-            # Splitting one is the thing we will not do, so a whole subtopic
-            # moves to Homework instead, taking its reading and all five
-            # questions together. If that would leave too thin a session,
-            # accept the overrun: a few minutes long beats a comprehension
-            # broken in half.
-            droppable = in_session()
-            if not BookletPipeline._may_drop(droppable):
-                # The hour gives way here, not the product floor. A session a
-                # few minutes long is a smaller problem than a booklet that
-                # covers two topics or prints one question after a lesson.
-                log.warning(
-                    "pipeline.classwork_over_cap",
-                    extra={"minutes": round(total(), 1),
-                           "cap": CLASSWORK_CAP_MINUTES,
-                           "subtopics": len(droppable),
-                           "topics": BookletPipeline._topics_in_session(droppable),
-                           "reason": "at the subtopic, topic or practice floor"})
-                break
-            dropped = BookletPipeline._leaves_the_session(droppable)
-            dropped.homework_questions[:0] = dropped.questions
-            dropped.questions = []
-            log.info("pipeline.subtopic_to_homework",
-                     extra={"subtopic": dropped.subtopic,
-                            "still_over_by": round(total() - CLASSWORK_CAP_MINUTES, 1)})
+            # Nothing can give ground without splitting a reading, which is
+            # the thing we will not do. The hour gives way here, not the
+            # product floor: a session a few minutes long is a smaller problem
+            # than a booklet that covers two topics or prints one question
+            # after a lesson. The printed estimate is recomputed from the
+            # booklet, so the page still tells the truth about the overrun.
+            #
+            # There is deliberately no second drop site here. Step 1 already
+            # removes whole subtopics while `leanest()` is over the cap, so
+            # reaching this point means either thinning can get us under it
+            # (and the loop above is still working) or the floors forbid
+            # dropping anything at all. A fuzz over 400 mixed booklet shapes
+            # never reached a drop here, and an unreachable branch that
+            # relocates content is exactly where the homework-as-a-lesson bug
+            # would grow back unseen.
+            in_play = in_session()
+            log.warning(
+                "pipeline.classwork_over_cap",
+                extra={"minutes": round(total(), 1),
+                       "cap": CLASSWORK_CAP_MINUTES,
+                       "subtopics": len(in_play),
+                       "topics": BookletPipeline._topics_in_session(in_play),
+                       "reason": "at the subtopic, topic or practice floor"})
+            break
 
         for s in sections:
             s.estimated_minutes = (

@@ -148,19 +148,27 @@ check(all(len(s.questions) >= min(MIN_NOW_YOU_TRY, before_per_subtopic)
           for s in in_session(sections)),
       f"every subtopic still taught keeps {MIN_NOW_YOU_TRY} questions to try",
       f"{[len(s.questions) for s in in_session(sections)]}")
-check(question_count(sections) == before_questions,
-      "the surplus is moved to homework, never deleted",
+# A subtopic that will not fit now LEAVES the booklet, taking its homework
+# with it. It used to be emptied of class work and kept, so its mini-lesson and
+# its questions printed under Homework: that turned the homework half into a
+# second, longer, unsupervised lesson, and a shipped Year 5 booklet taught
+# three subtopics in the session and eight more inside Homework. Surplus
+# questions within a subtopic that stays are still moved rather than deleted,
+# which is the part of the old guarantee that still holds.
+check(question_count(sections) <= before_questions,
+      "no question is invented on the way out",
       f"{before_questions} questions in, {question_count(sections)} out")
-check(any(not s.questions for s in sections)
-      and all(s.questions for s in in_session(sections)),
-      "subtopics either stay in the session with practice or leave it entirely",
-      f"{len(in_session(sections))} taught, "
-      f"{sum(1 for s in sections if not s.questions)} moved out")
+check(all(s.questions for s in sections),
+      "every subtopic left in the booklet is taught in the session",
+      f"{len(sections)} subtopics, "
+      f"{sum(1 for s in sections if not s.questions)} untaught")
+check(all(not s.homework_questions or s.questions for s in sections),
+      "no homework belongs to a subtopic the session never covered")
 check(len(in_session(sections)) >= MIN_CLASSWORK_SUBTOPICS,
       "the session keeps enough subtopics to be worth sitting down for",
       f"{len(in_session(sections))} subtopics")
 check(all(s.teaching is not None for s in sections),
-      "a subtopic pushed out of the hour keeps its mini-lesson")
+      "every subtopic in the booklet keeps its mini-lesson")
 
 # The complaint was about the number on the page, not the plan behind it, and
 # the two are computed by different functions. This is the one that has to hold.
@@ -277,12 +285,16 @@ def page_texts(path: Path) -> list[str]:
     return [p.extract_text() or "" for p in pypdf.PdfReader(str(path)).pages]
 
 
-# Straight from the reported case: the trimmed booklet above, where the cap has
-# emptied some subtopics' class work.
+# Straight from the reported case, inverted. The cap used to empty a
+# subtopic's class work and keep it in the booklet, which printed its
+# mini-lesson under Homework and left an orphan heading in the Class Work key.
+# A subtopic that will not fit now leaves the booklet outright, so the whole
+# family of orphan-heading defects is gone by construction rather than guarded
+# against, and this asserts the construction actually holds.
 emptied = [s for s in sections if not s.questions]
-check(bool(emptied),
-      "the trimmed booklet really does contain an emptied subtopic",
-      f"{len(emptied)} of {len(sections)} moved to homework")
+check(not emptied,
+      "a trimmed booklet contains no subtopic without class work",
+      f"{len(emptied)} of {len(sections)} left untaught")
 
 data.student_name = "Sam"
 pdf = render_pdf(data, tmp / "trimmed.pdf")
@@ -304,13 +316,14 @@ for i, piece in enumerate(classwork_text.split("Now you try:")[1:], 1):
           f"\"Now you try:\" #{i} is followed by practice, not by a heading",
           piece.strip()[:48].replace("\n", " "))
 
-# An emptied subtopic still teaches, down in Homework where its practice went.
-for s in emptied:
-    check(s.subtopic in text,
-          f"the moved subtopic {s.subtopic} is still in the booklet")
-    check("Now you try:" not in classwork_text.split(s.subtopic)[-1][:200]
-          if s.subtopic in classwork_text else True,
-          f"and {s.subtopic} prints no orphan label in class work")
+# Homework is practice on what the session taught, so every subtopic heading
+# in the Homework half must also appear in the Class Work half. A heading that
+# appears only under Homework is a lesson the child meets alone.
+homework_text = text.split("Homework", 1)[-1]
+for s in sections:
+    if s.homework_questions and s.subtopic in homework_text:
+        check(s.subtopic in classwork_text,
+              f"{s.subtopic} sets homework on work the session covered")
 
 # The same orphan, on the other side of the booklet. The key looped over every
 # section for Class Work with no guard, so a subtopic the cap had emptied

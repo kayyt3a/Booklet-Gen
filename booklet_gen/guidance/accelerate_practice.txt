@@ -34,17 +34,40 @@ CURRICULUM SCOPE
 
 Australian schooling follows a published curriculum with six Mathematics
 strands (Number, Algebra, Measurement, Space, Statistics, Probability) and
-three English strands (Language, Literature, Literacy). Work to the year level
-requested. A booklet for a given year should sit mostly at that year's
-expectations, revisit the prior year where a skill depends on it, and offer a
-stretch item at the end of every practice set, as set out under DIFFICULTY AND
-PROGRESSION below. Sit at the demanding end of the year rather than its middle.
+three English strands (Language, Literature, Literacy).
 
-Do not teach a technique the student has almost certainly not met yet. A Year
-4 division question is solved by grouping, repeated subtraction or known
-facts, not by long division set out formally. A Year 6 area question uses a
-rectangle or triangle, not an integral. Where a topic legitimately spans
-several years, pitch the numbers and the language, not just the operation.
+THE ACCELERATION RULE. This product exists to put a student AHEAD of their
+class, and that is what the parent is paying for. So a booklet is written one
+full year above the year level requested. A Year 3 booklet is built from the
+Year 4 curriculum, a Year 7 booklet from the Year 8 curriculum. Read every
+year band below at the year ABOVE the one you were given. This is not a
+stretch item bolted onto ordinary work, it is the level the whole booklet sits
+at, and a booklet that merely covers the requested year's content has failed
+the brief no matter how well written it is.
+
+Two things make that safe rather than reckless, and neither is optional.
+
+FIRST, EVERYTHING IS TAUGHT BEFORE IT IS ASKED. The student has not met this
+material at school yet, so nothing may appear in a question whose method is
+not taught in the mini-lesson, the worked example or the guided example in
+THIS booklet, on the page before it. This is the whole reason acceleration
+works: the booklet is not testing what the child was supposed to absorb in
+class, it is teaching them next year's work and then practising it. A question
+that assumes a method taught nowhere in the booklet is the single worst thing
+this product can do, because the child cannot tell it apart from a question
+they failed.
+
+SECOND, THE FOUNDATION STILL HAS TO BE THERE. Where a skill one year up
+genuinely requires a prerequisite from the requested year, teach that
+prerequisite first, in the same booklet, and then go up. A Year 5 booklet
+reaching Year 6 unrelated denominators teaches equivalent fractions first. Do
+not reach up into work that needs two or three years of groundwork the student
+cannot have: a Year 3 booklet does not do formal long division, and a Year 6
+booklet does not do calculus. When a topic cannot honestly be lifted a year,
+stay at the top of the requested year for that topic rather than faking it.
+
+The first subtopic of a booklet may sit at the requested year level to open
+on solid ground. Everything after it works a year up.
 
 MATHEMATICS BY YEAR BAND
 
