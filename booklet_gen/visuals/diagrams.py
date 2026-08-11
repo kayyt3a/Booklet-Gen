@@ -39,6 +39,20 @@ Supported spec types
     dashed hidden back base, labelled with radius and height. Use for
     volume/surface-area of cylinders (typically upper primary and beyond).
 
+{ "type": "column_arithmetic", "top": 4528, "bottom": 2694,
+  "operation": "+", "show_answer": false }
+    The vertical algorithm as a child is actually taught to write it: digits
+    stacked in place-value columns, the operator to the left, a rule under
+    the bottom number, and the small carried or borrowed digits in their own
+    row above. `show_answer` prints the result under the rule; leave it false
+    for a question and set it true for a worked example.
+
+    Written as prose ("5 + 3 = 8, 2 + 6 = 8...") the algorithm is unreadable:
+    it runs right to left, the carries are invisible, and the last line of
+    the working disagrees with the answer, which is also how these questions
+    ended up shipping without a verified tick. Column arithmetic is the one
+    topic in primary maths whose entire content is the layout.
+
 Hiding the answer
 -----------------
 `rectangle`, `cuboid` and `cylinder` accept an optional "unknown" list naming
@@ -93,6 +107,7 @@ from typing import Optional
 # which imports them. Re-exported here because callers and check scripts reach
 # for `diagrams.DPI`, `diagrams.CACHE_DIR` and friends.
 from .style import (                                              # noqa: F401
+    ACCENT_COLOR,
     DIAGRAM_PRINT_BOX_PT,
     DPI,
     LINE_COLOR,
@@ -896,8 +911,118 @@ from . import data as _data_figures            # noqa: E402
 from . import literacy as _literacy_figures    # noqa: E402
 from . import shapes as _shape_figures         # noqa: E402
 
+def _column_arithmetic(spec: dict, out: Path, f: _Fonts) -> None:
+    """The vertical algorithm, laid out the way a child is taught to write it.
+
+    Digits sit in place-value columns in a monospaced face so the columns
+    line up by construction rather than by luck, the operator sits to the
+    left of the bottom row, and a rule runs under it. Carries (addition) and
+    borrows (subtraction) are worked out here in Python and printed small
+    above the columns they belong to, which is the whole thing the child is
+    supposed to be learning and the one part prose working cannot show.
+    """
+    import matplotlib.pyplot as plt
+
+    top = int(spec.get("top", 0))
+    bottom = int(spec.get("bottom", 0))
+    op = str(spec.get("operation", "+")).strip()
+    if op not in {"+", "-"}:
+        raise ValueError(f"column arithmetic supports + and -, got {op!r}")
+    if top < 0 or bottom < 0:
+        raise ValueError("column arithmetic needs non-negative numbers")
+    if op == "-" and bottom > top:
+        raise ValueError("column subtraction needs the larger number on top")
+    total = top + bottom if op == "+" else top - bottom
+    if max(top, bottom, total) > 9_999_999:
+        raise ValueError("column arithmetic is drawn up to 7 digits")
+
+    width = max(len(str(top)), len(str(bottom)), len(str(total)))
+    t_digits = str(top).rjust(width)
+    b_digits = str(bottom).rjust(width)
+    a_digits = str(total).rjust(width)
+
+    # Work the carries/borrows out column by column, right to left, exactly
+    # as the child does. marks[i] is what is written above column i.
+    marks = [""] * width
+    if op == "+":
+        carry = 0
+        for i in range(width - 1, -1, -1):
+            a = int(t_digits[i]) if t_digits[i] != " " else 0
+            b = int(b_digits[i]) if b_digits[i] != " " else 0
+            s = a + b + carry
+            carry = 1 if s >= 10 else 0
+            if carry and i > 0:
+                marks[i - 1] = "1"
+    else:
+        digits = [int(c) if c != " " else 0 for c in t_digits]
+        for i in range(width - 1, -1, -1):
+            b = int(b_digits[i]) if b_digits[i] != " " else 0
+            if digits[i] < b:
+                j = i - 1
+                while j >= 0 and digits[j] == 0:
+                    digits[j] = 9
+                    marks[j] = "9"
+                    j -= 1
+                if j >= 0:
+                    digits[j] -= 1
+                    marks[j] = str(digits[j])
+                digits[i] += 10
+                marks[i] = str(digits[i])
+            digits[i] -= b
+
+    show = bool(spec.get("show_answer", False))
+    # One data unit per column, and the figure sized at a fixed inches-per-unit,
+    # so the digits sit about a digit-width apart at every number length. Tying
+    # the figure size to the column count instead lets the spacing drift with
+    # the number of digits, and four loose digits stop reading as one number.
+    col = 1.0
+    x0 = col
+    y_mark, y_top, y_bot = 3.0, 2.0, 1.0
+    rule_y = 0.5
+    ans_y = rule_y - 0.75
+    span_x = width + 1.7
+    span_y = (y_mark + 0.6) - (ans_y - 0.55 if show else rule_y - 0.3)
+    fig, ax = plt.subplots(figsize=(0.30 * span_x, 0.30 * span_y), dpi=DPI)
+
+    digit_pt = f.label(15.0)
+    mark_pt = f.note(9.0)
+    mono = {"family": "DejaVu Sans Mono"}
+
+    for i in range(width):
+        x = x0 + i * col
+        if marks[i]:
+            ax.text(x, y_mark, marks[i], ha="center", va="center",
+                    fontsize=mark_pt, color=ACCENT_COLOR, **mono)
+        if t_digits[i] != " ":
+            ax.text(x, y_top, t_digits[i], ha="center", va="center",
+                    fontsize=digit_pt, color=LINE_COLOR, **mono)
+        if b_digits[i] != " ":
+            ax.text(x, y_bot, b_digits[i], ha="center", va="center",
+                    fontsize=digit_pt, color=LINE_COLOR, **mono)
+
+    ax.text(x0 - col * 1.15, y_bot, op, ha="center", va="center",
+            fontsize=digit_pt, color=LINE_COLOR, **mono)
+    ax.plot([x0 - col * 1.55, x0 + (width - 0.45) * col], [rule_y, rule_y],
+            color=LINE_COLOR, linewidth=LINE_WIDTH)
+
+    if show:
+        for i in range(width):
+            if a_digits[i] != " ":
+                ax.text(x0 + i * col, ans_y, a_digits[i], ha="center",
+                        va="center", fontsize=digit_pt, color=LINE_COLOR,
+                        **mono)
+
+    ax.set_xlim(x0 - col * 1.9, x0 + (width - 0.3) * col)
+    ax.set_ylim(ans_y - 0.55 if show else rule_y - 0.3, y_mark + 0.6)
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.06,
+                facecolor="white")
+    plt.close(fig)
+
+
 _RENDERERS = {
     "circle_slices": _circle_slices,
+    "column_arithmetic": _column_arithmetic,
     "bar_model": _bar_model,
     "number_line": _number_line,
     "rectangle": _rectangle,

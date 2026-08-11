@@ -42,6 +42,7 @@ Any question may include an OPTIONAL `diagram_spec` field. Pages of unbroken sym
 REQUIRED COVERAGE: if the subtopic can be pictured at all, AT LEAST ONE THIRD of the questions in the set must carry a diagram_spec, and never fewer than two. These subtopics can always be pictured, so a set with no figures is wrong:
 
 Number and place value
+- column addition or subtraction, the vertical algorithm, carrying, borrowing, regrouping -> column_arithmetic. MANDATORY for every question in such a set, not one third: the layout IS the content of this subtopic, and "Calculate 3,425 + 2,163." printed as a bare line of text does not show the student the thing they are being taught. Set "show_answer":false on a question so the columns stand empty for them to fill in.
 - place value, reading or building a number to 999 -> place_value
 - part and whole, "how many more to make", missing addend -> part_whole
 - placing or reading a value, including decimals and negatives -> number_line
@@ -149,6 +150,8 @@ Supported spec types (use exactly these keys):
   parallelogram, pentagon, hexagon, heptagon, octagon, nonagon, decagon,
   circle. Set "label": false to draw them unlabelled, which is what a
   "name this shape" question needs.
+- {"type":"column_arithmetic","top":4528,"bottom":2694,"operation":"+","show_answer":false}
+  The vertical algorithm drawn in place-value columns with the carried or borrowed digits marked above. `operation` is "+" or "-"; for "-" the larger number must be `top`. Both are worked out from the numbers, so never write the carries into the question text.
 - {"type":"place_value","value":342}
   Hundreds as flats, tens as rods and ones as small squares, for any number
   from 0 to 999, with the parts named underneath. Set "label": false when the

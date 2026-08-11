@@ -44,6 +44,8 @@ DIAGRAMS (optional)
 Where the concept can be pictured at all, picture it: populate `worked_example.diagram_spec` with one of the supported types below. A figure the tutor can point at teaches more than another sentence of prose, and it is what stops the booklet reading as a wall of text. Leave it null only when nothing on the list fits the concept.
 
 Supported spec types:
+- {"type":"column_arithmetic","top":4528,"bottom":2694,"operation":"+","show_answer":true}
+  The vertical algorithm set out in place-value columns, with the carried or borrowed digits printed above the columns they belong to. REQUIRED whenever the lesson teaches column addition or subtraction, carrying, borrowing or regrouping: that method is entirely a way of ARRANGING digits on paper, so a worked example that describes it in sentences ("add the ones: 8 + 4 = 12, write 2 and carry the 1") has not shown it. Set "show_answer":true here, because a worked example is meant to be complete. Write the steps as prose as well, but the figure is what the student copies.
 - {"type":"circle_slices","slices":4,"shaded":1}
 - {"type":"bar_model","parts":8,"shaded":5}
 - {"type":"number_line","from":0,"to":1,"divisions":4,"mark_at":[0.75],"label_at":["3/4"]}
