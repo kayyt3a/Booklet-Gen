@@ -33,6 +33,36 @@
   --border:#e4e8f0; --shadow:0 1px 2px rgba(16,30,54,.04), 0 4px 16px rgba(16,30,54,.06);
   --radius:14px; --radius-lg:20px;
 
+  /* ---- typefaces ----
+   * Headings are set in a serif, the body in the UI sans. The site used one
+   * system sans stack for everything, which is the default every unstyled web
+   * app resolves to: on Windows that is Segoe UI, so Folio looked like the
+   * operating system rather than like a product. A serif headline is also the
+   * honest signal here, because what is being sold is a printed booklet a child
+   * writes on, not a dashboard.
+   *
+   * Every face named is already on Windows, macOS or Linux, so nothing is
+   * fetched at page load. A webfont would be a network request on the critical
+   * path, and a font that arrives late moves the text after the parent has
+   * started reading it. */
+  --display:Georgia,"Iowan Old Style",Charter,"Bitstream Charter","Liberation Serif",serif;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+
+  /* ---- type scale ----
+   * Seven steps, each a clear jump from the last. The old sizes ran 11.5, 12.5,
+   * 13, 13.5, 14, 14.5, 15, 16.5: eight values inside five points, so no two
+   * levels looked deliberately different and nothing established a hierarchy.
+   * Sizes that are nearly the same read as a mistake rather than as a rank. */
+  --t-hero:46px; --t-h1:32px; --t-h2:23px; --t-lead:17px;
+  --t-body:15px; --t-small:13.5px; --t-micro:11.5px;
+
+  /* ---- spacing scale ----
+   * A 4px rhythm. Margins and padding were previously picked one at a time
+   * (26, 22, 18, 15, 11, 9, 6, 5, 3), which is what makes a layout feel
+   * approximately aligned rather than aligned. */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px;
+  --s6:32px; --s7:48px; --s8:64px;
+
   /* Status colours. These were hardcoded three times over in the pills and a
    * fourth time inline on the delete button, while --green sat declared and
    * unused. Same values, named once. */
@@ -44,8 +74,9 @@
 html{-webkit-text-size-adjust:100%}
 [hidden]{display:none!important}
 body{
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
-  background:var(--bg);color:var(--ink);margin:0;line-height:1.5;
+  font-family:var(--sans);
+  font-size:var(--t-body);
+  background:var(--bg);color:var(--ink);margin:0;line-height:1.55;
   -webkit-font-smoothing:antialiased;
 }
 
@@ -59,7 +90,7 @@ header{
   justify-content:space-between;gap:12px;min-height:64px;flex-wrap:wrap;
 }
 header a{color:#fff;text-decoration:none}
-.brand{font-weight:800;letter-spacing:1.8px;font-size:21px;display:flex;align-items:center;gap:9px}
+.brand{font-family:var(--display);font-weight:700;letter-spacing:.6px;font-size:22px;display:flex;align-items:center;gap:9px}
 .brand span{opacity:.55;font-weight:500;font-size:12px;letter-spacing:.3px}
 .brandMark{flex:none;display:block}
 .nav{display:flex;align-items:center;gap:2px;flex-wrap:wrap}
@@ -94,9 +125,18 @@ summary:focus-visible,a.link:focus-visible{
 .card.warm{background:var(--paper);border-radius:var(--radius-lg);border-color:#ece3d4}
 .card.danger{background:var(--danger-tint);border-color:#f3cfcf}
 
-h1{margin:0 0 8px;font-size:32px;font-weight:800;letter-spacing:-.4px;line-height:1.15}
-h2{margin:0 0 12px;font-size:20px;font-weight:700;letter-spacing:-.2px}
-.sub{color:var(--muted);margin:0 0 22px;font-size:15px}
+/* Headings carry the serif and a normal weight. The old h1 was 800 with
+ * negative tracking, which is the standard way to make a system sans look
+ * deliberate; a serif does not need the help, and at 800 it turns muddy. */
+h1{
+  font-family:var(--display);font-weight:700;
+  margin:0 0 var(--s2);font-size:var(--t-h1);letter-spacing:-.2px;line-height:1.15;
+}
+h2{
+  font-family:var(--display);font-weight:700;
+  margin:0 0 var(--s3);font-size:var(--t-h2);letter-spacing:-.1px;line-height:1.25;
+}
+.sub{color:var(--muted);margin:0 0 var(--s5);font-size:var(--t-lead);line-height:1.55}
 
 /* ---- footer ---- */
 footer{
@@ -134,7 +174,7 @@ input:focus,select:focus,textarea:focus{
 
 button,.btn{
   background:var(--navy);color:#fff;border:0;padding:12px 18px;border-radius:9px;
-  font:inherit;font-weight:650;font-size:14.5px;cursor:pointer;width:100%;
+  font:inherit;font-weight:600;font-size:var(--t-body);cursor:pointer;width:100%;
   text-align:center;display:inline-block;text-decoration:none;margin-top:18px;
   transition:background .15s ease, transform .06s ease;
 }
@@ -157,7 +197,7 @@ button:active,.btn:active{transform:translateY(1px)}
 /* ---- create flow ---- */
 .formSection{border:0;border-top:1px solid var(--border);padding:22px 0 0;margin:26px 0 0}
 .formSection legend{
-  padding:0 12px 0 0;font-size:16px;font-weight:750;color:var(--ink);
+  padding:0 12px 0 0;font-size:var(--t-lead);font-weight:700;color:var(--ink);
   display:flex;align-items:center;gap:9px;
 }
 .stepBadge{
@@ -239,7 +279,7 @@ a.link{color:var(--navy);font-weight:600}
 }
 .jobItem:last-child{border-bottom:0}
 .jobMain{flex:1;min-width:0}
-.jobTitle{font-weight:620;font-size:14.5px;margin:0 0 3px;word-break:break-word}
+.jobTitle{font-weight:600;font-size:var(--t-body);margin:0 0 3px;word-break:break-word}
 .jobMeta{color:var(--muted);font-size:12.5px}
 .pill{
   display:inline-block;border-radius:999px;padding:2px 9px;
@@ -305,14 +345,14 @@ a.link{color:var(--navy);font-weight:600}
   color:var(--orange-d);font-size:12.5px;font-weight:700;letter-spacing:.3px;
   padding:5px 12px;border-radius:999px;margin-bottom:18px;
 }
-.hero h1{font-size:38px;line-height:1.1;margin-bottom:14px}
-.hero .sub{font-size:16.5px;color:#4a5568;margin-bottom:26px;line-height:1.55}
+.hero h1{font-size:var(--t-hero);line-height:1.08;margin-bottom:var(--s4)}
+.hero .sub{font-size:var(--t-lead);color:#4a5568;margin-bottom:var(--s5);line-height:1.6}
 .heroCta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .heroCta .btn{margin-top:0;width:auto;padding:13px 26px;font-size:15px}
 .reassure{margin:18px 0 0;font-size:13px;color:var(--muted)}
 @media (max-width:700px){
   .hero{padding:40px 22px 36px}
-  .hero h1{font-size:29px}
+  .hero h1{font-size:32px}
   .hero .sub{font-size:15.5px}
 }
 
@@ -333,14 +373,14 @@ a.link{color:var(--navy);font-weight:600}
 .ticks .motif{flex:none;color:var(--green);margin-top:1px}
 
 /* The sample booklet page, so a visitor sees the actual product. */
-.sample{display:flex;gap:30px;align-items:flex-start;flex-wrap:wrap}
+.sample{display:flex;gap:var(--s7);align-items:flex-start;flex-wrap:wrap}
 .sampleText{flex:1 1 300px;min-width:0}
 .sampleLink{
   /* min-width:0 matters: a flex item defaults to min-width:auto, which for an
    * image is its intrinsic width. At 620px intrinsic that refused to shrink
    * and shoved itself onto its own row under the text. */
   flex:0 1 320px;width:320px;min-width:0;color:var(--navy);text-align:center;
-  text-decoration:none;font-size:12.5px;font-weight:650;
+  text-decoration:none;font-size:var(--t-small);font-weight:600;
 }
 .creditBanner{
   display:flex;align-items:center;justify-content:space-between;gap:16px;
@@ -352,7 +392,13 @@ a.link{color:var(--navy);font-weight:600}
 .authAside{text-align:center;margin:12px 0 0}
 .jobItem form{margin:0;flex:none}
 .sampleShot{
-  width:100%;min-width:0;height:auto;margin-bottom:8px;
+  /* Shown as the top of the page rather than the whole of it. The shot is
+   * 620x877, so at full height it stood about 200px taller than the text
+   * beside it and left a column of empty card under the tick list. Cropping to
+   * the head of the page keeps the two columns level, and the full page is one
+   * click away on the link directly beneath. */
+  width:100%;min-width:0;height:360px;object-fit:cover;object-position:top;
+  margin-bottom:var(--s2);
   border:1px solid var(--border);border-radius:10px;
   box-shadow:0 6px 22px rgba(16,30,54,.13);display:block;
 }
@@ -366,7 +412,7 @@ a.link{color:var(--navy);font-weight:600}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 @media (max-width:560px){ .stats{grid-template-columns:1fr} }
 .stat{background:#f7f9fc;border:1px solid var(--border);border-radius:12px;padding:18px}
-.statNum{font-size:28px;font-weight:800;letter-spacing:-.5px;line-height:1.1;color:var(--navy)}
+.statNum{font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:-.2px;line-height:1.1;color:var(--navy)}
 .statLabel{font-size:13px;font-weight:650;margin:6px 0 2px}
 .statNote{color:var(--muted);font-size:12.5px;line-height:1.45}
 
@@ -406,7 +452,7 @@ a.link{color:var(--navy);font-weight:600}
   position:absolute;top:-12px;right:18px;background:var(--navy);color:#fff;
   border-radius:999px;padding:4px 10px;font-size:11.5px;font-weight:700;
 }
-.price{color:var(--navy);font-size:38px;font-weight:800;margin:4px 0 8px;letter-spacing:-1px}
+.price{font-family:var(--display);color:var(--navy);font-size:40px;font-weight:700;margin:var(--s1) 0 var(--s2);letter-spacing:-.5px}
 .price span{font-size:16px;vertical-align:top;line-height:2.1;margin-right:2px}
 .priceFeatures{list-style:none;padding:0;margin:16px 0 5px;flex:1}
 .priceFeatures li{display:flex;align-items:flex-start;gap:8px;margin:10px 0;font-size:13.5px}
@@ -454,7 +500,7 @@ a.link{color:var(--navy);font-weight:600}
   .signedIn .mobileLabel{display:inline}
   .wrap{margin-top:18px;padding:0 12px}
   .card{padding:22px 20px}
-  h1{font-size:28px}
+  h1{font-size:26px}
   .programGrid{grid-template-columns:1fr}
   .programOption label{min-height:0}
   .heroCta .btn{width:100%}
