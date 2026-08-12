@@ -11,15 +11,15 @@
     {{ csrf_field() }}
     <label for="email">Email</label>
     <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required autofocus>
-    <label for="password">Password <span class="muted" style="font-weight:500">(at least 8 characters)</span></label>
+    <label for="password">Password <span class="labelNote">(at least 8 characters)</span></label>
     <input id="password" name="password" type="password" autocomplete="new-password"
            minlength="8" maxlength="256" required>
     <button type="submit">Create account</button>
   </form>
-  <p class="muted authAside">By creating an account, you agree to the
-    <a class="link" href="{{ url_for('public.terms') }}">Terms</a> and acknowledge
-    the <a class="link" href="{{ url_for('public.privacy') }}">Privacy policy</a>.</p>
-  <p class="muted" style="margin-top:18px">Already have an account?
+  <p class="legalNote">By creating an account, you agree to the
+    <a href="{{ url_for('public.terms') }}">Terms</a> and acknowledge
+    the <a href="{{ url_for('public.privacy') }}">Privacy policy</a>.</p>
+  <p class="muted authFoot">Already have an account?
     <a class="link" href="{{ url_for('auth.login') }}">Log in</a>.</p>
 </div>
 {% endblock %}

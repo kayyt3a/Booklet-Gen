@@ -38,8 +38,13 @@
         stored booklets, and purchase records held in FolioAI.</p>
     </section>
   </div>
-  <p class="businessDetails">{{ business.name }}{% if business.number %} &middot;
-    {{ business.number }}{% endif %}{% if business.address %} &middot;
-    {{ business.address }}{% endif %}</p>
+  {# Without an ABN or address this rendered as a horizontal rule followed by
+     the bare word "FolioAI", which read as a second, broken footer stacked
+     above the real one. #}
+  {% if business.number or business.address %}
+    <p class="businessDetails">{{ business.name }}{% if business.number %} &middot;
+      {{ business.number }}{% endif %}{% if business.address %} &middot;
+      {{ business.address }}{% endif %}</p>
+  {% endif %}
 </div>
 {% endblock %}

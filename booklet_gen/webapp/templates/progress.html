@@ -5,14 +5,16 @@
 <div class="card narrow">
   {# Trail first, then the plane: it reads as having flown the path, not as
      heading towards one it has not travelled yet. #}
-  <div class="flight">
-    <span class="ink-pale">{{ trail(110) }}</span>
-    <span class="ink-navy">{{ paperplane(30) }}</span>
-  </div>
   <h1 id="heading">Building your booklet</h1>
   <p class="sub" id="msg">{{ job['label'] }}</p>
 
   <div id="working">
+    {# Inside #working, not above it: the plane used to keep flying over
+       "Your booklet is ready" and over "Something went wrong". #}
+    <div class="flight">
+      <span class="ink-pale">{{ trail(110) }}</span>
+      <span class="ink-navy">{{ paperplane(30) }}</span>
+    </div>
     <div class="bar"><span></span></div>
     <p class="muted" id="stage" style="margin-top:14px">Starting up...</p>
     <div class="hint">
@@ -24,8 +26,10 @@
 
   <div id="done" style="display:none">
     <div class="doneMark ink-green">{{ check(30) }}</div>
-    <a class="btn" id="dl" href="#">Download</a>
-    <a class="btn secondary" href="{{ url_for('views.index') }}">Make another</a>
+    <div class="btnRow">
+      <a class="btn" id="dl" href="#">Download</a>
+      <a class="btn secondary" href="{{ url_for('views.index') }}">Make another</a>
+    </div>
     {# Planted here, answered later. The useful rating comes after a parent has
        actually taught from the booklet, so this points at the form rather than
        asking for a verdict two seconds after generation. #}
@@ -35,13 +39,13 @@
   </div>
 
   <div id="err" style="display:none">
-    <div class="flash" id="errmsg"></div>
+    <div class="alert" id="errmsg" role="alert"></div>
     {% if job['request_json'] %}
       <form method="post" action="{{ url_for('views.retry', job_id=job['id']) }}">
-        {{ csrf_field() }}<button class="btn secondary" type="submit">Try again</button>
+        {{ csrf_field() }}<button class="btn wide" type="submit">Try again</button>
       </form>
     {% else %}
-      <a class="btn secondary" href="{{ url_for('views.index') }}">Create another booklet</a>
+      <a class="btn wide" href="{{ url_for('views.index') }}">Create another booklet</a>
     {% endif %}
     <p class="muted">If a paid generation fails, its reserved credits are returned automatically.</p>
   </div>

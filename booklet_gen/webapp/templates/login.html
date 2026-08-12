@@ -13,9 +13,9 @@
     <label for="password">Password</label>
     <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
   <button type="submit">Log in</button>
-  <p class="muted authAside"><a class="link" href="{{ url_for('auth.forgot_password') }}">Forgot your password?</a></p>
+  <p class="legalNote"><a class="link" href="{{ url_for('auth.forgot_password') }}">Forgot your password?</a></p>
   </form>
-  <p class="muted" style="margin-top:18px">No account yet?
+  <p class="muted authFoot">No account yet?
     <a class="link" href="{{ url_for('auth.signup') }}">Sign up</a>.</p>
 </div>
 {% endblock %}

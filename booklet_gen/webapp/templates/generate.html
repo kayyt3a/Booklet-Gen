@@ -1,13 +1,8 @@
 {% extends "base.html" %}
-{% from "_motifs.html" import pencil, book, star, hexagon, triangle %}
+{% from "_motifs.html" import pencil, book, hexagon, triangle %}
 {% block title %}Create a booklet - FolioAI{% endblock %}
 {% block body %}
 <div class="card">
-  <div class="motifRow">
-    <span class="ink-navy">{{ book(26) }}</span>
-    <span class="ink-orange">{{ pencil(22) }}</span>
-    <span class="ink-pale">{{ star(15) }}</span>
-  </div>
   <h1>Create a practice booklet</h1>
   <p class="sub">Choose what the student is working towards, then personalise
     the level and focus. We will build the printable PDF and check its answers.</p>
@@ -69,13 +64,13 @@
         </div>
       </div>
 
-      <label for="topic">Topic focus <span class="muted">(optional)</span></label>
-      <input id="topic" name="topic" type="text"
+      <label for="topic">Topic focus <span class="labelNote">(optional)</span></label>
+      <input id="topic" class="fieldWide" name="topic" type="text"
              maxlength="240" placeholder="For example, fractions and area">
       <p class="fieldHelp">Leave this blank for a balanced mix at the selected year level.</p>
 
       <label for="student_name">Student name</label>
-      <input id="student_name" name="student_name" type="text"
+      <input id="student_name" class="fieldName" name="student_name" type="text"
              maxlength="80" placeholder="For example, Alex" autocomplete="off" required>
       <p class="fieldHelp">Printed on the cover and used to identify it in My booklets.</p>
     </fieldset>

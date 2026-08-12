@@ -21,12 +21,24 @@
           <div class="jobMain">
             <p class="jobTitle">{{ j.label or 'Booklet' }}</p>
             <div class="jobMeta">
+              {# A row's state used to be readable only from which button it
+                 carried, so a queued booklet and a finished one looked alike
+                 and a failed one looked like an ordinary row with a long
+                 sentence. .pill.running was styled and never rendered. #}
+              {% if j.status in ('queued', 'running') %}
+                <span class="pill running">Building</span>
+              {% elif j.status == 'error' %}
+                <span class="pill error">Failed</span>
+              {% elif j.status == 'done' %}
+                <span class="pill done">Ready</span>
+              {% endif %}
               {{ j.created_at | timeago }}
               {% if j.status == 'done' and j.bytes %}
                 &middot; {{ (j.bytes / 1024 / 1024) | round(1) }} MB
               {% endif %}
               {% if j.status == 'error' and j.error %}
-                &middot; {{ j.error[:90] }}
+                {# Truncating with no ellipsis ended the row mid-sentence. #}
+                &middot; {{ j.error[:90] }}{{ '...' if j.error | length > 90 }}
               {% endif %}
             </div>
           </div>
@@ -46,7 +58,7 @@
             {% if j.filename %}
               <a class="btn secondary small" href="{{ url_for('views.download', job_id=j.id) }}">Download</a>
             {% else %}
-              <span class="pill done" title="This file was cleared to save space">Expired</span>
+              <span class="pill gone" title="This file was cleared to save space">Expired</span>
             {% endif %}
           {% elif j.status in ('queued', 'running') %}
             <a class="btn secondary small" href="{{ url_for('views.progress', job_id=j.id) }}">In progress</a>

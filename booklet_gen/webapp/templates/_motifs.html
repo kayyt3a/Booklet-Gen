@@ -131,15 +131,19 @@
   positioned absolutely in the corners, well out of the way of the text.
   The parent needs position:relative and overflow:hidden.
 #}
+{#
+  Two motifs, not eight. The scatter used to carry a book, a triangle, a dot
+  grid, a pencil, a leaf, a four-point sparkle, a wireframe hexagon and a
+  plus-mark, in three colours at eight hand-placed positions. A sparkle, a dot
+  grid and a floating plus are the stock furniture of a generated landing page,
+  and nothing tied a leaf and a hexagon to primary school maths or to each
+  other. What is left is the two objects the product is actually about, set
+  large, in one ink, and cropped by the edge of the band so they read as
+  deliberate rather than sprinkled.
+#}
 {% macro scatter() -%}
 <div class="scatter" aria-hidden="true">
-  <span class="s s1 ink-navy">{{ book(46) }}</span>
-  <span class="s s2 ink-orange">{{ triangle(30) }}</span>
-  <span class="s s3 ink-pale">{{ dots(44) }}</span>
-  <span class="s s4 ink-navy">{{ pencil(40) }}</span>
-  <span class="s s5 ink-pale">{{ leaf(52) }}</span>
-  <span class="s s6 ink-orange">{{ star(20) }}</span>
-  <span class="s s7 ink-pale">{{ hexagon(38) }}</span>
-  <span class="s s8 ink-pale">{{ plus(18) }}</span>
+  <span class="s s1 ink-pale">{{ book(132) }}</span>
+  <span class="s s2 ink-pale">{{ pencil(108) }}</span>
 </div>
 {%- endmacro %}

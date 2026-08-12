@@ -41,9 +41,13 @@
             </button>
           </form>
         {% else %}
-          <a href="{{ url_for('payments.pricing') }}">Pricing</a>
-          <a href="{{ url_for('auth.login') }}">Log in</a>
-          <a href="{{ url_for('auth.signup') }}">Sign up</a>
+          <a href="{{ url_for('payments.pricing') }}"
+             class="{{ 'active' if request.endpoint == 'payments.pricing' }}">Pricing</a>
+          <a href="{{ url_for('auth.login') }}"
+             class="{{ 'active' if request.endpoint == 'auth.login' }}">Log in</a>
+          {# The whole point of a logged-out page, previously the same weight as
+             a policy link. #}
+          <a class="navCta" href="{{ url_for('auth.signup') }}">Sign up</a>
         {% endif %}
       </nav>
     </div>

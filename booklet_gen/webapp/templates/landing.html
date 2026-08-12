@@ -3,7 +3,7 @@
 {% block title %}FolioAI - printable practice booklets for Years 1 to 10{% endblock %}
 {% block body %}
 
-<section class="hero">
+<section class="hero bleed">
   {{ scatter() }}
   <div class="heroInner">
     {# Driven from customer_programs(), never written out by hand. This line
@@ -29,7 +29,7 @@
   </div>
 </section>
 
-<div class="card" id="sample">
+<section class="sampleBand" id="sample">
   <div class="sample">
     <div class="sampleText">
       <h2>This is what comes out</h2>
@@ -53,12 +53,11 @@
       <span>Open full-size sample</span>
     </a>
   </div>
-</div>
+</section>
 
 <div class="card">
   <h2>Choose your practice</h2>
-  <p class="sub" style="margin-bottom:18px">Pick the one that matches what the
-    student is working towards.</p>
+  <p class="sub">Pick the one that matches what the student is working towards.</p>
   <div class="lines">
     {% set icons = {'scholarships': hexagon, 'naplan': book,
                     'accelerate': pencil, 'methods_exam': triangle} %}
@@ -75,19 +74,17 @@
       </div>
     {% endfor %}
   </div>
-  <div class="hint">
-    Every booklet is generated fresh for the year level and topic you choose, so
-    two students never get the same page.
-  </div>
+  <p class="claim">Every booklet is generated fresh for the year level and
+    topic you choose, so two students never get the same page.</p>
 </div>
 
-<div class="card warm" style="position:relative;overflow:hidden;text-align:center">
-  <h2 style="margin-bottom:8px">Make one and see</h2>
-  <p class="muted" style="max-width:420px;margin:0 auto 20px;font-size:14.5px">
-    Your first booklet is included, and your work is saved so you can print it
-    again later.</p>
-  <a class="btn" style="width:auto;padding:13px 26px;margin-top:0"
-     href="{{ url_for('auth.signup') }}">Create a free account</a>
-</div>
+<section class="closer bleed">
+  <div class="closerInner">
+    <h2>Make one and see</h2>
+    <p class="muted">Your first booklet is included, and your work is saved so
+      you can print it again later.</p>
+    <a class="btn wide" href="{{ url_for('auth.signup') }}">Create a free account</a>
+  </div>
+</section>
 
 {% endblock %}
