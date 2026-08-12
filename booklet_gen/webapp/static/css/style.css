@@ -70,6 +70,14 @@
   --amber-tint:#fff3d9; --amber-ink:#8a5a00;
   --danger:#a02020; --danger-d:#8a1b1b; --danger-tint:#fdeaea;
 }
+
+/* ---- brand mark ----
+ * The logo's four surfaces, named once so the mark can be repalletted from
+ * here rather than by re-exporting artwork. */
+:root{
+  --mark-page:#ffffff; --mark-mid:#8b83e0; --mark-back:#b9b3ee;
+  --mark-ink:#16273f;
+}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 [hidden]{display:none!important}
@@ -90,9 +98,16 @@ header{
   justify-content:space-between;gap:var(--s3);min-height:64px;flex-wrap:wrap;
 }
 header a{color:#fff;text-decoration:none}
-.brand{font-family:var(--display);font-weight:700;letter-spacing:.6px;font-size:var(--t-h2);display:flex;align-items:center;gap:var(--s2)}
-.brand span{opacity:.55;font-weight:500;font-size:var(--t-micro);letter-spacing:.3px}
-.brandMark{flex:none;display:block}
+.brand{
+  font-family:var(--display);font-weight:700;letter-spacing:.6px;
+  font-size:var(--t-h2);display:flex;align-items:baseline;gap:var(--s2);
+}
+.brandName em{font-style:normal;color:var(--mark-back)}
+.brand .brandTag{
+  font-family:var(--sans);font-weight:500;font-size:var(--t-micro);
+  letter-spacing:.3px;color:#aab8cc;
+}
+.brandMark{flex:none;display:block;align-self:center}
 .nav{display:flex;align-items:center;gap:var(--s1);flex-wrap:wrap}
 .nav a{
   font-size:var(--t-small);padding:var(--s2) var(--s2);border-radius:6px;white-space:nowrap;
@@ -632,7 +647,7 @@ main.wrap:has(> .card.narrow){
   :root{--t-hero:32px; --t-figure:30px; --t-h1:26px; --t-h2:20px; --t-lead:16px}
   header{padding:0 var(--s3)}
   .signedIn .headerInner{padding-top:var(--s2);row-gap:var(--s1)}
-  .signedIn .brand span{display:none}
+  .signedIn .brandTag{display:none}
   .signedIn .nav{
     order:2;width:100%;justify-content:space-between;
     border-top:1px solid rgba(255,255,255,.14);padding:var(--s1) 0 var(--s1);

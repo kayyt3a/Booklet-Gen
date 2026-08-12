@@ -58,8 +58,14 @@ print("-" * 62)
 home = client.get("/")
 body = home.data
 check(home.status_code == 200, "the front page loads", str(home.status_code))
-check(b"FOLIOAI" in body and b"FolioAI writes" in body,
-      "the customer-facing product name is FolioAI")
+# The header wordmark is marked up as FOLIO <em>AI</em> so the logo can tint
+# the "AI", so a raw substring search for "FOLIOAI" no longer finds it and
+# would pass or fail for the wrong reason. Collapse the tags in the brand link
+# and check what a customer actually reads.
+_brand = re.search(rb'<a class="brand"[^>]*>(.*?)</a>', body, re.S)
+_brand_text = " ".join(re.sub(rb"<[^>]+>", b" ", _brand.group(1)).decode().split())
+check(_brand_text.startswith("FOLIO AI") and b"FolioAI writes" in body,
+      "the customer-facing product name is FolioAI", _brand_text)
 check(b"Practice booklets your kid will actually finish" in body,
       "it leads with what the product is")
 check(b'name="program"' not in body and b"Generate booklet" not in body,
