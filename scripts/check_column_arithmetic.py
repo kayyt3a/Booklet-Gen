@@ -205,6 +205,63 @@ assert "7222" not in joined, \
     "the answer is drawn on a question, so the student is handed it"
 ok("without show_answer the columns stand empty for the student to fill in")
 
+print("\nTHE CARRIES ARE THE EXERCISE, SO A QUESTION DOES NOT PRINT THEM")
+
+# A shipped Year 5 warm-up asked for 6,015 - 2,759 and drew 5 9 10 15 above it.
+# Every borrow in the question was already done, so the only thing being tested
+# was four single-digit subtractions off a completed regroup. show_answer used
+# to gate the result row alone, which made it look right in a worked example
+# and left every practice question solved.
+for top, bottom, op, what in (
+    (6015, 2759, "-", "a borrow that cascades across a zero"),
+    (5837, 3496, "+", "three carries"),
+    (8000, 4327, "-", "the hardest borrow on the page"),
+):
+    rows = digits_on({"type": "column_arithmetic", "top": top, "bottom": bottom,
+                      "operation": op, "show_answer": False})
+    printed = [s for y, s in rows if y == 3.0]
+    assert not printed, (
+        f"{top} {op} {bottom} is a question, but {what} is already worked out "
+        f"above the columns: {printed}. The student is handed the method they "
+        "were asked to carry out.")
+ok("no question prints its own carries or borrows, however hard the regroup")
+
+# The same numbers as a worked example must still show everything, or the fix
+# has simply deleted the figure's reason to exist.
+rows = digits_on({"type": "column_arithmetic", "top": 6015, "bottom": 2759,
+                  "operation": "-", "show_answer": True})
+assert [s for y, s in rows if y == 3.0] == ["5", "9", "10", "15"], rows
+ok("the same sum as a worked example still shows every borrow")
+
+# Hiding the marks must not also crop away the line they were written on: that
+# blank row is where the student writes their own regroups, and it is the only
+# working space the figure offers.
+import numpy as np  # noqa: E402
+from PIL import Image  # noqa: E402
+
+# Drawn directly rather than through render_diagram, which caches by spec hash:
+# a cached PNG from an earlier run of DIFFERENT code would be served back here
+# and this check would pass by reading a stale picture.
+q = Path("output/diagrams/_check_headroom.png")
+q.parent.mkdir(parents=True, exist_ok=True)
+
+
+class _F:
+    label = lambda self, base=11.0: base       # noqa: E731
+    note = lambda self, base=7.0: base         # noqa: E731
+
+
+D._column_arithmetic({"type": "column_arithmetic", "top": 6015, "bottom": 2759,
+                      "operation": "-", "show_answer": False}, q, _F())
+grey = np.array(Image.open(q).convert("L"))
+inked = np.where((grey < 240).any(axis=1))[0]
+headroom = int(inked[0]) / grey.shape[0]
+assert headroom > 0.2, (
+    f"only {headroom:.0%} of the figure is blank above the first digit, so the "
+    "carry row was cropped away with its contents and the student has nowhere "
+    "to write a regroup")
+ok(f"the carry row is left open on a question ({headroom:.0%} of the figure)")
+
 print("\nIT REFUSES WHAT IT CANNOT DRAW HONESTLY")
 
 for bad, why in (

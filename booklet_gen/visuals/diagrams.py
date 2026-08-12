@@ -990,7 +990,12 @@ def _column_arithmetic(spec: dict, out: Path, f: _Fonts) -> None:
 
     for i in range(width):
         x = x0 + i * col
-        if marks[i]:
+        # The carries and borrows ARE the exercise. Printing them on a question
+        # hands the student the only part they were asked to do: "6015 - 2759"
+        # with 5 9 10 15 already written above it is a subtraction with the
+        # subtraction taken out. They belong to the worked example, where the
+        # point is to show the method, and nowhere else.
+        if marks[i] and show:
             ax.text(x, y_mark, marks[i], ha="center", va="center",
                     fontsize=mark_pt, color=ACCENT_COLOR, **mono)
         if t_digits[i] != " ":
@@ -1013,6 +1018,10 @@ def _column_arithmetic(spec: dict, out: Path, f: _Fonts) -> None:
                         **mono)
 
     ax.set_xlim(x0 - col * 1.9, x0 + (width - 0.3) * col)
+    # The top of the view is the carry row whether or not anything is printed
+    # in it, so a question keeps the blank line the student writes their own
+    # regroups on. Cropping to y_top here would save a few millimetres and take
+    # away the only place the working goes.
     ax.set_ylim(ans_y - 0.55 if show else rule_y - 0.3, y_mark + 0.6)
     ax.axis("off")
     fig.savefig(out, bbox_inches="tight", pad_inches=0.06,
