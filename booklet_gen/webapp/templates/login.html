@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% from "_motifs.html" import book %}
+{% from "_motifs.html" import mark %}
 {% block title %}Log in - FolioAI{% endblock %}
 {% block body %}
 <div class="card narrow warm">
-  <div class="motifRow ink-navy">{{ book(28) }}</div>
+  <div class="motifRow">{{ mark(40, 'onLight') }}</div>
   <h1>Welcome back</h1>
   <p class="sub">Log in to generate booklets and reach your saved ones.</p>
   <form method="post">

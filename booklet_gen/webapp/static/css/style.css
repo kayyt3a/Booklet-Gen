@@ -73,10 +73,16 @@
 
 /* ---- brand mark ----
  * The logo's four surfaces, named once so the mark can be repalletted from
- * here rather than by re-exporting artwork. */
+ * here rather than by re-exporting artwork.
+ *
+ * The supplied artwork is violet. These are its navy equivalents, because the
+ * booklet prints its headings and Class Work band in --navy and a mark in
+ * another colour would stop matching the thing being sold. The two fanned
+ * pages are steel tints of the same hue rather than a second colour, so the
+ * mark reads as one object at 16px instead of three overlapping shapes. */
 :root{
-  --mark-page:#ffffff; --mark-mid:#8b83e0; --mark-back:#b9b3ee;
-  --mark-ink:#16273f;
+  --mark-page:#ffffff; --mark-mid:#5f7da3; --mark-back:#93aac6;
+  --mark-ink:#1F3A5F;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -103,6 +109,14 @@ header a{color:#fff;text-decoration:none}
   font-size:var(--t-h2);display:flex;align-items:baseline;gap:var(--s2);
 }
 .brandName em{font-style:normal;color:var(--mark-back)}
+/* The mark is built for the navy header, where its page is white. On the cream
+ * and white surfaces of the auth cards that page has almost no contrast and
+ * the whole thing disappears, so those uses invert it: the page carries the
+ * navy and the letter is knocked out of it. */
+.brandMark.onLight{
+  --mark-page:var(--navy); --mark-ink:#fbf8f2;
+  --mark-mid:#93aac6; --mark-back:#c6d3e2;
+}
 .brand .brandTag{
   font-family:var(--sans);font-weight:500;font-size:var(--t-micro);
   letter-spacing:.3px;color:#aab8cc;

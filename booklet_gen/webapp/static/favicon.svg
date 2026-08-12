@@ -1,12 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- FolioAI mark: an open book, the one motif from the booklet cover that
-       still reads at 16px in a browser tab. Navy tile so it holds its shape
-       against both light and dark tab strips. -->
+  <!-- The Folio mark on a navy tile: a page carrying the F with two more fanned
+       behind it. Same geometry as the header mark (templates/_motifs.html),
+       scaled up and inset so it still holds together at the 16px a tab gives
+       it. Colours are literal here rather than tokens, because a favicon is
+       fetched as a file and never sees the stylesheet.
+
+       The tile is navy for the same reason the site is: it is the colour the
+       printed booklet sets its headings in, so the tab, the site and the page
+       a parent prints are one product. The sweep under the pages is left off
+       on purpose. It survives in the header at 30px and turns into a smudge
+       at 16. -->
   <rect width="64" height="64" rx="14" fill="#1F3A5F"/>
-  <g fill="none" stroke="#ffffff" stroke-width="3.4"
-     stroke-linecap="round" stroke-linejoin="round">
-    <path d="M32 22c-4.5-3.6-9.6-5-17-5v25c7.4 0 12.5 1.4 17 5"/>
-    <path d="M32 22c4.5-3.6 9.6-5 17-5v25c-7.4 0-12.5 1.4-17 5"/>
+  <g transform="translate(32 32) scale(0.94) translate(-32 -32)">
+    <path d="M40 12h13a2 2 0 0 1 2 2.4l-6 30a3 3 0 0 1-2 2.2l-12 4z"
+          fill="#93aac6"/>
+    <path d="M33 10h12a2 2 0 0 1 2 2.4l-6 32a3 3 0 0 1-2 2.2l-13 4.4z"
+          fill="#5f7da3"/>
+    <path d="M14 12.5 36 8a1.6 1.6 0 0 1 2 1.6v34a3 3 0 0 1-2.3 2.9l-21 5z"
+          fill="#ffffff"/>
+    <path d="M21.5 43.8V21.2l13-2.6v5.6l-7.3 1.4v3.8l6-1.2v5.4l-6 1.2v7.7z"
+          fill="#1F3A5F"/>
   </g>
-  <path d="M32 22v25" stroke="#f0a028" stroke-width="3.4" stroke-linecap="round"/>
 </svg>

@@ -10,29 +10,13 @@
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
+{% from "_motifs.html" import mark %}
 <body class="{{ 'signedIn' if g.user else 'signedOut' }}">
   <a class="skipLink" href="#main-content">Skip to main content</a>
   <header>
     <div class="headerInner">
       <a class="brand" href="{{ url_for('views.index') }}">
-        {# Drawn from the supplied logo: a page carrying the F, two more fanned
-           behind it, and the sweep underneath. Inline rather than an <img> so
-           the colours come from the stylesheet's tokens, which is what lets the
-           whole mark be repalletted without a new asset. Simplified on purpose:
-           the full illustration turns to mush at the 16px a favicon gets. #}
-        <svg class="brandMark" width="30" height="30" viewBox="0 0 64 64"
-             aria-hidden="true">
-          <path d="M40 12h13a2 2 0 0 1 2 2.4l-6 30a3 3 0 0 1-2 2.2l-12 4z"
-                fill="var(--mark-back)"/>
-          <path d="M33 10h12a2 2 0 0 1 2 2.4l-6 32a3 3 0 0 1-2 2.2l-13 4.4z"
-                fill="var(--mark-mid)"/>
-          <path d="M14 12.5 36 8a1.6 1.6 0 0 1 2 1.6v34a3 3 0 0 1-2.3 2.9l-21 5z"
-                fill="var(--mark-page)"/>
-          <path d="M22.5 39.5V21.8l11-2.2v4.3l-6.7 1.3v3.9l6-1.2v4.2l-6 1.2v7z"
-                fill="var(--mark-ink)"/>
-          <path d="M12 50c8 3.5 16 3.5 24 0s16-3.5 20-1.5" fill="none"
-                stroke="var(--mark-mid)" stroke-width="2.6" stroke-linecap="round"/>
-        </svg>
+        {{ mark(30) }}
         <span class="brandName">FOLIO <em>AI</em></span>
         <span class="brandTag">practice booklets</span></a>
       <nav class="nav">
