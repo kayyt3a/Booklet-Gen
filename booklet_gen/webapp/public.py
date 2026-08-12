@@ -11,7 +11,14 @@ bp = Blueprint("public", __name__)
 def _business() -> dict[str, str]:
     return {
         "name": (os.environ.get("FOLIO_BUSINESS_NAME") or "FolioAI").strip(),
-        "email": (os.environ.get("FOLIO_SUPPORT_EMAIL") or "support@example.com").strip(),
+        # The real address, not a placeholder. This is the only contact a
+        # customer has on the Terms, Privacy and Support pages, and the fallback
+        # used to be support@example.com: if the environment variable were ever
+        # unset or misspelled on a deploy, a live site taking payments would
+        # print an address at a domain nobody owns. Wrong-but-plausible is worse
+        # than missing here, because nothing looks broken.
+        "email": (os.environ.get("FOLIO_SUPPORT_EMAIL")
+                  or "folioaitutorsyou@gmail.com").strip(),
         "country": (os.environ.get("FOLIO_BUSINESS_COUNTRY") or "Australia").strip(),
         "number": (os.environ.get("FOLIO_BUSINESS_NUMBER") or "").strip(),
         "address": (os.environ.get("FOLIO_BUSINESS_ADDRESS") or "").strip(),
