@@ -7,7 +7,25 @@
   <meta name="description" content="{% block description %}Printable practice
     booklets for Years 1 to 10. A mini-lesson, worked examples, practice
     questions and a checked answer key, built in about two minutes.{% endblock %}">
-  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="32x32"
+        href="{{ url_for('static', filename='img/brand/favicon-32.png') }}">
+  <link rel="icon" type="image/png" sizes="16x16"
+        href="{{ url_for('static', filename='img/brand/favicon-16.png') }}">
+  {# iOS square-crops a home-screen icon and ignores transparency, so this one
+     ships with its own navy tile rather than reusing the SVG. #}
+  <link rel="apple-touch-icon"
+        href="{{ url_for('static', filename='img/brand/apple-touch-icon.png') }}">
+  {# What a parent sees when someone shares Folio into a group chat. Without
+     these the card is a bare URL, which reads as a link nobody vouched for. #}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="FolioAI">
+  <meta property="og:title" content="{% block og_title %}{{ self.title() }}{% endblock %}">
+  <meta property="og:description" content="{{ self.description() }}">
+  <meta property="og:image"
+        content="{{ url_for('static', filename='img/brand/og-image.jpg', _external=True) }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 {% from "_motifs.html" import mark %}

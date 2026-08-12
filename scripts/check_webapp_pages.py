@@ -159,10 +159,26 @@ check(b"progressively planned booklets" in body,
 # ---------------------------------------------------------------------------
 print("\nStatic assets")
 print("-" * 62)
-for path, kind in (("/static/css/style.css", "the stylesheet"),
-                   ("/static/favicon.svg", "the favicon")):
-    r = client.get(path)
-    check(r.status_code == 200 and len(r.data) > 200, f"{kind} is served",
+r = client.get("/static/css/style.css")
+check(r.status_code == 200 and len(r.data) > 200, "the stylesheet is served",
+      f"{r.status_code}, {len(r.data)} bytes")
+
+# Every icon and preview image the page declares must actually resolve. This
+# used to name /static/favicon.svg outright, so moving the brand to the real
+# artwork left the check pointing at a deleted file: it caught the breakage,
+# but it would have gone on asserting one hard-coded path for ever. Reading the
+# hrefs out of the rendered head means the check follows the markup.
+_declared = re.findall(rb'<link rel="(?:icon|apple-touch-icon)"[^>]*?href="([^"]+)"',
+                       body, re.S)
+_declared += re.findall(rb'<meta property="og:image"[^>]*?content="([^"]+)"', body, re.S)
+check(len(_declared) >= 3, "the page declares tab icons and a share image",
+      f"{len(_declared)} declared")
+for _u in _declared:
+    _path = _u.decode()
+    _path = _path[_path.index("/static"):] if "/static" in _path else _path
+    r = client.get(_path)
+    check(r.status_code == 200 and len(r.data) > 200,
+          f"{_path.rsplit('/', 1)[-1]} is served",
           f"{r.status_code}, {len(r.data)} bytes")
 
 css = client.get("/static/css/style.css").data.decode()

@@ -118,31 +118,28 @@
 {%- endmacro %}
 
 {#
-  The Folio mark: a page carrying the F, two more fanned behind it, and the
-  sweep underneath. Drawn from the supplied logo and simplified, because the
-  full illustration turns to mush at the 16px a favicon is given.
+  The Folio mark, served as the supplied artwork rather than redrawn.
 
-  Colours come from the --mark-* tokens rather than being written into the
-  paths, so the mark follows the site's palette instead of pinning it. The
-  supplied artwork is violet; the product is navy, and navy is not a
-  preference: it is the colour the printed booklet sets its headings and Class
-  Work band in, so a mark in another colour would stop matching the thing being
-  sold.
+  This was an inline SVG traced from the logo by eye. Once the real files
+  arrived the two visibly disagreed: the page tilted the other way, the letter
+  was upright where the artwork's is slanted, and the fanned pages read as flat
+  rectangles. Keeping a hand-made approximation next to the real thing means
+  maintaining two logos and having neither be the brand.
+
+  Two variants, because the artwork's page is white:
+    default  - the mark on transparency, for the navy header.
+    'onLight'- the app-icon tile, for the cream auth cards, where a white page
+               on #faf6ef has almost no contrast and the mark disappears.
+  Both are emitted by scripts/build_brand_assets.py at 2x their display size.
 #}
-{% macro mark(size=30, cls='') -%}
-<svg class="brandMark {{ cls }}" width="{{ size }}" height="{{ size }}"
-     viewBox="0 0 64 64" aria-hidden="true">
-  <path d="M40 12h13a2 2 0 0 1 2 2.4l-6 30a3 3 0 0 1-2 2.2l-12 4z"
-        fill="var(--mark-back)"/>
-  <path d="M33 10h12a2 2 0 0 1 2 2.4l-6 32a3 3 0 0 1-2 2.2l-13 4.4z"
-        fill="var(--mark-mid)"/>
-  <path d="M14 12.5 36 8a1.6 1.6 0 0 1 2 1.6v34a3 3 0 0 1-2.3 2.9l-21 5z"
-        fill="var(--mark-page)"/>
-  <path d="M21.5 43.8V21.2l13-2.6v5.6l-7.3 1.4v3.8l6-1.2v5.4l-6 1.2v7.7z"
-        fill="var(--mark-ink)"/>
-  <path d="M12 50c8 3.5 16 3.5 24 0s16-3.5 20-1.5" fill="none"
-        stroke="var(--mark-mid)" stroke-width="2.6" stroke-linecap="round"/>
-</svg>
+{% macro mark(size=30, variant='') -%}
+{% if variant == 'onLight' %}
+<img class="brandMark onLight" width="{{ size }}" height="{{ size }}" alt=""
+     src="{{ url_for('static', filename='img/brand/apple-touch-icon.png') }}">
+{% else %}
+<img class="brandMark" width="{{ size }}" height="{{ (size * 512 / 475) | round | int }}"
+     alt="" src="{{ url_for('static', filename='img/brand/mark-96.png') }}">
+{% endif %}
 {%- endmacro %}
 
 {% macro check(size=26, cls='') -%}
