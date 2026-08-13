@@ -403,7 +403,13 @@ class BookletPipeline:
                                 "test_from_week": data.tables_test.from_week
                                 if data.tables_test else None})
             booklets.append(data)
-            prev_focus = wk.focus
+            # What the week actually taught, not what it was planned to teach.
+            # wk.focus is the planner's label, written before generation: the
+            # outline parser chooses the real subtopics, and the hour cap can
+            # drop some of them, so next week's recap was revising a heading
+            # rather than the lessons the student sat through.
+            taught = [s.subtopic for s in data.sections if s.subtopic]
+            prev_focus = "; ".join(taught) if taught else wk.focus
         return booklets
 
     @staticmethod
@@ -815,12 +821,40 @@ class BookletPipeline:
         from .schemas import Subtopic
         if seen is None:
             seen = _SeenQuestions()
-        name = recap_focus or f"quick revision of key {subject} skills learned earlier"
         today = [s for _, s in (covered or []) if s]
+        if recap_focus:
+            # A term plan: revise the week before, which is the whole point of
+            # a recap and the only thing that makes it spaced retrieval rather
+            # than a general quiz.
+            name = ("revision of the material taught in LAST WEEK'S booklet, "
+                    "which covered: " + recap_focus)
+        elif today:
+            # A single booklet has no week before it, so there is nothing to
+            # space. The next best warm-up is not a random quiz but the ground
+            # today's lessons stand on: for each subtopic below, the one skill
+            # a student must already have to follow it. That also warms up the
+            # right muscle, instead of whichever one the model thought of.
+            name = ("revision of the PREREQUISITE skills that today's lessons "
+                    "build on. For each subtopic listed here, ask about the "
+                    "skill a student needs BEFORE they can learn it, never the "
+                    "subtopic itself: " + "; ".join(today))
+        else:
+            name = f"quick revision of key {subject} skills learned earlier"
         if today:
-            name += (". Revise only skills the student has met in earlier "
-                     "weeks. Do NOT ask about anything this booklet is about "
-                     "to teach: " + "; ".join(today))
+            name += (". Do NOT ask about anything this booklet is about to "
+                     "teach: " + "; ".join(today))
+        # The difficulty hint is one of three fixed words, and "easy" on its own
+        # is read in absolute terms: a Year 10 warm-up came back asking for 15%
+        # of 800 and the area of a 12 by 7 rectangle, which are Year 6 and Year
+        # 4 skills. Easy has to mean easy FOR THIS YEAR, so the floor is stated
+        # here, where there is room to say it.
+        name += (f". These are warm-up questions: quick, confidence-building, "
+                 f"a minute each at most. They are still {year_level} "
+                 f"questions. Nothing here may be more than one year below "
+                 f"{year_level}. A question a student could answer three years "
+                 f"ago is not a warm-up, it is filler, and it tells the "
+                 f"student this booklet has misjudged them before they reach "
+                 f"the first lesson.")
         st = Subtopic(name=name, difficulty_hint="easy")
         try:
             # allow_passages=False: the recap is a handful of loose questions
