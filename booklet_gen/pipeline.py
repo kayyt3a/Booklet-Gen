@@ -19,6 +19,7 @@ from .agents.spelling import SpellingAgent
 from .agents import tables as tables_agent
 from .agents.term_planner import TermPlannerAgent
 from .agents.validator import SympyValidator, ValidationResult
+from . import curriculum
 from .timing import (section_minutes, round_display, round_total,
                      classwork_section_minutes)
 from .config import Config, load_config
@@ -220,7 +221,7 @@ class BookletPipeline:
         from .programs import get_program, normalise_subject, ACCELERATE_SUBJECTS
 
         program = get_program(program_key)
-        authoring_guidance = program.authoring_guidance(year_level)
+        authoring_guidance = program.authoring_guidance(year_level) or ""
         if program.pick_subject:
             norm = normalise_subject(subject or "")
             if norm is None:
@@ -247,19 +248,30 @@ class BookletPipeline:
         seen = _SeenQuestions()
         for subj in subjects:
             description = program.describe(subj, year_level, topic)
-            outline = self._parser.parse(description, authoring_guidance)
+            # What this year level actually contains, per subject, appended
+            # after the product guide so the product's own rule is read first
+            # and the curriculum qualifies it. Per subject because NAPLAN runs
+            # maths and English through this loop and they share nothing.
+            #
+            # Without it "Year 10" was a bare string and the model filled it in
+            # from a general sense of school maths, which runs years low: a
+            # shipped Year 10 booklet taught expanding 4(2x + 5) and Pythagoras,
+            # both of which are Year 8.
+            subject_guidance = authoring_guidance + curriculum.guidance_block(
+                subj, year_level)
+            outline = self._parser.parse(description, subject_guidance)
             # Force the engine subject: the parser normalises to a known
             # subject, but the program is authoritative about which engine runs.
             outline.subject = subj
             sections, covered, rag_pool = self._generate_from_outline(
                 outline,
                 seen,
-                authoring_guidance=authoring_guidance,
+                authoring_guidance=subject_guidance,
                 use_rag=program.use_rag,
             )
             generation_context = (
-                [authoring_guidance, *rag_pool]
-                if authoring_guidance else rag_pool
+                [subject_guidance, *rag_pool]
+                if subject_guidance else rag_pool
             )
             for s in sections:
                 s.subject = subj
