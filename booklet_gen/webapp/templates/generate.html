@@ -28,6 +28,7 @@
                    value="{{ key }}" required
                    data-pick="{{ 'yes' if p.pick_subject else 'no' }}"
                    data-exam="{{ 'yes' if key in exam_programs else 'no' }}"
+                 data-naplan="{{ 'yes' if key in naplan_programs else 'no' }}"
                    onchange="onProgramChange()">
             <label for="program_{{ key }}">
               <span class="programIcon {{ inks.get(key, 'ink-navy') }}">
@@ -51,7 +52,9 @@
           <select id="year" name="year" required>
             <option value="" disabled selected>Select a year level</option>
             {% for y in years %}
-              <option value="{{ y }}" data-exam-year="{{ 'yes' if y in exam_years else 'no' }}">{{ y }}</option>
+              <option value="{{ y }}"
+                      data-exam-year="{{ 'yes' if y in exam_years else 'no' }}"
+                      data-naplan-year="{{ 'yes' if y in naplan_years else 'no' }}">{{ y }}</option>
             {% endfor %}
           </select>
         </div>
@@ -103,6 +106,7 @@
     var opt = document.querySelector('input[name="program"]:checked');
     var needsSubject = opt && opt.getAttribute('data-pick') === 'yes';
     var isExam = opt && opt.getAttribute('data-exam') === 'yes';
+    var isNaplan = opt && opt.getAttribute('data-naplan') === 'yes';
 
     document.getElementById('subjectField').hidden = !needsSubject;
     document.getElementById('subject').required = needsSubject;
@@ -116,9 +120,13 @@
     for (var i = 0; i < year.options.length; i++) {
       var o = year.options[i];
       if (!o.value) continue;
+      // NAPLAN is sat in Years 3, 5, 7 and 9 only, so offering any other year
+      // would be offering practice for a test that is never sat.
       var allowed = isExam
         ? o.getAttribute('data-exam-year') === 'yes'
-        : o.getAttribute('data-exam-year') !== 'yes';
+        : isNaplan
+          ? o.getAttribute('data-naplan-year') === 'yes'
+          : o.getAttribute('data-exam-year') !== 'yes';
       o.hidden = !allowed;
       o.disabled = !allowed;
       if (!allowed && o.selected) { o.selected = false; cleared = true; }

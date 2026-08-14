@@ -23,7 +23,7 @@ from .commerce import payments_enabled
 from .security import enforce_rate_limit
 from ..programs import (
     PROGRAMS, ACCELERATE_SUBJECTS, EXAM_PROGRAMS, EXAM_YEARS,
-    customer_programs,
+    NAPLAN_PROGRAMS, customer_programs,
 )
 
 log = logging.getLogger(__name__)
@@ -32,6 +32,15 @@ bp = Blueprint("views", __name__)
 
 YEARS = [f"Year {n}" for n in range(1, 13)]
 BOOKLET_YEARS = [f"Year {n}" for n in range(1, 11)]
+
+# NAPLAN is sat in Years 3, 5, 7 and 9 in Australia and in no other year. A
+# "Year 6 NAPLAN booklet" is not a harder or easier version of a real thing, it
+# is practice for a test that does not exist, and the guidance the product
+# leans on has no Year 6 to lean on either: booklet_gen/guidance/ holds
+# naplan_year_{3,5,7,9}.txt only, and a missing year supplement is skipped in
+# silence, so the booklet would ship wearing a NAPLAN label with none of the
+# year calibration behind it.
+NAPLAN_YEARS = ("Year 3", "Year 5", "Year 7", "Year 9")
 TERM_WEEKS = 10
 
 # Abuse guard. Paid credits control entitlements while these limits cap the
@@ -107,6 +116,7 @@ def index():
     return render_template(
         "generate.html",
         programs=programs, years=YEARS, subjects=ACCELERATE_SUBJECTS,
+        naplan_years=NAPLAN_YEARS, naplan_programs=sorted(NAPLAN_PROGRAMS),
         term_weeks=TERM_WEEKS, exam_programs=customer_exam_programs,
         exam_years=EXAM_YEARS,
         credits=db.credit_balance(g.user["id"]),
@@ -140,6 +150,13 @@ def generate():
         return redirect(url_for("views.index"))
     if not is_exam and year not in BOOKLET_YEARS:
         flash("Practice booklets are available for Years 1 to 10.")
+        return redirect(url_for("views.index"))
+    # Enforced here and not only in the dropdown. The year arrives in a POST
+    # body, so the filtered menu is a courtesy and this is the actual rule.
+    if program in NAPLAN_PROGRAMS and year not in NAPLAN_YEARS:
+        flash(f"NAPLAN is only sat in {', '.join(NAPLAN_YEARS[:-1])} and "
+              f"{NAPLAN_YEARS[-1]}. Pick one of those, or choose "
+              f"{PROGRAMS['accelerate'].label} for any other year.")
         return redirect(url_for("views.index"))
     if len(name) > 80:
         flash("Student names cannot be longer than 80 characters.")
