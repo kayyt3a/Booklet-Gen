@@ -22,7 +22,7 @@ notepad .env
 ```
 
 Open `http://127.0.0.1:5000`. Local development uses inline generation when
-`FOLIO_JOB_MODE=inline`. Stop the server with Ctrl+C.
+`FOLIO_JOB_MODE=auto`, which generates in-process when no worker is running. Stop the server with Ctrl+C.
 
 Before changing a beta or live deployment, audit a prepared environment file
 without contacting any provider. The report prints setting names but never
@@ -111,20 +111,30 @@ including GST when the business is required to charge it.
 
 ## 5. Create the Render worker
 
-The current FolioAI web service can stay in place. Create a second service:
+`render.yaml` already defines the worker and a shared secret group, so this is
+a Blueprint sync rather than a service you build by hand.
 
-1. In Render, choose New, then Background Worker.
-2. Select the same GitHub repository and Docker runtime.
-3. Name it `folio-generator` and choose at least the Starter plan.
-4. Set the Docker command to `python -m booklet_gen.worker`.
-5. Add the same `DATABASE_URL`, `GEMINI_API_KEY`, `SUPABASE_URL`,
-   `SUPABASE_SERVICE_ROLE_KEY`, and `FOLIO_STORAGE_BUCKET=booklets` used by
-   the web service.
-6. Deploy it and confirm its logs show that it is polling without errors.
+1. In Render, open the Blueprint for this repository and choose Sync, or
+   create a new Blueprint pointed at `render.yaml`. Render will show the new
+   `folio-generator` worker and the `folio-secrets` environment group.
+2. Open Environment Groups, then `folio-secrets`, and paste each value ONCE:
+   `GEMINI_API_KEY`, `DATABASE_URL`, `SUPABASE_URL`,
+   `SUPABASE_SERVICE_ROLE_KEY`. Both the web service and the worker read them
+   from here, so they cannot drift apart.
+3. Apply. The worker deploys and starts polling.
 
-One worker processes one job at a time. Add another worker instance later if
-the queue regularly grows. Database row locking prevents two workers from
-claiming the same job.
+There is no job mode to switch. The web service ships `FOLIO_JOB_MODE=auto`
+and decides per request: while the worker's heartbeat is fresh, jobs are left
+for it; when it is not, the web service generates them itself. So the worker
+can be added, restarted or removed at any time without an outage and without
+anything to flip in the right order.
+
+Confirm it worked by generating one booklet and watching the worker's logs
+claim it. `/healthz` also reports worker status.
+
+One worker processes one job at a time. Add another instance later if the
+queue regularly grows. Claiming is an atomic conditional update, so two
+workers, or a worker and the web service, can never run the same job.
 
 The included `render.yaml` can create both services as a Blueprint for a new
 deployment. For the existing service, manual configuration avoids creating a
@@ -147,7 +157,7 @@ FOLIO_BUSINESS_ADDRESS=<public business contact address>
 FOLIO_SUPPORT_EMAIL=<monitored support address>
 FOLIO_SUPPORT_PHONE=<optional monitored phone number>
 FOLIO_ADMIN_EMAILS=<your FolioAI login email>
-FOLIO_JOB_MODE=queue
+FOLIO_JOB_MODE=auto
 FOLIO_COOKIE_SECURE=1
 FOLIO_REQUIRE_PAYMENTS=1
 STRIPE_SECRET_KEY=<live or test secret for the current stage>

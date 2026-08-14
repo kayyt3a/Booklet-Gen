@@ -8,12 +8,11 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
     envVars:
+      # Entered once in Render and shared with the worker. Without the group
+      # every secret has to be pasted twice, and the two copies drift.
+      - fromGroup: folio-secrets
       - key: FLASK_SECRET_KEY
         generateValue: true
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: DATABASE_URL
-        sync: false
       - key: FOLIO_REQUIRE_POSTGRES
         value: "1"
       - key: FOLIO_PUBLIC_URL
@@ -33,12 +32,11 @@ services:
       - key: FOLIO_SUPPORT_PHONE
         sync: false
       - key: FOLIO_JOB_MODE
-        # inline: the web service generates in a background thread,
-        # which is what this deployment has always done. Switch to
-        # queue only once the worker below is provisioned: in queue
-        # mode the web service only enqueues, so without a worker
-        # the site refuses every order (see generation_is_available).
-        value: inline
+        # auto: enqueue when a worker is alive, generate in-process when one
+        # is not, decided per request. Nothing to flip and no ordering to get
+        # right. Deploy the worker and it takes over; stop the worker and the
+        # site keeps working rather than refusing orders.
+        value: auto
       - key: FOLIO_REQUIRE_PAYMENTS
         value: "1"
       - key: STRIPE_SECRET_KEY
@@ -63,44 +61,51 @@ services:
         sync: false
       - key: SMTP_STARTTLS
         value: "1"
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
       - key: FOLIO_STORAGE_BUCKET
         value: booklets
       - key: FOLIO_COOKIE_SECURE
         value: "1"
 
-# Background generation worker. Commented out because this account runs a
-# single web service today, and a Blueprint sync that created the worker
-# while the web service still said inline, or set queue while the worker
-# did not exist, would break generation in one direction or the other.
+# Background generation worker.
 #
-# To enable queue mode: uncomment this block, deploy the worker, confirm
-# /healthz reports worker healthy, then set FOLIO_JOB_MODE=queue above.
+# The web service can generate in its own process, but a deploy or a restart
+# kills a job that is running there, and a term plan runs for tens of minutes.
+# The worker is a separate service, so shipping the website stops interrupting
+# the work customers have paid for.
 #
-#   - type: worker
-#     name: folio-generator
-#     runtime: docker
-#     plan: starter
-#     maxShutdownDelaySeconds: 300
-#     dockerfilePath: ./Dockerfile
-#     dockerCommand: python -m booklet_gen.worker
-#     envVars:
-#       - key: GEMINI_API_KEY
-#         sync: false
-#       - key: DATABASE_URL
-#         sync: false
-#       - key: FOLIO_REQUIRE_POSTGRES
-#         value: "1"
-#       - key: SUPABASE_URL
-#         sync: false
-#       - key: SUPABASE_SERVICE_ROLE_KEY
-#         sync: false
-#       - key: FOLIO_STORAGE_BUCKET
-#         value: booklets
-#       - key: FOLIO_JOB_TIMEOUT
-#         value: "2700"
-#       - key: FOLIO_WORKER_POLL_SECONDS
-#         value: "2"
+# FOLIO_JOB_MODE=auto on the web service means this needs no coordination: once
+# this worker's heartbeat appears, new jobs are left for it. Until then, and
+# again if it ever stops, the web service generates them itself.
+  - type: worker
+    name: folio-generator
+    runtime: docker
+    plan: starter
+    # Long enough for an in-flight booklet to finish on a redeploy instead of
+    # being killed and refunded.
+    maxShutdownDelaySeconds: 300
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python -m booklet_gen.worker
+    envVars:
+      - fromGroup: folio-secrets
+      - key: FOLIO_REQUIRE_POSTGRES
+        value: "1"
+      - key: FOLIO_STORAGE_BUCKET
+        value: booklets
+      - key: FOLIO_JOB_TIMEOUT
+        value: "2700"
+      - key: FOLIO_WORKER_POLL_SECONDS
+        value: "2"
+
+envVarGroups:
+  # Created empty on the first Blueprint sync. Paste each value once in the
+  # Render dashboard under Environment Groups, and both services get it.
+  - name: folio-secrets
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

@@ -60,7 +60,22 @@ GLOBAL_DAILY_BOOKLET_LIMIT = int(
 # background thread with no timeout of its own, so without this a hung LLM
 # call leaves the row "running" and the user watching a spinner for ever.
 JOB_TIMEOUT_SECONDS = int(os.environ.get("FOLIO_JOB_TIMEOUT", "2700"))
-JOB_MODE = (os.environ.get("FOLIO_JOB_MODE") or "inline").strip().lower()
+# inline: this process generates, in a background thread.
+# queue:  a separate worker generates and this process only enqueues.
+# auto:   queue when a worker is actually alive, inline when one is not.
+#
+# auto is the default because the other two both have a failure that needs a
+# human. inline loses the job whenever the web service restarts, which a deploy
+# does. queue refuses every order the moment the worker is missing. Worse, the
+# switch between them had to be flipped by hand in the right order relative to
+# provisioning the worker, and getting that order wrong breaks generation in
+# one direction or the other.
+#
+# Deciding per request removes the flip entirely. Two things make it safe:
+# claim_job is an atomic UPDATE ... WHERE status='queued', so an inline thread
+# and a worker cannot both run one job whatever they each believe, and a job
+# left queued for a worker that then dies is refunded by the stale sweep.
+JOB_MODE = (os.environ.get("FOLIO_JOB_MODE") or "auto").strip().lower()
 
 for _stale in ("FOLIO_DAILY_LIMIT", "FOLIO_DAILY_BOOKLET_LIMIT"):
     if os.environ.get(_stale):
@@ -218,6 +233,8 @@ def generation_is_available() -> tuple[bool, str]:
     customer's credit is already spent. Refusing up front costs them nothing
     and tells them the truth.
     """
+    # auto always has somewhere to run the job: if no worker answers, this
+    # process does it. Only a hard "queue" can be left with nothing behind it.
     if JOB_MODE != "queue":
         return True, ""
     status = db.worker_status(WORKER_HEARTBEAT_MAX_AGE)["status"]
@@ -226,8 +243,21 @@ def generation_is_available() -> tuple[bool, str]:
     return False, status
 
 
+def _worker_is_live() -> bool:
+    try:
+        return db.worker_status(WORKER_HEARTBEAT_MAX_AGE)["status"] == "healthy"
+    except Exception:
+        # A worker that cannot be asked about is a worker that cannot be
+        # relied on. Generating here is the safe answer: the job runs.
+        log.warning("worker status unavailable; generating in-process")
+        return False
+
+
 def _dispatch_job(job_id: str, args: dict | None = None) -> None:
     if JOB_MODE == "queue":
+        return
+    if JOB_MODE == "auto" and _worker_is_live():
+        log.info("job %s left for the worker", job_id)
         return
     threading.Thread(target=_run_job, args=(job_id, args), daemon=True).start()
 
