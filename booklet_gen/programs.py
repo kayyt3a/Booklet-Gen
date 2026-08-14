@@ -27,6 +27,11 @@ EXTERNAL_CONTENT_ENV = "FOLIO_ALLOW_REVIEWED_EXTERNAL_CONTENT"
 WEB_PROGRAM_ALLOWLIST_ENV = "FOLIO_WEB_PROGRAM_ALLOWLIST"
 DEFAULT_WEB_PROGRAMS = ("naplan", "accelerate")
 
+# Products that practise for the NAPLAN tests, whatever wrapper they are sold
+# in. `describe` phrases their request as numeracy or literacy practice rather
+# than as a plain school subject.
+NAPLAN_PROGRAMS = frozenset({"naplan", "naplan_holiday"})
+
 
 @dataclass(frozen=True)
 class Program:
@@ -37,6 +42,13 @@ class Program:
     pick_subject: bool             # parent chooses the subject (Academic Accelerate)
     blurb: str                     # one-line description for menus
     guidance_file: Optional[str] = None
+    # A guide this program's own guide is written ON TOP OF, loaded first.
+    # A holiday product is the term product plus the rules that change when
+    # school is not running, so it names the term guide here and keeps its own
+    # file to what differs. The alternative was copying the whole guide into a
+    # second file, where the acceleration rule and the year bands would then
+    # exist twice and drift apart the first time either was edited.
+    base_guidance_file: Optional[str] = None
     year_guidance_pattern: Optional[str] = None
     use_rag: bool = True
 
@@ -48,7 +60,10 @@ class Program:
         if key == "scholarships":
             return (f"{year_level} scholarship and selective-school preparation, "
                     f"verbal and quantitative reasoning{t}")
-        if key == "naplan":
+        # Every NAPLAN-shaped product, not just the term one. A key added here
+        # and forgotten would fall through to the generic subject description
+        # below, and the booklet would quietly stop being NAPLAN practice.
+        if key in NAPLAN_PROGRAMS:
             if subject == "Mathematics":
                 return f"{year_level} numeracy, NAPLAN practice{t}"
             return (f"{year_level} literacy, NAPLAN practice: reading comprehension "
@@ -64,8 +79,16 @@ class Program:
 
         Calls without a year keep the original behaviour. A missing supplement
         is harmless so the four NAPLAN year guides can be added incrementally.
+
+        Order is fixed and load-bearing: the inherited guide first, then this
+        program's own, then the year supplement. A supplement that arrived
+        before the guide it qualifies would be read as the general rule and
+        contradicted by everything after it.
         """
         parts: list[str] = []
+        if self.base_guidance_file:
+            base = GUIDANCE_DIR / self.base_guidance_file
+            parts.append(base.read_text(encoding="utf-8").strip())
         if self.guidance_file:
             path = GUIDANCE_DIR / self.guidance_file
             parts.append(path.read_text(encoding="utf-8").strip())
@@ -103,6 +126,30 @@ PROGRAMS: dict[str, Program] = {
         # reaches every generation stage.
         use_rag=False,
     ),
+    # ANY break, and the key says so on purpose. NAPLAN is sat at a fixed year
+    # against that year's expectations, so this product writes at the true year
+    # level requested whichever holiday it is worked in. That is what lets one
+    # entry serve every break, and it is exactly the property the Accelerate
+    # holiday products do NOT have (see accelerate_summer below).
+    "naplan_holiday": Program(
+        key="naplan_holiday",
+        label="NAPLAN Holiday Program",
+        subject_display="Numeracy and Literacy",
+        subjects=("Mathematics", "English"),
+        pick_subject=False,
+        blurb="NAPLAN-style numeracy and literacy for the school holidays, "
+              "written to be worked at home without a teacher.",
+        base_guidance_file="naplan_practice.txt",
+        guidance_file="naplan_holiday.txt",
+        # The same year supplements as the term product, deliberately. NAPLAN
+        # is sat in Years 3, 5, 7 and 9 against a fixed year's expectations,
+        # and a holiday does not move the test.
+        year_guidance_pattern="naplan_year_{year}.txt",
+        # Same clean-room position as the term product: the existing vector
+        # library holds past assessment papers that may not be used
+        # commercially.
+        use_rag=False,
+    ),
     "accelerate": Program(
         key="accelerate",
         label="Academic Accelerate",
@@ -115,6 +162,39 @@ PROGRAMS: dict[str, Program] = {
         # a guide it would be the only customer-facing product generating with
         # no curriculum grounding at all.
         guidance_file="accelerate_practice.txt",
+        use_rag=False,
+    ),
+    # SUMMER ONLY, and the key says so on purpose.
+    #
+    # The Academic Accelerate guide writes a booklet one full year above the
+    # year requested. Over summer that is not a stretch, it is the literal
+    # truth: the student has finished the year on the request and starts the
+    # year above it when school goes back, so inheriting the acceleration rule
+    # is correct here and the base guide is used unchanged.
+    #
+    # A MID-YEAR BREAK PRODUCT CANNOT REUSE THIS ENTRY. A student on the
+    # September break returns to the SAME year level in Term 4, so a booklet a
+    # year above is simply the wrong year, and `authoring_guidance`
+    # CONCATENATES its parts rather than overriding them: a supplement saying
+    # "ignore the rule above" would sit in the same prompt as the rule itself
+    # and the model would follow whichever it liked, per subtopic. A
+    # short-break Accelerate product therefore needs its own standalone
+    # guidance file with `base_guidance_file` left unset. That guide is still
+    # owed. `check_holiday_programs.py` fails if a non-summer Accelerate
+    # program inherits this base.
+    "accelerate_summer": Program(
+        key="accelerate_summer",
+        label="Academic Accelerate Summer Program",
+        subject_display="",  # filled with the chosen subject at runtime
+        subjects=(),
+        pick_subject=True,
+        blurb="Summer holiday booklets that open next year's work early. Pick "
+              "the subject, and every method is taught before it is asked.",
+        # The term guide plus what changes with no teacher in the room. The
+        # acceleration rule, the year bands and the originality rules all come
+        # from the base file, so they cannot drift away from the term product.
+        base_guidance_file="accelerate_practice.txt",
+        guidance_file="accelerate_summer.txt",
         use_rag=False,
     ),
     "methods_exam": Program(
