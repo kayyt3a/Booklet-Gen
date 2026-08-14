@@ -14,6 +14,15 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from ..dbpool import advisory_lock, get_pool, is_postgres
 
 log = logging.getLogger(__name__)
+
+# Booklets a new account starts with. Written once: the value appears at the
+# signup grant and in two backfill migrations, and three copies of a number
+# that decides what a customer gets for free is three chances to disagree.
+#
+# The ledger is idempotent on a "welcome:<user_id>" reference, so raising this
+# does not re-grant to accounts that already have their welcome credit. Only
+# new signups see the new number.
+WELCOME_CREDITS = 2
 DB_PATH = Path(os.environ.get("FOLIO_DB", "folio.db"))
 FILE_RETENTION_PER_USER = int(os.environ.get("FOLIO_FILE_RETENTION", "20"))
 _SCHEMA_LOCK_KEY = 72_461_001
@@ -266,9 +275,9 @@ def init_db() -> None:
             conn.execute(
                 """INSERT INTO credit_ledger
                    (user_id, delta, reason, reference, created_at)
-                   SELECT id, 1, 'welcome credit', 'welcome:' || id::text, %s
+                   SELECT id, %s, 'welcome credit', 'welcome:' || id::text, %s
                    FROM users ON CONFLICT (user_id, reference) DO NOTHING""",
-                (now,),
+                (WELCOME_CREDITS, now),
             )
         return
 
@@ -299,8 +308,8 @@ def init_db() -> None:
         conn.execute(
             """INSERT OR IGNORE INTO credit_ledger
                (user_id, delta, reason, reference, created_at)
-               SELECT id, 1, 'welcome credit', 'welcome:' || id, ? FROM users""",
-            (now,),
+               SELECT id, ?, 'welcome credit', 'welcome:' || id, ? FROM users""",
+            (WELCOME_CREDITS, now),
         )
         conn.commit()
     finally:
@@ -334,7 +343,7 @@ def create_user(email: str, password: str, *, email_verified: bool = True) -> in
             _q("""INSERT INTO credit_ledger
                 (user_id, delta, reason, reference, created_at)
                 VALUES (?,?,?,?,?)"""),
-            (user_id, 1, "welcome credit", f"welcome:{user_id}", now),
+            (user_id, WELCOME_CREDITS, "welcome credit", f"welcome:{user_id}", now),
         )
     return user_id
 

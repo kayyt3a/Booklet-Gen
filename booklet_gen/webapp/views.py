@@ -23,7 +23,7 @@ from .commerce import payments_enabled
 from .security import enforce_rate_limit
 from ..programs import (
     PROGRAMS, ACCELERATE_SUBJECTS, EXAM_PROGRAMS, EXAM_YEARS,
-    NAPLAN_PROGRAMS, customer_programs,
+    NAPLAN_PROGRAMS, TERM_PLAN_WEEKS, customer_programs,
 )
 
 log = logging.getLogger(__name__)
@@ -41,21 +41,18 @@ BOOKLET_YEARS = [f"Year {n}" for n in range(1, 11)]
 # silence, so the booklet would ship wearing a NAPLAN label with none of the
 # year calibration behind it.
 NAPLAN_YEARS = ("Year 3", "Year 5", "Year 7", "Year 9")
-TERM_WEEKS = 10
+# Imported, never redefined. See programs.TERM_PLAN_WEEKS.
+TERM_WEEKS = TERM_PLAN_WEEKS
 
-# Abuse guard. Paid credits control entitlements while these limits cap the
-# maximum API spend from a compromised account or automated attack.
+# THERE IS NO PER-ACCOUNT DAILY CAP. Credits are the entitlement: a customer
+# who has paid for ten booklets can generate ten booklets, today, and a guard
+# that told them to come back tomorrow was rationing something they had already
+# bought. It also made the intended buyer impossible, since a tutoring firm is
+# one account and a cap of twelve stops them on their second student.
 #
-# The unit is a booklet, not a request. The old FOLIO_DAILY_LIMIT counted job
-# rows, and a term plan is one row that generates TERM_WEEKS booklets, so a
-# stated cap of 5 was really 50. This is a new variable name on purpose: the
-# number means something different now, and a stale FOLIO_DAILY_LIMIT=5 left
-# on a host would otherwise make term plans impossible to run at all.
-DAILY_BOOKLET_LIMIT = int(os.environ.get("FOLIO_DAILY_BOOKLET_LIMIT", "12"))
-
-# Signup is free and unverified, so the per-account cap only costs an abuser
-# the effort of creating more accounts. This is the ceiling for the whole
-# instance, i.e. the most API spend one day can produce.
+# What remains is the instance ceiling below, which is a different thing: it
+# bounds what one day can cost if signups are abused for their welcome credits,
+# and it never stands between a paying customer and work they own.
 GLOBAL_DAILY_BOOKLET_LIMIT = int(
     os.environ.get("FOLIO_GLOBAL_DAILY_BOOKLET_LIMIT", "120"))
 
@@ -65,12 +62,14 @@ GLOBAL_DAILY_BOOKLET_LIMIT = int(
 JOB_TIMEOUT_SECONDS = int(os.environ.get("FOLIO_JOB_TIMEOUT", "2700"))
 JOB_MODE = (os.environ.get("FOLIO_JOB_MODE") or "inline").strip().lower()
 
-if os.environ.get("FOLIO_DAILY_LIMIT"):
-    log.warning(
-        "FOLIO_DAILY_LIMIT is set but no longer used. The cap is now counted "
-        "in booklets, not requests: set FOLIO_DAILY_BOOKLET_LIMIT instead "
-        "(currently %d).", DAILY_BOOKLET_LIMIT,
-    )
+for _stale in ("FOLIO_DAILY_LIMIT", "FOLIO_DAILY_BOOKLET_LIMIT"):
+    if os.environ.get(_stale):
+        log.warning(
+            "%s is set but no longer used. There is no per-account daily cap: "
+            "a customer's entitlement is their credit balance. The instance "
+            "ceiling is FOLIO_GLOBAL_DAILY_BOOKLET_LIMIT (currently %d).",
+            _stale, GLOBAL_DAILY_BOOKLET_LIMIT,
+        )
 
 
 def _slug(s: str) -> str:
@@ -78,17 +77,8 @@ def _slug(s: str) -> str:
 
 
 def _quota_allows(user_id: int, units: int) -> bool:
-    used = db.booklets_started_last_24h(user_id)
-    if used + units > DAILY_BOOKLET_LIMIT:
-        remaining = max(0, DAILY_BOOKLET_LIMIT - used)
-        if units > 1 and remaining:
-            flash(f"A term plan counts as {units} booklets and you have "
-                  f"{remaining} left of today's {DAILY_BOOKLET_LIMIT}. "
-                  "Generate single booklets, or try the term plan tomorrow.")
-        else:
-            flash(f"You've reached today's limit of {DAILY_BOOKLET_LIMIT} "
-                  "booklets. Please try again tomorrow.")
-        return False
+    """Only the instance ceiling. A customer's own entitlement is their credit
+    balance, which enqueue_job checks in the same transaction that spends it."""
     if db.booklets_started_globally_last_24h() + units > GLOBAL_DAILY_BOOKLET_LIMIT:
         log.warning("global daily booklet ceiling reached (limit=%d)",
                     GLOBAL_DAILY_BOOKLET_LIMIT)
@@ -199,7 +189,7 @@ def generate():
     if not db.enqueue_job(
             job_id, g.user["id"], label, units, args,
             reserve_credits=payments_enabled(),
-            daily_limit=DAILY_BOOKLET_LIMIT,
+            daily_limit=None,
             global_daily_limit=GLOBAL_DAILY_BOOKLET_LIMIT):
         flash("You need more booklet credits for that selection.")
         return redirect(url_for("payments.pricing"))
@@ -372,7 +362,7 @@ def retry(job_id: str):
     if not db.enqueue_job(
             new_id, g.user["id"], original["label"], units,
             args, reserve_credits=payments_enabled(),
-            daily_limit=DAILY_BOOKLET_LIMIT,
+            daily_limit=None,
             global_daily_limit=GLOBAL_DAILY_BOOKLET_LIMIT):
         flash("You need more booklet credits to retry that job.")
         return redirect(url_for("payments.pricing"))
@@ -481,7 +471,6 @@ def account():
         "account.html",
         job_count=len(jobs),
         file_count=sum(1 for j in jobs if j["filename"]),
-        daily_limit=DAILY_BOOKLET_LIMIT,
         used_today=db.booklets_started_last_24h(g.user["id"]),
         credits=db.credit_balance(g.user["id"]),
         payments=db.list_payments(g.user["id"]),

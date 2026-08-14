@@ -33,6 +33,15 @@ DEFAULT_WEB_PROGRAMS = ("naplan", "accelerate")
 NAPLAN_PROGRAMS = frozenset({"naplan"})
 
 
+# How many booklets a term plan is. ONE definition, because this number is
+# simultaneously what the customer is charged and what the customer receives.
+# It used to live twice: views.py decided the credit cost, jobs.py decided how
+# many booklets to generate, and nothing connected them. Editing one and not
+# the other bills for ten and delivers four, or the reverse, and neither shows
+# up as an error anywhere.
+TERM_PLAN_WEEKS = 10
+
+
 @dataclass(frozen=True)
 class Program:
     key: str                       # internal id, used on the CLI/web

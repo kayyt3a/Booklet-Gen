@@ -47,8 +47,12 @@ client.post(
           "csrf_token": token("/signup")},
 )
 user_id = int(db.get_user_by_email("buyer@example.com")["id"])
-assert db.credit_balance(user_id) == 1
-passed("a new account receives exactly one welcome credit")
+# Read from the constant, not a literal: the number is a product decision and
+# a check that hard-codes it fails every time the decision changes, which
+# teaches people to edit the check rather than think about it.
+assert db.WELCOME_CREDITS >= 1, db.WELCOME_CREDITS
+assert db.credit_balance(user_id) == db.WELCOME_CREDITS
+passed(f"a new account receives exactly {db.WELCOME_CREDITS} welcome credits")
 
 request_data = {
     "program": "accelerate", "year": "Year 5", "subject": "Mathematics",
@@ -56,6 +60,12 @@ request_data = {
 }
 first = uuid.uuid4().hex
 assert db.enqueue_job(first, user_id, "First", 1, request_data, True)
+assert db.credit_balance(user_id) == db.WELCOME_CREDITS - 1
+# Spend down to nothing, whatever the welcome grant happens to be, so this
+# tests overspend rather than testing one particular starting balance.
+for _ in range(db.WELCOME_CREDITS - 1):
+    assert db.enqueue_job(uuid.uuid4().hex, user_id, "Spend", 1,
+                          request_data, True)
 assert db.credit_balance(user_id) == 0
 assert not db.enqueue_job(uuid.uuid4().hex, user_id, "Blocked", 1,
                           request_data, True)
@@ -66,17 +76,21 @@ assert claimed and claimed["id"] == first and claimed["status"] == "running"
 assert json.loads(claimed["request_json"])["name"] == "Ari"
 passed("the durable worker queue claims the complete stored request")
 
+# Relative, not absolute. What matters is that a failure refunds ONCE, and an
+# absolute figure ties that to whatever the welcome grant happens to be today.
+before = db.credit_balance(user_id)
 db.fail_job(first, "provider unavailable")
-assert db.credit_balance(user_id) == 1
+assert db.credit_balance(user_id) == before + 1
 db.fail_job(first, "duplicate failure callback")
-assert db.credit_balance(user_id) == 1
+assert db.credit_balance(user_id) == before + 1
 passed("a failed generation refunds its credit exactly once")
 
 retry = uuid.uuid4().hex
+before = db.credit_balance(user_id)
 assert db.enqueue_job(retry, user_id, "Retry", 1, request_data, True)
 assert db.claim_job(retry)["status"] == "running"
 db.finish_job(retry, path="placeholder.pdf")
-assert db.credit_balance(user_id) == 0
+assert db.credit_balance(user_id) == before - 1
 passed("a successful generation settles without returning the spent credit")
 
 assert db.record_payment_and_credit(
@@ -85,7 +99,7 @@ assert db.record_payment_and_credit(
 assert not db.record_payment_and_credit(
     "cs_test_once", user_id, "term", 10, 3900, "aud",
 )
-assert db.credit_balance(user_id) == 10
+assert db.credit_balance(user_id) == before - 1 + 10
 assert len(db.list_payments(user_id)) == 1
 passed("replayed Stripe fulfilment grants one purchase exactly once")
 
@@ -124,12 +138,19 @@ passed("server-side fulfilment verifies the price and remains idempotent")
 
 term = uuid.uuid4().hex
 term_request = dict(request_data, is_term=True)
+before = db.credit_balance(user_id)
 assert db.enqueue_job(term, user_id, "Term", 10, term_request, True)
-assert db.credit_balance(user_id) == 1
+assert db.credit_balance(user_id) == before - 10
 db.fail_job_if_running(term, "worker stopped")
-assert db.credit_balance(user_id) == 11
+assert db.credit_balance(user_id) == before
 passed("a 10-week plan reserves and refunds all 10 units together")
 
+# There is no per-account daily cap any more, so what a retry must not bypass
+# is the credit reservation. Drain the balance, then retry a 10-unit plan.
+drain = db.credit_balance(user_id)
+if drain:
+    assert db.adjust_credits(user_id, -drain, "test drain", f"drain:{term}")
+assert db.credit_balance(user_id) == 0
 before_retry_count = len(db.list_jobs(user_id))
 response = client.post(
     f"/retry/{term}",
@@ -137,14 +158,16 @@ response = client.post(
     follow_redirects=True,
 )
 assert response.status_code == 200
-assert b"reached today" in response.data
-assert len(db.list_jobs(user_id)) == before_retry_count
-passed("customer retries cannot bypass the daily booklet abuse guard")
+assert b"credits" in response.data.lower(), response.data[-400:]
+assert len(db.list_jobs(user_id)) == before_retry_count, \
+    "a retry with no credits still created a job"
+assert db.credit_balance(user_id) == 0
+passed("a retry cannot bypass the credit reservation")
 
-# The cap has to hold when the requests arrive together, not only when they
-# arrive one at a time. views._quota_allows counts on a plain cursor and then
-# enqueues in a separate transaction, so concurrent posts all read the same
-# pre-insert total and every one of them was admitted.
+# The transaction-level cap still exists and is still what the INSTANCE
+# ceiling rides on, so it has to hold when requests arrive together and not
+# only one at a time. A count taken on a plain cursor before a separate
+# insert lets every concurrent post read the same pre-insert total.
 import threading  # noqa: E402
 
 race_user = db.create_user("race@test.com", "correct-horse-battery")
@@ -170,7 +193,7 @@ assert sum(race_results) == RACE_LIMIT, (
     f"{sum(race_results)} of {RACE_POSTS} concurrent requests cleared a "
     f"limit of {RACE_LIMIT}")
 assert db.booklets_started_last_24h(race_user) == RACE_LIMIT
-passed("the daily cap holds when requests arrive concurrently")
+passed("a supplied cap holds when requests arrive concurrently")
 
 # A slow job that the stale sweep has already failed and refunded must not be
 # resurrected by the worker finishing later. It used to be: the customer kept

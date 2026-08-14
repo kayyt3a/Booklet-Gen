@@ -236,12 +236,21 @@ counted = db.booklets_started_last_24h(qid)
 assert counted == views.TERM_WEEKS, f"term plan counted as {counted}, not {views.TERM_WEEKS}"
 ok(f"one term plan counts as {views.TERM_WEEKS} booklets, not 1")
 
+# There is no per-account daily cap. A customer with credits may generate as
+# much as they have paid for, on the same day, which is the whole point of
+# having bought it. The guard that remains is the instance ceiling, tested
+# below, and the credit reservation, tested in check_commerce_and_jobs.py.
+assert not hasattr(views, "DAILY_BOOKLET_LIMIT"), (
+    "a per-account daily cap is back. Credits are the entitlement: a cap "
+    "rations work the customer has already bought, and makes a tutoring firm "
+    "on one account impossible")
 r = quota.post("/generate", data=dict(FORM, term_plan="on",
                                       csrf_token=token_from(quota, "/")),
                follow_redirects=True)
-assert "term plan counts as" in r.data.decode(), "second term plan was allowed"
-assert db.booklets_started_last_24h(qid) == views.TERM_WEEKS
-ok(f"a second term plan is refused against the {views.DAILY_BOOKLET_LIMIT}/day cap")
+assert "try again tomorrow" not in r.data.decode().lower(), \
+    "a second term plan on the same day was refused"
+assert db.booklets_started_last_24h(qid) == views.TERM_WEEKS * 2
+ok("a second term plan the same day is allowed, because credits are the limit")
 
 saved_global = views.GLOBAL_DAILY_BOOKLET_LIMIT
 views.GLOBAL_DAILY_BOOKLET_LIMIT = 1

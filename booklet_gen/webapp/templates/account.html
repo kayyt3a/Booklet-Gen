@@ -20,8 +20,10 @@
       <p class="statNote">{{ file_count }} still downloadable</p>
     </div>
     <div class="stat">
-      <div class="statNum">{{ used_today }} <span class="statOf">of {{ daily_limit }}</span></div>
-      <p class="statLabel">Used in the last 24 hours</p>
+      {# No "of N": there is no per-account cap any more, so a denominator
+         would be inventing a limit that does not exist. #}
+      <div class="statNum">{{ used_today }}</div>
+      <p class="statLabel">Generated in the last 24 hours</p>
       <p class="statNote">A term plan counts as its number of weeks.</p>
     </div>
   </div>

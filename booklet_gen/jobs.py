@@ -11,10 +11,13 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from .programs import TERM_PLAN_WEEKS
 from .webapp import db
 
 log = logging.getLogger(__name__)
-TERM_WEEKS = 10
+# Imported, never redefined: this is the same number the customer was
+# charged for in views.generate.
+TERM_WEEKS = TERM_PLAN_WEEKS
 
 
 def _slug(value: str) -> str:
