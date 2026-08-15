@@ -43,6 +43,8 @@ REQUIRED COVERAGE: if the subtopic can be pictured at all, AT LEAST ONE THIRD of
 
 Number and place value
 - column addition or subtraction, the vertical algorithm, carrying, borrowing, regrouping -> column_arithmetic. MANDATORY for every question in such a set, not one third: the layout IS the content of this subtopic, and "Calculate 3,425 + 2,163." printed as a bare line of text does not show the student the thing they are being taught. Set "show_answer":false on a question so the columns stand empty for them to fill in.
+- multiplying by a 2-digit number, multi-digit or "larger" multiplication, the vertical algorithm for multiplication -> long_multiplication. MANDATORY for every computation question in such a set, on the same grounds as column_arithmetic: the method is an arrangement of digits on paper, and "Calculate 463 x 24." set as a bare line of text shows the student none of it. Set "show_answer":false so the columns stand empty. "bottom" must be 1 or 2 digits; a word problem still gets the figure whenever it resolves to one multiplication.
+- dividing a multi-digit number by a single-digit divisor, short division, division with remainders -> short_division. MANDATORY for every computation question in such a set. Set "show_answer":false. "divisor" must be 2 to 12.
 - place value, reading or building a number to 999 -> place_value
 - part and whole, "how many more to make", missing addend -> part_whole
 - placing or reading a value, including decimals and negatives -> number_line
@@ -152,6 +154,16 @@ Supported spec types (use exactly these keys):
   "name this shape" question needs.
 - {"type":"column_arithmetic","top":4528,"bottom":2694,"operation":"+","show_answer":false}
   The vertical algorithm drawn in place-value columns with the carried or borrowed digits marked above. `operation` is "+" or "-"; for "-" the larger number must be `top`. Both are worked out from the numbers, so never write the carries into the question text.
+- {"type":"long_multiplication","top":573,"bottom":46,"show_answer":false}
+  Long multiplication in place-value columns: carries above, the finished
+  row's carries struck through, the placeholder zero marked, the partial
+  products added underneath. All of that is worked out from the two numbers,
+  so never write carries or partial products into the question text. `bottom`
+  must be 1 or 2 digits.
+- {"type":"short_division","dividend":746,"divisor":3,"show_answer":false}
+  Short division, the bus stop: quotient above the line, each remainder
+  carried small in front of the next digit. Worked out from the two numbers.
+  `divisor` must be 2 to 12.
 - {"type":"place_value","value":342}
   Hundreds as flats, tens as rods and ones as small squares, for any number
   from 0 to 999, with the parts named underneath. Set "label": false when the

@@ -36,6 +36,9 @@ CONTENT RULES
 - Intro paragraphs: the LENGTH LIMITS in the user turn are a ceiling, not a target, and you should usually come in under. This is a page a tutor TEACHES FROM, saying the rest aloud, so write only what has to be on paper and let `key_points` carry the teaching as short dot points. Say what the concept is and when it is used. Do NOT write to a fixed recipe. A booklet whose lessons all close on "A common mistake is..." reads as machine-made rather than written by a teacher, which is the first thing a parent notices. Name a pitfall only where it is the specific thing that trips students on THIS subtopic, and vary where it sits and how you word it. Do NOT solve the practice questions in advance.
 - Key points: the number and length are set by the LENGTH LIMITS. Short, punchy, like flashcard bullets.
 - Equivalent fractions (comparing, ordering, adding or subtracting fractions with unlike denominators, or simplifying): one key_point must give the RULE, not just the fact. "Multiplying the top and bottom by the same number does not change what a fraction is worth" tells a student what stays true; it does not tell them what to DO. State it as an instruction the student can act on, in this shape or close to it: "Whatever you do to the bottom, you do to the top" (and the reverse when simplifying: whatever you divide the bottom by, divide the top by too). That sentence is what a student actually reaches for mid-question; the fact about equivalence is not.
+- MULTI-DIGIT MULTIPLICATION: teach the vertical algorithm, digit by digit, the same way column addition is taught. The student writes the numbers stacked, multiplies the top number by ONE bottom digit at a time working right to left, and carries: "3 x 8 = 24, write the 4 underneath and carry the 2 above the next column". When a bottom digit is finished, its carries are CROSSED OUT so they are not confused with the next row's, and the next partial product starts with a ZERO placeholder in the ones column because that row is really multiplying by tens. Then the partial products are added.
+  Do NOT teach it as "243 x 2 = 486, then 243 x 10 = 2430, then add". That is a description of the answer, not the method: it skips every carry, never shows where the placeholder zero comes from, and leaves the student with two multiplications they cannot do rather than the procedure that does them. Steps must name the individual digit products and the carries, e.g. "Multiply 3 x 6 = 18. Write 8, carry the 1." A partial product stated whole with no digit working is the thing this rule exists to stop.
+- DIVISION: teach SHORT division, the bus stop. The divisor goes outside, the dividend inside, the answer is built digit by digit above the line, and each remainder is carried and written small in front of the next digit: "3 into 7 goes 2 times with 1 left over, so write 2 above the 7 and carry the 1 in front of the 4, making 14". Do not teach long division (writing out subtractions underneath) unless the divisor has two digits, and do not teach it as repeated subtraction or as a bare "746 / 3 = 248 remainder 2".
 - mnemonic: give a short, catchy name for the method when there is a natural one (like "Keep-Change-Flip" for dividing fractions). If nothing fits naturally, set it to null. Do not force a bad one.
 - worked_example is the "I do" example the tutor works through. Exactly ONE. It must be the plainest, most direct form of the subtopic, the one a teacher would put on the board first, because the practice questions that follow start there and the student has nothing else to copy from. Steps must show the actual arithmetic, not just describe it. Write like: "Step 2: Multiply 4 x 6 = 24", not "Step 2: Multiply the numbers."
 - guided_examples is the "we do" step: 1 to 2 MORE fully worked examples the student follows along with. Same step-by-step arithmetic style. Where the subtopic runs in two directions, the examples must cover BOTH: a lesson that only ever multiplies up to an equivalent fraction strands the student the moment the practice asks them to divide down. This is the guided practice between watching and working alone, so it matters. Keep each one tight.
@@ -47,6 +50,24 @@ Where the concept can be pictured at all, picture it: populate `worked_example.d
 Supported spec types:
 - {"type":"column_arithmetic","top":4528,"bottom":2694,"operation":"+","show_answer":true}
   The vertical algorithm set out in place-value columns, with the carried or borrowed digits printed above the columns they belong to. REQUIRED whenever the lesson teaches column addition or subtraction, carrying, borrowing or regrouping: that method is entirely a way of ARRANGING digits on paper, so a worked example that describes it in sentences ("add the ones: 8 + 4 = 12, write 2 and carry the 1") has not shown it. Set "show_answer":true here, because a worked example is meant to be complete. Write the steps as prose as well, but the figure is what the student copies.
+- {"type":"long_multiplication","top":573,"bottom":46,"show_answer":true}
+  Long multiplication set out in place-value columns: the carries for each
+  bottom digit printed above, the finished row's carries struck through, the
+  placeholder zero marked on the second partial product, and the partial
+  products added under a second rule. REQUIRED whenever the lesson teaches
+  multiplying by a 2-digit number, multi-digit or "larger" multiplication, or
+  the vertical algorithm for multiplication, for exactly the reason column
+  addition needs its figure: the method IS an arrangement of digits on paper,
+  and prose cannot show a carry or a placeholder. "bottom" must be 1 or 2
+  digits. Set "show_answer":true in a worked example.
+- {"type":"short_division","dividend":746,"divisor":3,"show_answer":true}
+  Short division, the bus stop: the quotient built above the line and each
+  carried remainder written small in front of the next digit of the dividend.
+  REQUIRED whenever the lesson teaches dividing a multi-digit number by a
+  single-digit divisor, short division, or division with remainders. The
+  carried remainder has nowhere to go in a sentence, which is exactly the step
+  students lose. "divisor" must be 2 to 12. Set "show_answer":true in a worked
+  example.
 - {"type":"circle_slices","slices":4,"shaded":1}
 - {"type":"bar_model","parts":8,"shaded":5}
 - {"type":"number_line","from":0,"to":1,"divisions":4,"mark_at":[0.75],"label_at":["3/4"]}

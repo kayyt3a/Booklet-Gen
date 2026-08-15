@@ -1029,9 +1029,237 @@ def _column_arithmetic(spec: dict, out: Path, f: _Fonts) -> None:
     plt.close(fig)
 
 
+# The multiplication sign the rest of the booklet normalises everything to
+# (see formatter._normalise_notation). The figure has to agree with the prose
+# beside it, or the page teaches two symbols for one operation.
+MULTIPLY_GLYPH = "×"
+
+
+def _long_multiplication(spec: dict, out: Path, f: _Fonts) -> None:
+    """Long multiplication, laid out the way a child is taught to write it.
+
+    Same principle as `_column_arithmetic`: the method IS the layout, so prose
+    cannot teach it. Written out as "243 x 2 = 486, then 243 x 10 = 2430" the
+    student never sees the two things that actually trip them up, which are
+    the digit-by-digit carrying and the zero that holds the tens column open.
+
+    So this draws what goes on the page: one carry row per multiplier digit,
+    the earlier row struck through the way a child crosses their carries out
+    when they finish one digit and start the next, a zero placeholder printed
+    in the accent colour on the second partial product, and the two partial
+    products added under a second rule.
+    """
+    import matplotlib.pyplot as plt
+
+    top = int(spec.get("top", 0))
+    bottom = int(spec.get("bottom", 0))
+    if top < 0 or bottom < 0:
+        raise ValueError("long multiplication needs non-negative numbers")
+    b_str = str(bottom)
+    if not 1 <= len(b_str) <= 2:
+        # Three multiplier digits means three partial products and three carry
+        # rows, which stops fitting the box and stops being the Year 5-6 method
+        # this exists to teach.
+        raise ValueError("long multiplication is drawn for a 1 or 2 digit multiplier")
+    if top > 9999 or top * bottom > 9_999_999:
+        raise ValueError("long multiplication is drawn up to 7 digits of product")
+
+    t_str = str(top)
+    total = top * bottom
+
+    # One partial product per multiplier digit, right to left, each with the
+    # carries it generates and the place-value zeros that hold its column.
+    partials, carry_rows = [], []
+    for j, ch in enumerate(reversed(b_str)):
+        d = int(ch)
+        marks = [""] * len(t_str)
+        carry = 0
+        for i in range(len(t_str) - 1, -1, -1):
+            p = int(t_str[i]) * d + carry
+            carry = p // 10
+            if carry and i > 0:
+                marks[i - 1] = str(carry)
+        partials.append(str(top * d) + "0" * j if d or j else "0")
+        carry_rows.append(marks)
+
+    width = max(len(str(total)), len(t_str), len(b_str),
+                max(len(p) for p in partials))
+    show = bool(spec.get("show_answer", False))
+    multi = len(partials) > 1
+
+    col = 1.0
+    x0 = col
+    # Carry rows stack upward, most recently written on top, exactly as they
+    # end up on paper: you cross out the ones row when you move to the tens.
+    y_marks = [3.0 + 0.85 * j for j in range(len(carry_rows))]
+    y_top, y_bot = 2.0, 1.0
+    rule1_y = 0.5
+    y_partials = [rule1_y - 0.75 - 1.0 * k for k in range(len(partials))]
+    rule2_y = y_partials[-1] - 0.5
+    ans_y = rule2_y - 0.75
+
+    bottom_y = (ans_y - 0.55) if show else (rule1_y - 0.3)
+    top_y = (max(y_marks) + 0.6) if show else (y_marks[0] + 0.6)
+    span_x = width + 2.2
+    fig, ax = plt.subplots(figsize=(0.30 * span_x, 0.30 * (top_y - bottom_y)),
+                           dpi=DPI)
+
+    digit_pt = f.label(15.0)
+    mark_pt = f.note(9.0)
+    mono = {"family": "DejaVu Sans Mono"}
+
+    def place(s: str, y: float, colour=LINE_COLOR, size=None, accent_zeros=0):
+        """Right-align a number across the place-value columns."""
+        padded = s.rjust(width)
+        for i, ch in enumerate(padded):
+            if ch == " ":
+                continue
+            # The placeholder zeros are the whole point of the second row, so
+            # they are the one thing on it printed in the accent colour.
+            is_pad = accent_zeros and i >= width - accent_zeros
+            ax.text(x0 + i * col, y, ch, ha="center", va="center",
+                    fontsize=size or digit_pt,
+                    color=ACCENT_COLOR if is_pad else colour, **mono)
+
+    # Carries and partial products ARE the exercise, so a question shows none
+    # of them: the same rule `_column_arithmetic` follows, for the same reason.
+    if show:
+        for j, marks in enumerate(carry_rows):
+            y = y_marks[j]
+            struck = j < len(carry_rows) - 1
+            for i, m in enumerate(marks):
+                if not m:
+                    continue
+                x = x0 + i * col
+                ax.text(x, y, m, ha="center", va="center", fontsize=mark_pt,
+                        color=ACCENT_COLOR, **mono)
+                if struck:
+                    # Crossed out, because that is what the child does to the
+                    # ones-row carries before starting the tens row.
+                    ax.plot([x - 0.3, x + 0.3], [y - 0.18, y + 0.18],
+                            color=ACCENT_COLOR, linewidth=LINE_WIDTH * 0.6)
+
+    place(t_str, y_top)
+    place(b_str, y_bot)
+    ax.text(x0 - col * 1.15, y_bot, MULTIPLY_GLYPH, ha="center", va="center",
+            fontsize=digit_pt, color=LINE_COLOR, **mono)
+    ax.plot([x0 - col * 1.55, x0 + (width - 0.45) * col], [rule1_y, rule1_y],
+            color=LINE_COLOR, linewidth=LINE_WIDTH)
+
+    if show:
+        for k, p in enumerate(partials):
+            place(p, y_partials[k], accent_zeros=k)
+        if multi:
+            ax.text(x0 - col * 1.15, y_partials[-1], "+", ha="center",
+                    va="center", fontsize=digit_pt, color=LINE_COLOR, **mono)
+            ax.plot([x0 - col * 1.55, x0 + (width - 0.45) * col],
+                    [rule2_y, rule2_y], color=LINE_COLOR, linewidth=LINE_WIDTH)
+            place(str(total), ans_y)
+
+    ax.set_xlim(x0 - col * 1.9, x0 + (width - 0.3) * col)
+    ax.set_ylim(bottom_y, top_y)
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.06, facecolor="white")
+    plt.close(fig)
+
+
+def _short_division(spec: dict, out: Path, f: _Fonts) -> None:
+    """Short division ("the bus stop"), with the carried remainders in place.
+
+    The quotient sits above the vinculum, digit over digit, and each remainder
+    is written small in front of the next digit of the dividend, which is the
+    entire method: 746 / 3 is "7 divides by 3 twice, carry the 1 in front of
+    the 4; 14 divides four times, carry the 2 in front of the 6". Described in
+    sentences none of that lands, because the carried digit has nowhere to go.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    dividend = int(spec.get("dividend", 0))
+    divisor = int(spec.get("divisor", 0))
+    if dividend < 0:
+        raise ValueError("short division needs a non-negative dividend")
+    if not 2 <= divisor <= 12:
+        # Short division is the single-digit-divisor method (extended to 11 and
+        # 12, which primary students learn as tables). A two-digit divisor is
+        # long division, a different algorithm with a different layout.
+        raise ValueError("short division is drawn for divisors 2 to 12")
+    if dividend > 9_999_999:
+        raise ValueError("short division is drawn up to 7 digits")
+
+    d_str = str(dividend)
+    # The quotient digit over each dividend digit, and the remainder carried
+    # in front of the next one: exactly the two things the child writes.
+    q_digits, carried = [], [""] * len(d_str)
+    carry = 0
+    for i, ch in enumerate(d_str):
+        cur = carry * 10 + int(ch)
+        q_digits.append(str(cur // divisor))
+        carry = cur % divisor
+        if i + 1 < len(d_str) and carry:
+            carried[i + 1] = str(carry)
+    remainder = carry
+
+    show = bool(spec.get("show_answer", False))
+
+    col = 1.2
+    x0 = col
+    y_quot, y_div = 1.5, 0.0
+    rule_y = 0.78
+    n = len(d_str)
+    right_x = x0 + (n - 0.4) * col
+
+    fig, ax = plt.subplots(figsize=(0.34 * (n + 3.2), 0.34 * 3.0), dpi=DPI)
+    digit_pt = f.label(15.0)
+    mark_pt = f.note(9.0)
+    mono = {"family": "DejaVu Sans Mono"}
+
+    for i, ch in enumerate(d_str):
+        x = x0 + i * col
+        ax.text(x, y_div, ch, ha="center", va="center", fontsize=digit_pt,
+                color=LINE_COLOR, **mono)
+        if show:
+            # A leading zero in the quotient is not written: 146 / 3 starts at
+            # the 14, and printing "048" is not what goes on the page.
+            if not (i == 0 and q_digits[0] == "0"):
+                ax.text(x, y_quot, q_digits[i], ha="center", va="center",
+                        fontsize=digit_pt, color=LINE_COLOR, **mono)
+            if carried[i]:
+                # Small, and tucked up in front of the digit it joins, which is
+                # what makes "14" out of a carried 1 and a 4.
+                ax.text(x - 0.42 * col, y_div + 0.30, carried[i], ha="center",
+                        va="center", fontsize=mark_pt, color=ACCENT_COLOR,
+                        **mono)
+
+    if show and remainder:
+        ax.text(right_x + 0.35 * col, y_quot, f"r {remainder}", ha="left",
+                va="center", fontsize=digit_pt, color=LINE_COLOR, **mono)
+
+    ax.text(x0 - col * 1.5, y_div, str(divisor), ha="center", va="center",
+            fontsize=digit_pt, color=LINE_COLOR, **mono)
+    # The bus stop itself: an arc down the left of the dividend and the
+    # vinculum over the top, drawn rather than set as a ")" glyph so it
+    # actually reaches the full height of the digits at any font scale.
+    arc_x0 = x0 - col * 0.72
+    t = np.linspace(0, 1, 40)
+    ax.plot(arc_x0 - 0.17 * col * np.sin(np.pi * t),
+            y_div - 0.5 + t * (rule_y - y_div + 0.5),
+            color=LINE_COLOR, linewidth=LINE_WIDTH)
+    ax.plot([arc_x0, right_x], [rule_y, rule_y],
+            color=LINE_COLOR, linewidth=LINE_WIDTH)
+
+    ax.set_xlim(x0 - col * 2.2, right_x + col * 1.5)
+    ax.set_ylim(y_div - 0.8, y_quot + 0.65)
+    ax.axis("off")
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.06, facecolor="white")
+    plt.close(fig)
+
+
 _RENDERERS = {
     "circle_slices": _circle_slices,
     "column_arithmetic": _column_arithmetic,
+    "long_multiplication": _long_multiplication,
+    "short_division": _short_division,
     "bar_model": _bar_model,
     "number_line": _number_line,
     "rectangle": _rectangle,
