@@ -24,16 +24,16 @@ Return a single JSON object matching this schema exactly:
   },
   "guided_examples": [
     {
-      "question": "A second short example the student follows along with.",
-      "steps": ["Step 1 ...", "Step 2 ...", "reach the answer"],
-      "answer": "The answer.",
+      "question": "A second short example the student works through with the tutor.",
+      "steps": ["Step 1 ... [[what they work out]]", "Step 2 ... [[value]]", "reach the answer"],
+      "answer": "[[The answer.]]",
       "diagram_spec": null
     }
   ]
 }
 
 - mnemonic: a short memorable hook when one fits naturally, else null. Do not force it.
-- guided_examples is the "we do" step: 1 to 2 more short worked examples the student follows along with before working alone.
+- guided_examples is the "we do" step: 1 to 2 more short examples the student works through WITH the tutor before working alone. The student FILLS THIS IN, so it is not a second demonstration: wrap every value they are meant to work out themselves in [[double square brackets]], and the booklet prints a ruled gap there for them to write in, with the value itself going to the answer key. Mark the RESULT of each step, never the numbers given in the question and never the words that explain the method: "Multiply 4 x 6 = [[24]]" is right, "[[Multiply]] 4 x 6 = 24" and "Multiply [[4]] x [[6]] = 24" are both wrong. Blank 1 to 2 values per step at most, and always blank the final `answer` field the same way. Keep enough unblanked that the method is still readable: the child should be able to see WHAT to do at every step and have to work out only the value. The worked_example above must have NO [[ ]] at all, it stays fully solved.
 
 CONTENT RULES
 - Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Cover the concept, a real-world example, and one common misconception if relevant.

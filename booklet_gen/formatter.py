@@ -852,6 +852,41 @@ def _lesson_html(text: str) -> str:
     return apply_bold_markup(_escape(quote_inline_examples(text)))
 
 
+# "Now let's try one together" used to print a second fully worked example, so
+# the child read an answer instead of reaching one and the section taught by
+# demonstration twice over. The guided example now arrives with the values the
+# child is meant to work out wrapped in [[ ]], and the same string renders two
+# ways: a ruled gap on the page they write on, the value itself in the answer
+# key. One source of truth, so a blank and its answer cannot disagree.
+_BLANK_RE = re.compile(r"\[\[(.+?)\]\]")
+
+# A gap is written into in pencil by a child, so it is sized for a hand rather
+# than for the text it hides: the padding is what makes "21" comfortable to
+# write rather than cramped. It still grows with the answer, so the gap hints
+# at the size of what goes in it, and it is capped so a long phrase cannot push
+# the line off the page.
+_BLANK_PAD = 3
+_BLANK_MIN_CHARS, _BLANK_MAX_CHARS = 6, 16
+
+
+def has_blanks(text: str) -> bool:
+    return bool(_BLANK_RE.search(text or ""))
+
+
+def blank_out(escaped: str) -> str:
+    """Replace every [[value]] with a ruled gap to write the value into."""
+    def gap(m: re.Match) -> str:
+        width = min(max(len(m.group(1)) + _BLANK_PAD, _BLANK_MIN_CHARS),
+                    _BLANK_MAX_CHARS)
+        return f"<u>{'&nbsp;' * width}</u>"
+    return _BLANK_RE.sub(gap, escaped or "")
+
+
+def fill_in(escaped: str) -> str:
+    """Replace every [[value]] with the value, bold, for the answer key."""
+    return _BLANK_RE.sub(lambda m: f"<b>{m.group(1)}</b>", escaped or "")
+
+
 MAX_IMG_WIDTH = 7.5 * cm
 MAX_IMG_HEIGHT = 4.8 * cm
 WE_IMG_WIDTH = 6 * cm
@@ -967,7 +1002,8 @@ def _lesson_flowables(styles, t, year_level: str | None = None) -> list:
     for ge in t.guided_examples:
         out.append(Spacer(1, 0.2 * cm))
         out.append(_worked_example_flowable(
-            styles, ge, _GE_LABEL_PAULIO if paulio else _GE_LABEL, paulio=paulio))
+            styles, ge, _GE_LABEL_PAULIO if paulio else _GE_LABEL, paulio=paulio,
+            guided=True))
     return out
 
 
@@ -1004,10 +1040,17 @@ _WE_BOX_INNER_WIDTH = A4[0] - 2 * PAGE_MARGIN - 0.4 * cm - 20
 
 
 def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked example",
-                             paulio: bool = False):
+                             paulio: bool = False, guided: bool = False,
+                             reveal: bool = False):
     """Return a bordered box containing a worked example. `label` distinguishes
     the "I do" worked example from the "we do" guided ones. `paulio` puts his
-    icon beside the label, for the same year levels he narrates in."""
+    icon beside the label, for the same year levels he narrates in.
+
+    `guided` marks the "we do" box, where the [[values]] are left as gaps for
+    the child to fill. `reveal` prints those values instead, for the answer
+    key. The "I do" example is never blanked: it is the one complete model of
+    the method on the page, and the practice that follows starts from it.
+    """
     # Worked examples are lesson content, so they get the same treatment: a
     # **term** the model marked up there becomes bold rather than printing its
     # asterisks, and a stray run of asterisks is dropped.
@@ -1029,8 +1072,11 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
         inner = [header]
     else:
         inner = [label_para]
-    inner.append(
-        Paragraph(apply_bold_markup(_escape(instruction)), styles["we_question"]))
+    # The question states the task, so a [[ ]] the model put here would blank
+    # out part of what is being asked. Strip the markers and keep the words.
+    inner.append(Paragraph(
+        _BLANK_RE.sub(r"\1", apply_bold_markup(_escape(instruction))),
+        styles["we_question"]))
     if specimen:
         # Set apart, indented and quoted, so the task and the thing the task is
         # about are not one run-on paragraph.
@@ -1042,11 +1088,28 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
         inner.append(Spacer(1, 0.15 * cm))
         inner.append(img)
         inner.append(Spacer(1, 0.15 * cm))
+    # A guided example the model returned with no [[ ]] at all would print as a
+    # second demonstration, which is the thing this section stopped being. The
+    # answer is blanked regardless, so the box always asks for something.
+    gaps = guided and not reveal
+    marked = guided and any(has_blanks(s) for s in [*we.steps, we.answer])
+    if gaps and not marked:
+        log.warning("guided example has no [[blanks]]; blanking its answer only")
+
+    def render(text: str) -> str:
+        escaped = apply_bold_markup(_escape(text))
+        if reveal:
+            return fill_in(escaped)
+        return blank_out(escaped) if guided else _BLANK_RE.sub(r"\1", escaped)
+
     for i, step in enumerate(we.steps, 1):
-        inner.append(Paragraph(
-            f"<b>{i}.</b> {apply_bold_markup(_escape(_strip_step_prefix(step)))}",
-            styles["we_step"]))
-    inner.append(Paragraph(f"Answer: {_escape(we.answer)}", styles["we_answer"]))
+        inner.append(Paragraph(f"<b>{i}.</b> {render(_strip_step_prefix(step))}",
+                               styles["we_step"]))
+    if gaps and not marked:
+        answer_html = f"<u>{'&nbsp;' * _BLANK_MAX_CHARS}</u>"
+    else:
+        answer_html = render(we.answer)
+    inner.append(Paragraph(f"Answer: {answer_html}", styles["we_answer"]))
 
     tbl = Table([[inner]], colWidths=[A4[0] - 2 * PAGE_MARGIN - 0.4 * cm])
     tbl.setStyle(TableStyle([
@@ -2400,6 +2463,23 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     if data.recap_questions:
         story.append(_key_part_heading(styles, "Warm-up Recap", PART_RECAP))
         render_answers(data.recap_questions)
+
+    # The gaps in "let's try one together" are the only thing in the booklet a
+    # child writes into that the key would otherwise not cover, so they come
+    # first: whoever is sitting with them needs the filled-in version before
+    # the independent practice, not after it.
+    guided = [(s, ge) for s in data.sections
+              for ge in ((s.teaching.guided_examples if s.teaching else []) or [])]
+    if guided:
+        story.append(_key_part_heading(styles, "Let's try one together",
+                                       PART_CLASSWORK))
+        state = {"subject": None, "topic": None}
+        for section, ge in guided:
+            subject_topic_headers(section, state)
+            story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+            story.append(_worked_example_flowable(
+                styles, ge, "Completed", guided=True, reveal=True))
+            story.append(Spacer(1, 0.2 * cm))
 
     story.append(_key_part_heading(styles, "Class Work", PART_CLASSWORK))
     state = {"subject": None, "topic": None}
