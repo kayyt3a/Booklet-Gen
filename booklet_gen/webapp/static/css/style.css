@@ -389,6 +389,62 @@ a.link{color:var(--navy);font-weight:600}
   .scatter .s{opacity:.38}
 }
 
+/* ---- paulio ----
+ * MASCOT_GUIDE.md sets two size bands and says which CSS pixel range each
+ * renders in on desktop: standard poses 160-280px, desk scenes 260-420px.
+ * The files themselves ship at 2x whatever width is set here (see
+ * scripts/build_paulio_assets.py), so this is the one place that number is
+ * chosen; the asset stays sharp on a retina screen either way.
+ *
+ * No transform is ever applied to a Paulio image. The guide is explicit that
+ * an asset must never be CSS-mirrored: the pencil has to stay behind his
+ * anatomical left ear, and mirroring would put it on the wrong side. Facing
+ * the other way means loading the file drawn facing that way, not flipping
+ * this one.
+ */
+.paulioStd{display:block;width:220px;max-width:100%;height:auto;flex:none}
+/* Above the hero headline rather than beside it: heroInner is a single
+ * centred 560px column, and a side-by-side layout would squeeze the
+ * headline into a column too narrow for --t-hero to wrap cleanly. */
+.paulioIntro{width:150px;margin:0 auto var(--s4);display:block;height:auto}
+@media (max-width:700px){ .paulioIntro{width:120px} }
+.paulioDesk{display:block;width:320px;max-width:100%;height:auto;flex:none}
+@media (max-width:700px){
+  .paulioStd{width:170px}
+  .paulioDesk{width:240px}
+}
+
+/* Flush with the top edge of whatever it sits on, per the guide. The file is
+ * drawn upside down already, so this only positions it, never rotates it.
+ * Right-aligned and clear of the heading row on purpose: a first version sat
+ * left-aligned at the same spot the card's own heading starts, landing his
+ * face directly over the words "Choose your practice". */
+.paulioHanging{
+  display:block;width:110px;max-width:30%;height:auto;
+  position:absolute;top:0;right:var(--s5);transform:translateY(-20%);
+  z-index:2;
+}
+@media (max-width:700px){
+  /* Narrower still than the desktop rule: the subtitle line wraps close to
+   * the card's full width on a phone, so there is less clear space on the
+   * right for him to hang into without sitting over the text. */
+  .paulioHanging{width:64px;right:0;transform:translateY(-14%)}
+}
+
+/* A pose beside a block of text, looking in at it. Stacks on a phone rather
+ * than shrinking the text column to fit a fixed-width companion beside it. */
+.paulioRow{display:flex;align-items:center;gap:var(--s6);flex-wrap:wrap}
+.paulioRow>*{flex:1 1 260px;min-width:0}
+.paulioRow .paulioStd,.paulioRow .paulioDesk{flex:0 0 auto;margin-inline:auto}
+@media (max-width:700px){
+  .paulioRow{flex-direction:column-reverse}
+  /* flex-basis:260px targets a WIDTH in the row layout above. In a column
+   * flex container the main axis is vertical, so the same basis was read as
+   * a minimum HEIGHT instead, and a two-line paragraph sat inside a 260px
+   * tall box with the rest left blank. auto sizes it to its content again. */
+  .paulioRow>*{flex-basis:auto}
+}
+
 /* ---- landing ----
  * A band, not a card. Every section of the site used to be the same rounded
  * white rectangle at the same width, so at squint distance the page was four

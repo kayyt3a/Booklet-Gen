@@ -10,6 +10,8 @@
     <div class="empty emptyWarm">
       {{ scatter() }}
       <div style="position:relative;z-index:1">
+        <img class="paulioIntro" src="{{ url_for('static', filename='img/paulio/paulio-library.png') }}"
+             alt="Paulio carrying a stack of booklets">
         <p>Nothing here yet. Your first booklet takes about two minutes to build.</p>
         <a class="btn small" href="{{ url_for('views.index') }}">Create your first booklet</a>
       </div>

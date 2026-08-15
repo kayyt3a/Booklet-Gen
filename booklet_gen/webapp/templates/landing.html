@@ -6,6 +6,8 @@
 <section class="hero bleed">
   {{ scatter() }}
   <div class="heroInner">
+    <img class="paulioIntro" src="{{ url_for('static', filename='img/paulio/paulio-welcome.png') }}"
+         alt="Paulio, FolioAI's study buddy, waving hello with a notebook under his arm">
     {# Driven from customer_programs(), never written out by hand. This line
        advertised "plus WACE exams" for weeks while methods_exam was held back
        from the customer menu, so the one thing the eyebrow named was the one
@@ -55,7 +57,9 @@
   </div>
 </section>
 
-<div class="card">
+<div class="card" style="position:relative;overflow:visible">
+  <img class="paulioHanging" src="{{ url_for('static', filename='img/paulio/paulio-hanging.png') }}"
+       alt="">
   <h2>Choose your practice</h2>
   <p class="sub">Pick the one that matches what the student is working towards.</p>
   <div class="lines">
