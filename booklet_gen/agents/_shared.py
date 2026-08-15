@@ -56,9 +56,39 @@ _GLOBAL_PEOPLE = (
 )
 
 
+# Also appended to every system prompt. A shipped Year 5 Final Challenge
+# printed an answer key entry that argued with itself: the headline said "the
+# student is correct" while the working two lines below it derived the
+# opposite conclusion, and a bare "Wait, checking calculation:" sat in the
+# middle of it, a thinking-out-loud artifact that was never meant to reach the
+# page. Nothing in any prompt told the model that `answer` has to be the
+# conclusion `working` actually reaches, or that reasoning happens before
+# writing rather than on the page. This applies to every field that shows
+# reasoning to the student (a worked example, guided example, question
+# `working`, or a challenge answer), because any of them can carry the same
+# self-correction.
+_GLOBAL_REASONING = (
+    "\n\nSHOWING YOUR WORKING (applies to every worked example, guided "
+    "example, and answer explanation you write): Work the problem out before "
+    "you write a word of it. What you write is the clean final derivation "
+    "only, never the thinking that got you there. Do not write 'wait', 'let "
+    "me check', 'actually', 'hmm', or any other sign of changing your mind "
+    "mid-explanation. If you catch an error, discard the wrong attempt "
+    "silently and write only the corrected version. The stated answer must "
+    "be the conclusion the shown working actually reaches, never a "
+    "conclusion the working does not support. When a question asks the "
+    "student to justify, verify or check a claim, the calculation you set "
+    "must be capable of actually deciding it: never ask for a justification "
+    "using a quantity that is constant regardless of whether the claim is "
+    "true (the mean of a triangle's three angles is always 60 degrees no "
+    "matter what any one angle is, so computing it proves nothing about a "
+    "specific angle and is not a justification)."
+)
+
+
 def load_prompt(name: str) -> str:
     return ((PROMPT_DIR / name).read_text(encoding="utf-8")
-            + _GLOBAL_STYLE + _GLOBAL_PEOPLE)
+            + _GLOBAL_STYLE + _GLOBAL_PEOPLE + _GLOBAL_REASONING)
 
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
