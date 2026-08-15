@@ -169,6 +169,38 @@ assert row_at(rows, ONES_CARRY_Y) == "41", (
     "'41' (573 x 6 carries 1 then 4)")
 ok("573 x 46 prints both carry rows, each with the right digits")
 
+
+def columns_at(rows, y):
+    """{column index: digit} for one row. x = x0 + i*col, x0 = col = 1.0."""
+    return {int(round(x - 1.0)): s for yy, x, s in rows if yy == y}
+
+
+# The digits alone cannot see this: a carry with the right VALUE over the
+# wrong COLUMN reads as correct to any string comparison, and is exactly the
+# mistake a child would copy into their book. Every row on the figure is
+# right-aligned to the width of the product (5 for 573 x 46), so 573 sits in
+# columns 2, 3, 4 and its carries belong in columns 2 and 3, directly above
+# the 5 and the 7 they came out of.
+top_cols = columns_at(rows, 2.0)
+assert top_cols == {2: "5", 3: "7", 4: "3"}, top_cols
+for label, y, want in (("tens", TENS_CARRY_Y, {2: "2", 3: "1"}),
+                       ("ones", ONES_CARRY_Y, {2: "4", 3: "1"})):
+    got = columns_at(rows, y)
+    assert got == want, (
+        f"the {label} carries sit in columns {sorted(got)}, expected "
+        f"{sorted(want)}: a carry is not above the digit it came from")
+ok("each carry sits directly above the digit that produced it")
+
+# A 2-digit top number makes the padding zero, so this would pass even with
+# the offset dropped. A wider product is what exposes it.
+rows_w, _ = drawn(D._long_multiplication,
+                  {"type": "long_multiplication", "top": 87, "bottom": 96,
+                   "show_answer": True})
+assert columns_at(rows_w, 2.0) == {2: "8", 3: "7"}, columns_at(rows_w, 2.0)
+assert columns_at(rows_w, ONES_CARRY_Y) == {2: "4"}, \
+    columns_at(rows_w, ONES_CARRY_Y)
+ok("87 x 96 keeps its carry above the 8, not out over the partial products")
+
 for top, digit, want in ((573, 6, ["4", "1"]), (573, 4, ["2", "1"]),
                          (999, 9, ["8", "8"]), (111, 2, [])):
     assert carries_for(top, digit) == want, (top, digit, carries_for(top, digit))

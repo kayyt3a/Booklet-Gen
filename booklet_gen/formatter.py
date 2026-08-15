@@ -35,6 +35,23 @@ PAGE_MARGIN = 2.0 * cm
 # clears both. It also moves the header out from under a corner staple.
 CHROME_MARGIN = 1.6 * cm
 
+# The four parts of the booklet, each with its own colour, used for the band in
+# the body and the matching heading in the answer key. Named rather than
+# repeated as literals: Homework and the Final Challenge were both #8B1E3F in
+# four separate places, so at a flip-through the routine practice and the
+# graded cumulative test were the same block of colour and only the words told
+# them apart.
+#
+# The Final Challenge is bronze, not another red. It reads as the trophy at the
+# end, it ties to the brand's orange rather than introducing a new hue, and it
+# is the one choice here that also separates from Homework in GREYSCALE
+# (relative luminance 0.15 against maroon's 0.07), which matters because most
+# of these are printed on a home mono printer.
+PART_RECAP = "#6b7280"
+PART_CLASSWORK = "#1F3A5F"
+PART_HOMEWORK = "#8B1E3F"
+PART_CHALLENGE = "#9A5B0E"
+
 log = logging.getLogger(__name__)
 
 
@@ -235,7 +252,7 @@ def _make_styles():
         "challenge_heading": ParagraphStyle(
             "challenge_heading", parent=base["Heading1"], fontName=FONT_BOLD,
             fontSize=22, leading=26, alignment=TA_CENTER, spaceAfter=6,
-            textColor=colors.HexColor("#8B1E3F"),
+            textColor=colors.HexColor(PART_CHALLENGE),
         ),
         "challenge_blurb": ParagraphStyle(
             "challenge_blurb", parent=base["Normal"], fontName=FONT_ITALIC,
@@ -621,12 +638,22 @@ def key_answer(question) -> str:
 _SOLUTION_SPLIT_RE = re.compile(r"(?<=[.:;])\s+(?=[A-Z0-9(¹²³⁴⁵⁶⁷⁸⁹])")
 
 
+# A step number with nothing after it: "1.", "2)", "3". The Final Challenge is
+# the one place the model numbers its own working, and splitting on sentence
+# ends then stranded every numeral on a line of its own, so an answer that read
+# as three lines everywhere else read as nine here and looked like a rendering
+# fault. Every other part of the key carries no numbers at all, one step per
+# line, so these are dropped rather than rejoined: putting "1." back on the
+# front of one line and nothing on the next numbers a third of the working.
+_BARE_ENUMERATOR_RE = re.compile(r"^\d{1,2}\s*[.)]?$")
+
+
 def solution_lines(working: str) -> list[str]:
     lines: list[str] = []
     for raw in (working or "").splitlines():
         for part in _SOLUTION_SPLIT_RE.split(raw.strip()):
             part = _strip_step_prefix(part.strip())
-            if part:
+            if part and not _BARE_ENUMERATOR_RE.match(part):
                 lines.append(part)
     return lines
 
@@ -1681,7 +1708,7 @@ def _session_band(styles, index: int, of: int, minutes: int, count: int):
                 colWidths=[A4[0] - 2 * PAGE_MARGIN])
     tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F1E7EB")),
-        ("LINEBEFORE", (0, 0), (0, -1), 3, colors.HexColor("#8B1E3F")),
+        ("LINEBEFORE", (0, 0), (0, -1), 3, colors.HexColor(PART_HOMEWORK)),
         ("LEFTPADDING", (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
         ("TOPPADDING", (0, 0), (-1, -1), 6),
@@ -2120,14 +2147,14 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     if data.recap_questions:
         sub = f"Quick revision to warm up. About {times['recap_minutes']} min." \
             if times["recap_minutes"] else "Quick revision to warm up."
-        story.append(_part_band(styles, "Warm-up Recap", "#6b7280", sub))
+        story.append(_part_band(styles, "Warm-up Recap", PART_RECAP, sub))
         story.append(Spacer(1, 0.3 * cm))
         render_questions(data.recap_questions, _RECAP_MIN_SPACE_CM)
 
     # ---- Class Work (lesson + guided + now-you-try) ----
     cw_sub = f"Do this in your lesson. About {times['classwork_minutes']} min." \
         if times["classwork_minutes"] else "Do this in your lesson."
-    story.append(_part_band(styles, "Class Work", "#1F3A5F", cw_sub))
+    story.append(_part_band(styles, "Class Work", PART_CLASSWORK, cw_sub))
     story.append(Spacer(1, 0.3 * cm))
     state = {"subject": None, "topic": None}
     for si, section in enumerate(data.sections):
@@ -2185,7 +2212,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         if data.challenge_questions and times["challenge_minutes"]:
             hw_sub += (" The Final Challenge at the end adds about "
                        f"{times['challenge_minutes']} min.")
-        story.append(_part_band(styles, "Homework", "#8B1E3F", hw_sub))
+        story.append(_part_band(styles, "Homework", PART_HOMEWORK, hw_sub))
         story.append(Spacer(1, 0.3 * cm))
 
         # Session boundaries are indices into the flat homework list, so a
@@ -2288,7 +2315,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             ct = (f" About {times['challenge_minutes']} min."
                   if times["challenge_minutes"] else "")
             story.append(_part_band(
-                styles, "Final Challenge", "#8B1E3F",
+                styles, "Final Challenge", PART_CHALLENGE,
                 "You have done the hard part. These last questions mix "
                 f"everything together. Nothing new, just all at once.{ct}"))
             story.append(Spacer(1, 0.3 * cm))
@@ -2371,10 +2398,10 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             render_answers(qs)
 
     if data.recap_questions:
-        story.append(_key_part_heading(styles, "Warm-up Recap", "#6b7280"))
+        story.append(_key_part_heading(styles, "Warm-up Recap", PART_RECAP))
         render_answers(data.recap_questions)
 
-    story.append(_key_part_heading(styles, "Class Work", "#1F3A5F"))
+    story.append(_key_part_heading(styles, "Class Work", PART_CLASSWORK))
     state = {"subject": None, "topic": None}
     for section in data.sections:
         # A subtopic the hour cap moved out has no class work, and its answers
@@ -2392,7 +2419,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         render_section_answers(section, section.questions)
 
     if has_homework:
-        story.append(_key_part_heading(styles, "Homework", "#8B1E3F"))
+        story.append(_key_part_heading(styles, "Homework", PART_HOMEWORK))
         state = {"subject": None, "topic": None}
         for section in data.sections:
             if not section.homework_questions:
@@ -2402,7 +2429,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             render_section_answers(section, section.homework_questions)
 
     if data.challenge_questions:
-        story.append(_key_part_heading(styles, "Final Challenge", "#8B1E3F"))
+        story.append(_key_part_heading(styles, "Final Challenge", PART_CHALLENGE))
         render_answers(data.challenge_questions)
 
     story.extend(_image_credits_block(styles, data))

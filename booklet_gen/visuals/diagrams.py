@@ -1124,13 +1124,19 @@ def _long_multiplication(spec: dict, out: Path, f: _Fonts) -> None:
     # Carries and partial products ARE the exercise, so a question shows none
     # of them: the same rule `_column_arithmetic` follows, for the same reason.
     if show:
+        # `marks` is indexed against the top number, but every row on the
+        # figure is right-aligned to the width of the PRODUCT, which is wider.
+        # Without this offset the carries drift left of the digits they came
+        # from and hang over the partial products instead: a carry above the
+        # wrong column is the error a child copies straight into their book.
+        pad = width - len(t_str)
         for j, marks in enumerate(carry_rows):
             y = y_marks[j]
             struck = j < len(carry_rows) - 1
             for i, m in enumerate(marks):
                 if not m:
                     continue
-                x = x0 + i * col
+                x = x0 + (pad + i) * col
                 ax.text(x, y, m, ha="center", va="center", fontsize=mark_pt,
                         color=ACCENT_COLOR, **mono)
                 if struck:

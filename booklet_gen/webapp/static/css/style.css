@@ -458,6 +458,19 @@ a.link{color:var(--navy);font-weight:600}
   .paulioHanging{width:64px;right:0;transform:translateY(-14%)}
 }
 
+/* He is absolutely positioned, so he takes no space in the flow and nothing
+ * stops a heading or subtitle running underneath him. Shrinking him further
+ * was not the fix: on a phone the subtitle wrapped wider than he is narrow
+ * and his paw landed on the word "student". Reserve the column he hangs in
+ * instead, so the text wraps before it reaches him. The gap is his width
+ * plus the clear space MASCOT_GUIDE.md asks for around the mark. */
+.paulioHangCard > h2,
+.paulioHangCard > .sub{padding-right:150px}
+@media (max-width:700px){
+  .paulioHangCard > h2,
+  .paulioHangCard > .sub{padding-right:78px}
+}
+
 /* A pose beside a block of text, looking in at it. Stacks on a phone rather
  * than shrinking the text column to fit a fixed-width companion beside it. */
 .paulioRow{display:flex;align-items:center;gap:var(--s6);flex-wrap:wrap}
