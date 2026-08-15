@@ -107,13 +107,38 @@ os.environ["STRIPE_SECRET_KEY"] = "sk_test_local-check"
 os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_local-check"
 os.environ["STRIPE_PRICE_SINGLE"] = "price_single_check"
 os.environ["STRIPE_PRICE_TERM"] = "price_term_check"
-checkout_session = SimpleNamespace(
+
+
+class _FakeStripeObject:
+    """A SimpleNamespace has .get(), a real stripe.StripeObject does not: its
+    attribute access falls through to item access, so .get reads as an
+    AttributeError. A fixture built from SimpleNamespace/dict passes either
+    way and misses exactly the bug that shipped: fulfil_checkout called
+    .get() on session.metadata and threw on every real webhook Stripe sent,
+    while this fixture stayed silent about it. This fakes only that one
+    property, deliberately, so the check fails the same way production did.
+    """
+
+    def __init__(self, **kwargs):
+        self._data = kwargs
+
+    def __getattr__(self, name):
+        try:
+            return self._data[name]
+        except KeyError as e:
+            raise AttributeError(name) from e
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+
+checkout_session = _FakeStripeObject(
     id="cs_test_verified",
     payment_status="paid",
     client_reference_id=str(user_id),
-    metadata={"product_key": "single"},
-    line_items=SimpleNamespace(data=[SimpleNamespace(
-        price=SimpleNamespace(id="price_single_check"),
+    metadata=_FakeStripeObject(product_key="single"),
+    line_items=_FakeStripeObject(data=[_FakeStripeObject(
+        price=_FakeStripeObject(id="price_single_check"),
     )]),
     amount_total=790,
     currency="aud",

@@ -104,7 +104,7 @@ def fulfil_checkout(session_id: str) -> int | None:
     if user is None:
         raise ValueError("Checkout session belongs to an account that no longer exists.")
 
-    product_key = (session.metadata or {}).get("product_key", "")
+    product_key = _field(_field(session, "metadata", {}) or {}, "product_key", "")
     product = products().get(product_key)
     if product is None:
         raise ValueError("Checkout session has an unknown FolioAI product.")
