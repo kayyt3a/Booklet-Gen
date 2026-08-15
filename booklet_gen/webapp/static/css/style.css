@@ -406,19 +406,40 @@ a.link{color:var(--navy);font-weight:600}
 /* Above the hero headline rather than beside it: heroInner is a single
  * centred 560px column, and a side-by-side layout would squeeze the
  * headline into a column too narrow for --t-hero to wrap cleanly. */
-.paulioIntro{width:150px;margin:0 auto var(--s4);display:block;height:auto}
+.paulioIntro{width:150px;margin:0 auto var(--s2);display:block;height:auto}
 @media (max-width:700px){ .paulioIntro{width:120px} }
-/* His alt text says who he is; a sighted visitor never reads alt text, so
- * without this line "Paulio" appeared nowhere a person could actually see it. */
-.paulioCaption{
-  font-size:var(--t-small);font-weight:600;color:var(--muted);
-  text-align:center;margin:0 0 var(--s3);
-}
-.paulioDesk{display:block;width:320px;max-width:100%;height:auto;flex:none}
+.paulioDesk{display:block;width:320px;max-width:100%;height:auto;flex:none;margin:0 auto var(--s2)}
 @media (max-width:700px){
   .paulioStd{width:170px}
   .paulioDesk{width:240px}
 }
+
+/* A speech bubble under whichever Paulio image precedes it, so a line reads
+ * as him talking rather than as a caption printed near him. One tail
+ * direction only: everywhere he appears now pairs an image with a bubble
+ * directly below it (see .paulioWith for the two-column placements), so
+ * there was never a need for a second, sideways-pointing variant. */
+.paulioBubble{
+  /* Self-centering rather than inline-block relying on a centred parent:
+   * the hero and pricing intro are text-align:center, but .card is not, and
+   * this is used inside both. */
+  display:block;width:fit-content;max-width:230px;margin:var(--s2) auto 0;
+  position:relative;
+  background:#fff;border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:var(--s2) var(--s3);
+  font-size:var(--t-small);color:var(--ink);line-height:1.4;text-align:left;
+}
+.paulioBubble::before,.paulioBubble::after{
+  content:"";position:absolute;left:50%;transform:translateX(-50%);
+  border-left:8px solid transparent;border-right:8px solid transparent;
+}
+.paulioBubble::before{top:-9px;border-bottom:9px solid var(--border)}
+.paulioBubble::after{top:-8px;border-bottom:8px solid #fff}
+
+/* Pairs one Paulio image with the bubble under it as a single unit, for the
+ * two-column layouts where he sits beside a block of unrelated page text
+ * rather than alone in a centred column. */
+.paulioWith{display:flex;flex-direction:column;align-items:center;flex:none}
 
 /* Flush with the top edge of whatever it sits on, per the guide. The file is
  * drawn upside down already, so this only positions it, never rotates it.
@@ -441,7 +462,7 @@ a.link{color:var(--navy);font-weight:600}
  * than shrinking the text column to fit a fixed-width companion beside it. */
 .paulioRow{display:flex;align-items:center;gap:var(--s6);flex-wrap:wrap}
 .paulioRow>*{flex:1 1 260px;min-width:0}
-.paulioRow .paulioStd,.paulioRow .paulioDesk{flex:0 0 auto;margin-inline:auto}
+.paulioRow .paulioWith{flex:0 0 auto;margin-inline:auto}
 @media (max-width:700px){
   .paulioRow{flex-direction:column-reverse}
   /* flex-basis:260px targets a WIDTH in the row layout above. In a column

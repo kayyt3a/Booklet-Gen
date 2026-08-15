@@ -3,16 +3,30 @@
 {% block title %}My booklets - FolioAI{% endblock %}
 {% block body %}
 <div class="card">
-  <h1>My booklets</h1>
-  <p class="sub">Everything you have generated, newest first.</p>
+  <div class="paulioRow">
+    <div class="paulioWith">
+      <img class="paulioStd" src="{{ url_for('static', filename='img/paulio/paulio-library.png') }}"
+           alt="Paulio carrying a stack of booklets">
+      {# He used to appear only in the empty state, so an account with real
+         booklets never showed him at all. Showing him here, always, with a
+         message that reads the same jobs list the rest of the page does,
+         fixed that without printing him twice on an empty account. #}
+      <div class="paulioBubble">
+        {% if jobs %}Here&rsquo;s everything you&rsquo;ve made so far.
+        {% else %}Nothing here yet, let&rsquo;s make your first one.{% endif %}
+      </div>
+    </div>
+    <div>
+      <h1>My booklets</h1>
+      <p class="sub">Everything you have generated, newest first.</p>
+    </div>
+  </div>
 
   {% if not jobs %}
     <div class="empty emptyWarm">
       {{ scatter() }}
       <div style="position:relative;z-index:1">
-        <img class="paulioIntro" src="{{ url_for('static', filename='img/paulio/paulio-library.png') }}"
-             alt="Paulio carrying a stack of booklets">
-        <p>Nothing here yet. Your first booklet takes about two minutes to build.</p>
+        <p>Your first booklet takes about two minutes to build.</p>
         <a class="btn small" href="{{ url_for('views.index') }}">Create your first booklet</a>
       </div>
     </div>

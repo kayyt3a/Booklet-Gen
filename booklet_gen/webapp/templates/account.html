@@ -3,8 +3,11 @@
 {% block body %}
 <div class="card">
   <div class="paulioRow">
-    <img class="paulioStd" src="{{ url_for('static', filename='img/paulio/paulio-guide-right.png') }}"
-         alt="Paulio presenting your account details">
+    <div class="paulioWith">
+      <img class="paulioStd" src="{{ url_for('static', filename='img/paulio/paulio-guide-right.png') }}"
+           alt="Paulio presenting your account details">
+      <div class="paulioBubble">Here&rsquo;s how things are looking.</div>
+    </div>
     <div>
       <h1>Your account</h1>
       <p class="sub">{{ g.user['email'] }}</p>

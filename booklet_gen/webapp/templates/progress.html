@@ -12,6 +12,7 @@
   <div id="working">
     <img class="paulioIntro" src="{{ url_for('static', filename='img/paulio/paulio-working.png') }}"
          alt="Paulio writing at his desk">
+    <div class="paulioBubble">I&rsquo;m working on it now.</div>
     {# Inside #working, not above it: the plane used to keep flying over
        "Your booklet is ready" and over "Something went wrong". #}
     <div class="flight">
@@ -30,6 +31,7 @@
   <div id="done" style="display:none">
     <img class="paulioIntro" src="{{ url_for('static', filename='img/paulio/paulio-success.png') }}"
          alt="Paulio celebrating with a checked-off booklet">
+    <div class="paulioBubble">All done! Nice work.</div>
     <div class="doneMark ink-green">{{ check(30) }}</div>
     <div class="btnRow">
       <a class="btn" id="dl" href="#">Download</a>

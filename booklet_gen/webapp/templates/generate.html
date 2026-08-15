@@ -7,10 +7,13 @@
     <div>
       <h1>Create a practice booklet</h1>
       <p class="sub">Choose what the student is working towards, then personalise
-        the level and focus. We will build the printable PDF and check its answers.</p>
+        the level and focus. Paulio will build the printable PDF and check every answer.</p>
     </div>
-    <img class="paulioDesk" src="{{ url_for('static', filename='img/paulio/paulio-working.png') }}"
-         alt="Paulio sitting at his desk, pencil in paw, ready to write">
+    <div class="paulioWith">
+      <img class="paulioDesk" src="{{ url_for('static', filename='img/paulio/paulio-working.png') }}"
+           alt="Paulio sitting at his desk, pencil in paw, ready to write">
+      <div class="paulioBubble">Let&rsquo;s build something great.</div>
+    </div>
   </div>
   {% if payments_enabled %}
     <div class="creditBanner">
