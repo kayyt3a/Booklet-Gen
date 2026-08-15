@@ -276,7 +276,13 @@ def create_app() -> Flask:
             "default-src 'self'; img-src 'self' data:; style-src 'self' "
             "'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
             "connect-src 'self'; object-src 'none'; base-uri 'self'; "
-            "frame-ancestors 'none'; form-action 'self'",
+            "frame-ancestors 'none'; "
+            # The checkout form posts to our own /checkout/<key>, but that
+            # handler's whole job is a 303 to a Stripe-hosted page. Chrome
+            # enforces form-action against that final redirect target, not
+            # just the form's own action, so 'self' alone silently blocks
+            # the one redirect this page exists to make.
+            "form-action 'self' https://checkout.stripe.com",
         )
         if app.config["SESSION_COOKIE_SECURE"]:
             response.headers.setdefault(

@@ -106,6 +106,21 @@ app = create_app()
 app.config["OUTPUT_DIR"].mkdir(parents=True, exist_ok=True)
 assert app.config["SECRET_KEY"] == saved_key
 
+# The Buy button posts a form to our own /checkout/<key>, which replies with
+# a 303 to a Stripe-hosted page. CSP's form-action is enforced against that
+# final redirect target too, not just the form's own action: 'self' alone
+# looks correct and quietly breaks every real purchase, since the redirect
+# always leaves the site. Regressing this to bare 'self' reintroduces a
+# defect a real user hit (the button "loaded for a second and did nothing").
+csp = create_app().test_client().get("/pricing").headers.get("Content-Security-Policy", "")
+assert "form-action" in csp, "no form-action directive at all, check the header name"
+assert "checkout.stripe.com" in csp, (
+    f"form-action does not allow Stripe's checkout host: {csp!r}. The booklet "
+    "purchase form redirects off-site to get there, and a same-origin-only "
+    "policy silently blocks that redirect in Chrome.")
+assert "'self'" in csp, "form-action lost 'self' too, our own forms need it"
+ok("the CSP form-action allows the Stripe checkout redirect, not just our own origin")
+
 # The victim: a real account with a real booklet.
 victim = app.test_client()
 signup(victim, "victim@test.com")
