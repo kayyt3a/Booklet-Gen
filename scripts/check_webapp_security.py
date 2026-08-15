@@ -214,7 +214,7 @@ r = user.post("/generate", data=dict(FORM, csrf_token=token_from(user, "/")))
 assert r.status_code == 302 and "/progress/" in r.headers["Location"], r.status_code
 assert db.booklets_started_last_24h(uid) == before + 1
 progress = user.get(r.headers["Location"])
-assert progress.status_code == 200 and b"Building your booklet" in progress.data
+assert progress.status_code == 200 and b"Paulio is preparing your booklet" in progress.data
 ok("the real form, with its token, still works end to end")
 
 r = app.test_client().post("/login", data={"email": "csrf@test.com",

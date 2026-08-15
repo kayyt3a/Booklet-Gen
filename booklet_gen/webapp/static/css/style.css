@@ -408,6 +408,12 @@ a.link{color:var(--navy);font-weight:600}
  * headline into a column too narrow for --t-hero to wrap cleanly. */
 .paulioIntro{width:150px;margin:0 auto var(--s4);display:block;height:auto}
 @media (max-width:700px){ .paulioIntro{width:120px} }
+/* His alt text says who he is; a sighted visitor never reads alt text, so
+ * without this line "Paulio" appeared nowhere a person could actually see it. */
+.paulioCaption{
+  font-size:var(--t-small);font-weight:600;color:var(--muted);
+  text-align:center;margin:0 0 var(--s3);
+}
 .paulioDesk{display:block;width:320px;max-width:100%;height:auto;flex:none}
 @media (max-width:700px){
   .paulioStd{width:170px}

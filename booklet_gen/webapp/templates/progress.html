@@ -5,7 +5,8 @@
 <div class="card narrow">
   {# Trail first, then the plane: it reads as having flown the path, not as
      heading towards one it has not travelled yet. #}
-  <h1 id="heading">Building your booklet</h1>
+  {# The exact phrase MASCOT_GUIDE.md gives as the example for this page. #}
+  <h1 id="heading">Paulio is preparing your booklet</h1>
   <p class="sub" id="msg">{{ job['label'] }}</p>
 
   <div id="working">
@@ -79,7 +80,7 @@
       .then(function (d) {
         if (d.status === "done") {
           finish();
-          document.getElementById('heading').textContent = 'Your booklet is ready';
+          document.getElementById('heading').textContent = 'Paulio has finished your booklet';
           document.getElementById('msg').textContent = "{{ job['label'] }}";
           document.getElementById('dl').href = d.download_url;
           document.getElementById('done').style.display = 'block';
