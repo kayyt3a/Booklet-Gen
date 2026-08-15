@@ -19,6 +19,16 @@ log = logging.getLogger(__name__)
 # charged for in views.generate.
 TERM_WEEKS = TERM_PLAN_WEEKS
 
+# Subtopics within one booklet generate concurrently (pipeline.py's
+# ThreadPoolExecutor); each is a handful of sequential network calls to
+# Gemini and no meaningful CPU work while it waits, so this pool can run far
+# larger than the CPU count without starving the instance. Left at the
+# pipeline's own default of 4, an 8-subtopic booklet serialised into two full
+# rounds of teaching + questions + validation for no reason. Configurable
+# because the right number depends on the API key's actual concurrent-request
+# ceiling, which this file cannot see.
+MAX_WORKERS = int(os.environ.get("FOLIO_MAX_WORKERS", "8"))
+
 
 def _slug(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", value or "").strip("-").lower() or "booklet"
@@ -81,7 +91,7 @@ def _generate(job: dict, args: dict) -> None:
     user_id = int(job["user_id"])
     out_dir = Path(os.environ.get("FOLIO_OUTPUT", "output"))
     out_dir.mkdir(parents=True, exist_ok=True)
-    pipeline = BookletPipeline()
+    pipeline = BookletPipeline(max_workers=MAX_WORKERS)
     slug = f"{_slug(job.get('label') or 'booklet')}-{datetime.now():%Y%m%d}"
 
     if args.get("is_exam"):
