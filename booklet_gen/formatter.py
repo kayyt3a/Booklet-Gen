@@ -636,6 +636,64 @@ _EN_RANGE = re.compile(r"(?<=\d)\s*–\s*(?=\d)")
 _EN_DASH = re.compile(r"\s*–\s*")
 
 
+# A shipped Year 5 booklet asked "A athlete runs 3/20 of a kilometre...". The
+# prompt can be told to get a/an right, and now is (_shared.py), but a prompt
+# is never a guarantee: this is the deterministic backstop, on the same
+# footing as _dedash below. "Correct in the prompt, verified on the page" is
+# the pattern; this is the "verified on the page" half.
+#
+# Deliberately narrow. Getting a/an right in general needs the SOUND of the
+# next word, not its spelling ("a university", "an hour"), which a fixed word
+# list cannot cover completely. So this only fixes what it can prove: a fixed
+# list of the exceptions that actually turn up in a maths/English tutoring
+# vocabulary, applied on top of the reliable default (vowel letter -> "an").
+# A next token that starts with a digit is left alone entirely: whether "8"
+# reads as "an eight" or "180" reads as "a hundred and eighty" depends on the
+# whole number, not the leading digit, and a wrong guess there would be a new
+# bug, not a fix for this one.
+_ARTICLE_RE = re.compile(r"\b([Aa]n?)\s+([A-Za-z][A-Za-z'-]*)")
+
+# Vowel-letter word that is actually a consonant SOUND ("yoo", "w"), so "a"
+# is correct despite the spelling.
+_A_NOT_AN = frozenset({
+    "university", "universities", "universal", "uniform", "uniforms",
+    "unique", "unicorn", "unicorns", "union", "unions", "unit", "units",
+    "united", "use", "used", "useful", "user", "users", "usual", "usually",
+    "utensil", "utensils", "utility", "one", "once", "european",
+    "europe", "euro", "euros", "eucalyptus", "ewe", "ewes",
+})
+# Consonant-letter word with a silent leading sound, so "an" is correct
+# despite the spelling. Kept short and Australian-English safe (herb keeps
+# its "h" sound here, unlike US English).
+_AN_NOT_A = frozenset({
+    "hour", "hours", "hourly", "honest", "honestly", "honesty",
+    "honour", "honours", "honourable", "heir", "heirs",
+})
+
+
+def _correct_article(article: str, word: str) -> str:
+    # A hyphenated word ("one-way", "university-level") is pronounced off its
+    # first part, so that is what both the exception lookup and the default
+    # vowel-letter rule have to test, not the string as a whole.
+    head = word.lower().split("-", 1)[0]
+    if head in _A_NOT_AN:
+        wants_an = False
+    elif head in _AN_NOT_A:
+        wants_an = True
+    else:
+        wants_an = head[0] in "aeiou"
+    an_form = "An" if article[0].isupper() else "an"
+    a_form = "A" if article[0].isupper() else "a"
+    return an_form if wants_an else a_form
+
+
+def _fix_articles(text: str) -> str:
+    """Correct a/an before the next word, deterministically. See note above."""
+    def fix(m: "re.Match[str]") -> str:
+        return _correct_article(m.group(1), m.group(2)) + " " + m.group(2)
+    return _ARTICLE_RE.sub(fix, text)
+
+
 def _dedash(text: str) -> str:
     """Remove em/en dashes from generated text.
 
@@ -668,7 +726,7 @@ def _strip_step_prefix(text: str) -> str:
 
 def _escape(text: str) -> str:
     return _prettify_fractions(_tidy_units(_normalise_notation(
-        _strip_emphasis(_dedash(text))
+        _strip_emphasis(_fix_articles(_dedash(text)))
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
