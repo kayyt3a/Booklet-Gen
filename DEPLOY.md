@@ -88,8 +88,8 @@ Set it to `1` before opening public signups.
 Complete Stripe account and business verification first. Then in Stripe test
 mode:
 
-1. Create a one-time product for one booklet, for example A$6.90.
-2. Create a one-time product for a 10-week term plan, for example A$36.00.
+1. Create a one-time product for one booklet, for example A$5.00.
+2. Create a one-time product for a 10-week term plan, for example A$35.00.
 3. Copy each `price_...` identifier into `STRIPE_PRICE_SINGLE` and
    `STRIPE_PRICE_TERM`.
 4. Copy the test secret key into `STRIPE_SECRET_KEY`.

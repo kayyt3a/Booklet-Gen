@@ -75,8 +75,8 @@ in-product box, which is deliberately one question deep.
 7. Did the PDF print cleanly without scaling or clipped content?
 8. Which part was most useful?
 9. Which part should be removed or changed?
-10. Would you buy one booklet for A$6.90?
-11. Would you buy ten booklet credits for A$36.00?
+10. Would you buy one booklet for A$5.00?
+11. Would you buy ten booklet credits for A$35.00?
 12. What would stop you from using FolioAI again?
 
 Do not collect a child's surname, school, date of birth, diagnosis, assessment
