@@ -865,7 +865,44 @@ def _make_image(path: str | None, max_w=MAX_IMG_WIDTH, max_h=MAX_IMG_HEIGHT):
         return None
 
 
-def _lesson_flowables(styles, t) -> list:
+# Paulio, the study-buddy mascot, narrates the worked examples in primary
+# booklets and stays out of the secondary ones. A bear cub explaining
+# calculus to a Year 10 sitting a Methods practice paper reads as
+# patronising, and that is the booklet a tutor shows a paying parent. The
+# split is at the end of primary school, which is also where the printed
+# product changes character.
+_PAULIO_MAX_YEAR = 6
+
+_YEAR_DIGITS_RE = re.compile(r"\d+")
+
+# Neutral first, so an unparseable year level gets the labels that are safe
+# at every age rather than the ones that are only safe at some.
+_WE_LABEL = "Watch first (worked example)"
+_GE_LABEL = "Let's do this one together"
+_WE_LABEL_PAULIO = "Paulio shows you first"
+_GE_LABEL_PAULIO = "Now let's try one together"
+
+
+def paulio_teaches(year_level: str | None) -> bool:
+    """Whether Paulio narrates the worked examples at this year level.
+
+    Pre-primary and kindergarten carry no digit and are below the cut, so
+    they are named rather than left to the digit parse. Anything else
+    unrecognised falls through to False: the neutral labels read fine to a
+    seven year old, while the Paulio ones do not read fine to a sixteen year
+    old, so an unknown year should fail towards neutral.
+    """
+    text = (year_level or "").strip().lower()
+    if not text:
+        return False
+    if any(w in text for w in ("pre-primary", "pre primary", "kindergarten",
+                               "prep", "foundation")):
+        return True
+    m = _YEAR_DIGITS_RE.search(text)
+    return bool(m) and int(m.group()) <= _PAULIO_MAX_YEAR
+
+
+def _lesson_flowables(styles, t, year_level: str | None = None) -> list:
     """The mini-lesson body: prose, mnemonic, key points, worked examples.
 
     Extracted so a subtopic the hour could not fit can carry its lesson down
@@ -883,12 +920,14 @@ def _lesson_flowables(styles, t) -> list:
         for kp in t.key_points:
             out.append(Paragraph(f"• {_lesson_html(kp)}", styles["key_point"]))
     out.append(Spacer(1, 0.3 * cm))
-    out.append(_worked_example_flowable(styles, t.worked_example,
-                                        "Watch first (worked example)"))
+    paulio = paulio_teaches(year_level)
+    out.append(_worked_example_flowable(
+        styles, t.worked_example,
+        _WE_LABEL_PAULIO if paulio else _WE_LABEL))
     for ge in t.guided_examples:
         out.append(Spacer(1, 0.2 * cm))
-        out.append(_worked_example_flowable(styles, ge,
-                                            "Let's do this one together"))
+        out.append(_worked_example_flowable(
+            styles, ge, _GE_LABEL_PAULIO if paulio else _GE_LABEL))
     return out
 
 
@@ -2072,7 +2111,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
 
         t = section.teaching
         if t is not None:
-            story.extend(_lesson_flowables(styles, t))
+            story.extend(_lesson_flowables(styles, t, data.year_level))
             if section.questions:
                 # Only when something follows it. A subtopic the hour could not
                 # fit keeps its lesson but has had its practice moved to
@@ -2143,7 +2182,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # booklet explains the skill its homework asks for. Subtopics that
             # were taught in the session do not repeat their lesson.
             if not section.questions and section.teaching is not None:
-                story.extend(_lesson_flowables(styles, section.teaching))
+                story.extend(_lesson_flowables(styles, section.teaching,
+                                               data.year_level))
             headings = story[mark:]
             del story[mark:]
 
