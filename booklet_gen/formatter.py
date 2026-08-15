@@ -883,6 +883,19 @@ _WE_LABEL_PAULIO = "Paulio shows you first"
 _GE_LABEL_PAULIO = "Now let's try one together"
 
 
+# The icon that opens Paulio's worked examples. He narrates the lesson in the
+# labels already ("Paulio shows you first"), but until now nothing in the
+# printed booklet showed him: a parent reading the PDF cold has no way to know
+# that name belongs to a character at all. This is his one appearance per
+# taught box, reusing the same asset the website already ships rather than a
+# second copy of the artwork living in two places.
+_PAULIO_ICON_PATH = (
+    Path(__file__).resolve().parent / "webapp" / "static" / "img" / "paulio"
+    / "paulio-guide-right.png"
+)
+PAULIO_ICON_SIZE = 1.1 * cm
+
+
 def paulio_teaches(year_level: str | None) -> bool:
     """Whether Paulio narrates the worked examples at this year level.
 
@@ -923,11 +936,11 @@ def _lesson_flowables(styles, t, year_level: str | None = None) -> list:
     paulio = paulio_teaches(year_level)
     out.append(_worked_example_flowable(
         styles, t.worked_example,
-        _WE_LABEL_PAULIO if paulio else _WE_LABEL))
+        _WE_LABEL_PAULIO if paulio else _WE_LABEL, paulio=paulio))
     for ge in t.guided_examples:
         out.append(Spacer(1, 0.2 * cm))
         out.append(_worked_example_flowable(
-            styles, ge, _GE_LABEL_PAULIO if paulio else _GE_LABEL))
+            styles, ge, _GE_LABEL_PAULIO if paulio else _GE_LABEL, paulio=paulio))
     return out
 
 
@@ -957,17 +970,40 @@ def split_instruction_and_specimen(text: str) -> tuple[str, str | None]:
     return instruction, specimen
 
 
-def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked example"):
+# The worked-example box, minus its left/right padding (10pt each, set in the
+# TableStyle below) and its border. The header row's two columns have to sum
+# to this or the icon column pushes the box wider than the page.
+_WE_BOX_INNER_WIDTH = A4[0] - 2 * PAGE_MARGIN - 0.4 * cm - 20
+
+
+def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked example",
+                             paulio: bool = False):
     """Return a bordered box containing a worked example. `label` distinguishes
-    the "I do" worked example from the "we do" guided ones."""
+    the "I do" worked example from the "we do" guided ones. `paulio` puts his
+    icon beside the label, for the same year levels he narrates in."""
     # Worked examples are lesson content, so they get the same treatment: a
     # **term** the model marked up there becomes bold rather than printing its
     # asterisks, and a stray run of asterisks is dropped.
     instruction, specimen = split_instruction_and_specimen(we.question)
-    inner = [
-        Paragraph(label, styles["we_label"]),
-        Paragraph(apply_bold_markup(_escape(instruction)), styles["we_question"]),
-    ]
+    label_para = Paragraph(label, styles["we_label"])
+    icon = _make_image(str(_PAULIO_ICON_PATH), max_w=PAULIO_ICON_SIZE,
+                       max_h=PAULIO_ICON_SIZE) if paulio else None
+    if icon is not None:
+        icon_col = PAULIO_ICON_SIZE + 0.15 * cm
+        header = Table([[icon, label_para]],
+                       colWidths=[icon_col, _WE_BOX_INNER_WIDTH - icon_col])
+        header.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        inner = [header]
+    else:
+        inner = [label_para]
+    inner.append(
+        Paragraph(apply_bold_markup(_escape(instruction)), styles["we_question"]))
     if specimen:
         # Set apart, indented and quoted, so the task and the thing the task is
         # about are not one run-on paragraph.
