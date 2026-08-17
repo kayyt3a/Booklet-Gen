@@ -341,28 +341,72 @@ _ROW_ICONS = {"topic": _icon_target, "name": _icon_person,
 # explicit that subjects differ only by this detail and never by a redesign.
 # --------------------------------------------------------------------------
 
+def _pencil(c, cx, cy, length, width, angle_deg) -> None:
+    """A stroked pencil: hexagonal body, angled tip, a cap line near the
+    eraser end. Same outline language as the pencil motif on the website
+    (webapp/templates/_motifs.html), redrawn here because that one is an SVG
+    macro and this is a canvas; the reference cover carries this pencil
+    crossing the grid and it was dropped in the first pass at this file."""
+    c.saveState()
+    c.translate(cx, cy)
+    c.rotate(angle_deg)
+    half = width / 2.0
+    tip = length * 0.16
+    p = c.beginPath()
+    p.moveTo(-length / 2, -half)
+    p.lineTo(length / 2 - tip, -half)
+    p.lineTo(length / 2, 0)
+    p.lineTo(length / 2 - tip, half)
+    p.lineTo(-length / 2, half)
+    p.close()
+    c.drawPath(p, stroke=1, fill=0)
+    c.line(length / 2 - tip, -half, length / 2 - tip * 0.25, 0)
+    c.line(length / 2 - tip, half, length / 2 - tip * 0.25, 0)
+    c.line(-length / 2 + width * 0.9, -half, -length / 2 + width * 0.9, half)
+    c.restoreState()
+
+
+def _ruler(c, x, y, size, angle_deg) -> None:
+    """A set-square: a right-angle triangle with tick marks along the base,
+    the same shape the reference cover pairs with the pencil."""
+    c.saveState()
+    c.translate(x, y)
+    c.rotate(angle_deg)
+    p = c.beginPath()
+    p.moveTo(0, 0)
+    p.lineTo(size, 0)
+    p.lineTo(0, size * 0.62)
+    p.close()
+    c.drawPath(p, stroke=1, fill=0)
+    ticks = 5
+    for i in range(1, ticks):
+        tx = size * i / ticks
+        c.line(tx, 0, tx, size * 0.62 * (1 - i / ticks) * 0.22)
+    c.restoreState()
+
+
 def _detail_maths(c, x, y, w, h, font: str = "") -> None:
     # A square lattice, closed on all four sides. Spacing the horizontals by
     # the horizontal step ran them a long way past the top of the verticals and
     # left two stray rules floating in the white space above the grid.
-    cols, rows_n = 6, 4
+    cols, rows_n = 5, 3
     step = w / 8.0
-    gx, gy = x + w * 0.34, y + h * 0.24
-    gh = h * 0.52
+    gx, gy = x + w * 0.40, y + h * 0.30
+    gh = h * 0.46
     for i in range(cols + 1):
         c.line(gx + i * step, gy, gx + i * step, gy + gh)
     for i in range(rows_n + 1):
         c.line(gx, gy + i * gh / rows_n, gx + cols * step, gy + i * gh / rows_n)
     # A pie wedge and the four operators: the same details the maths reference
     # mockup carries, reduced to line work.
-    cx, cy, r = x + w * 0.16, y + h * 0.62, w * 0.11
+    cx, cy, r = x + w * 0.13, y + h * 0.78, w * 0.09
     c.circle(cx, cy, r, stroke=1, fill=0)
     c.line(cx, cy, cx, cy + r)
     c.line(cx, cy, cx + r * math.cos(math.radians(-30)),
            cy + r * math.sin(math.radians(-30)))
-    ox, oy, d = x + w * 0.06, y + h * 0.24, w * 0.05
+    ox, oy, d = x + w * 0.05, y + h * 0.14, w * 0.045
     for i, glyph in enumerate(("+", "-", "x", "/")):
-        px, py = ox + (i % 2) * d * 3.0, oy - (i // 2) * d * 2.6
+        px, py = ox + (i % 2) * d * 3.0, oy + (i // 2) * d * 2.6
         if glyph == "+":
             c.line(px - d, py, px + d, py)
             c.line(px, py - d, px, py + d)
@@ -375,6 +419,10 @@ def _detail_maths(c, x, y, w, h, font: str = "") -> None:
             c.line(px - d, py, px + d, py)
             c.circle(px, py + d * 0.6, d * 0.16, stroke=1, fill=1)
             c.circle(px, py - d * 0.6, d * 0.16, stroke=1, fill=1)
+    # The pencil and set-square, crossing the grid on the diagonal, the way
+    # they sit in the reference mockup rather than off to one side of it.
+    _pencil(c, x + w * 0.62, y + h * 0.56, w * 0.62, w * 0.045, 58)
+    _ruler(c, x + w * 0.58, y + h * 0.06, w * 0.34, 8)
 
 
 def _detail_english(c, x, y, w, h, font: str = "Helvetica-Bold") -> None:
