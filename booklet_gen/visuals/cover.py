@@ -434,6 +434,158 @@ def _detail_maths(c, x, y, w, h, font: str = "") -> None:
     _pencil(c, x + w * 0.66, y + h * 0.30, w * 0.50, w * 0.042, 54)
 
 
+# --------------------------------------------------------------------------
+# The maths hero illustration
+#
+# math_cover_reference.png does not carry the page-and-mark motif every other
+# subject gets: the pencil, ruler, pie and grid fill that whole space instead,
+# full size and in colour, not a faint line reduced to fit beside the mark.
+# Two passes at squeezing that scene into the small secondary band alongside
+# the mark could not close that gap, because the reference was never doing
+# that; it replaces the mark for this one subject rather than sharing space
+# with it. _detail_maths above stays for anywhere still calling detail_for
+# directly (scripts, tests); render_cover routes maths to this instead.
+# --------------------------------------------------------------------------
+PENCIL_WOOD = HexColor("#E8D3A3")
+PENCIL_FERRULE = HexColor("#DCE6F5")
+
+
+def _hero_pencil(c, cx, cy, length, width, angle_deg) -> None:
+    """A filled pencil in navy, with a pale ferrule band and a wood tip,
+    the same three bands the reference photo shows, not a single outline."""
+    c.saveState()
+    c.translate(cx, cy)
+    c.rotate(angle_deg)
+    half = width / 2.0
+    tip = length * 0.15
+    wood = tip * 0.62
+    barrel_end = length / 2 - tip
+
+    def body(x0, x1):
+        p = c.beginPath()
+        p.moveTo(x0, -half)
+        p.lineTo(x1, -half)
+        p.lineTo(x1, half)
+        p.lineTo(x0, half)
+        p.close()
+        return p
+
+    c.setFillColor(NAVY)
+    c.setStrokeColor(NAVY)
+    c.drawPath(body(-length / 2, barrel_end - width * 0.55), stroke=1, fill=1)
+    c.setFillColor(PENCIL_FERRULE)
+    c.drawPath(body(barrel_end - width * 0.55, barrel_end), stroke=1, fill=1)
+    # The highlight stripe that reads as a rounded barrel rather than a flat
+    # bar, one line's width in from the top edge.
+    c.setStrokeColor(BLUE_MID)
+    c.setLineWidth(width * 0.16)
+    c.line(-length / 2 + width * 0.3, half * 0.35,
+           barrel_end - width * 0.65, half * 0.35)
+    # Wood cone, then the graphite point.
+    c.setFillColor(PENCIL_WOOD)
+    c.setStrokeColor(NAVY)
+    c.setLineWidth(1.0)
+    p = c.beginPath()
+    p.moveTo(barrel_end, -half)
+    p.lineTo(barrel_end + wood, -half * 0.18)
+    p.lineTo(barrel_end + wood, half * 0.18)
+    p.lineTo(barrel_end, half)
+    p.close()
+    c.drawPath(p, stroke=1, fill=1)
+    c.setFillColor(NAVY)
+    p = c.beginPath()
+    p.moveTo(barrel_end + wood, -half * 0.18)
+    p.lineTo(length / 2, 0)
+    p.lineTo(barrel_end + wood, half * 0.18)
+    p.close()
+    c.drawPath(p, stroke=1, fill=1)
+    c.restoreState()
+
+
+def _hero_ruler(c, x, y, size, angle_deg) -> None:
+    """A translucent set-square: filled pale blue, navy edge, ticks along
+    the base, the shape the reference cover rests the pencil against."""
+    c.saveState()
+    c.translate(x, y)
+    c.rotate(angle_deg)
+    c.setFillColor(BLUE_PALE)
+    c.setFillAlpha(0.55)
+    c.setStrokeColor(NAVY)
+    c.setLineWidth(1.4)
+    p = c.beginPath()
+    p.moveTo(0, 0)
+    p.lineTo(size, 0)
+    p.lineTo(0, size * 0.62)
+    p.close()
+    c.drawPath(p, stroke=1, fill=1)
+    c.setFillAlpha(1)
+    ticks = 8
+    for i in range(1, ticks):
+        tx = size * i / ticks
+        c.line(tx, 0, tx, size * 0.62 * (1 - i / ticks) * 0.22)
+    c.restoreState()
+
+
+def _hero_maths(c, x, y, w, h) -> None:
+    """The maths cover's dominant lower-right graphic, replacing the page
+    motif for this subject. See the module note above _hero_pencil."""
+    # Grid, upper area, pale and behind everything else.
+    c.setStrokeColor(BLUE_FAINT)
+    c.setLineWidth(1.3)
+    cols, rows_n = 6, 4
+    step = w * 0.075
+    gx, gy = x + w * 0.28, y + h * 0.20
+    gh = h * 0.40
+    for i in range(cols + 1):
+        c.line(gx + i * step, gy, gx + i * step, gy + gh)
+    for i in range(rows_n + 1):
+        c.line(gx, gy + i * gh / rows_n, gx + cols * step, gy + i * gh / rows_n)
+
+    # Pie, filled two-tone, top right corner, clear of the pencil's tip.
+    cx, cy, r = x + w * 0.93, y + h * 0.98, w * 0.075
+    c.setFillColor(BLUE_MIST)
+    c.setStrokeColor(NAVY)
+    c.setLineWidth(1.6)
+    c.circle(cx, cy, r, stroke=1, fill=1)
+    wedge = c.beginPath()
+    wedge.moveTo(cx, cy)
+    wedge.lineTo(cx, cy + r)
+    steps = 16
+    for i in range(steps + 1):
+        ang = math.radians(90 - 120 * i / steps)
+        wedge.lineTo(cx + r * math.cos(ang), cy + r * math.sin(ang))
+    wedge.close()
+    c.setFillColor(BLUE_MID)
+    c.drawPath(wedge, stroke=1, fill=1)
+    c.line(cx, cy, cx, cy + r)
+
+    # Operators, bold and filled, lower left, clear of everything else.
+    c.setFillColor(NAVY)
+    c.setStrokeColor(NAVY)
+    ox, oy, d = x + w * 0.02, y + h * 0.06, w * 0.05
+    c.setLineWidth(d * 0.55)
+    c.setLineCap(1)
+    for i, glyph in enumerate(("+", "-", "x", "/")):
+        px, py = ox + (i % 2) * d * 3.0, oy + (i // 2) * d * 2.8
+        if glyph == "+":
+            c.line(px - d, py, px + d, py)
+            c.line(px, py - d, px, py + d)
+        elif glyph == "-":
+            c.line(px - d, py, px + d, py)
+        elif glyph == "x":
+            c.line(px - d * 0.7, py - d * 0.7, px + d * 0.7, py + d * 0.7)
+            c.line(px - d * 0.7, py + d * 0.7, px + d * 0.7, py - d * 0.7)
+        else:
+            c.line(px - d, py, px + d, py)
+            c.circle(px, py + d * 0.6, d * 0.18, stroke=0, fill=1)
+            c.circle(px, py - d * 0.6, d * 0.18, stroke=0, fill=1)
+
+    # Ruler low and level; the pencil resting across it, tip at the corner,
+    # kept short of the pie so the two shapes don't collide.
+    _hero_ruler(c, x + w * 0.40, y + h * 0.02, w * 0.52, 5)
+    _hero_pencil(c, x + w * 0.60, y + h * 0.26, w * 0.58, w * 0.052, 54)
+
+
 def _detail_english(c, x, y, w, h, font: str = "Helvetica-Bold") -> None:
     # An opening quotation mark over ruled lines of prose. Hand-built quote
     # shapes came out as two rounded blocks; the typographic glyph is the same
@@ -622,21 +774,30 @@ def render_cover(c, spec: CoverSpec) -> None:
     for colour, knots in v.waves:
         _wave(c, knots, colour)
 
-    # 2. Subject decoration, drawn before the mark so the mark sits over it.
-    c.saveState()
-    c.setStrokeColor(v.detail)
-    c.setFillColor(v.detail)
-    c.setStrokeAlpha(v.detail_alpha)
-    c.setFillAlpha(v.detail_alpha)
-    c.setLineWidth(1.6)
-    c.setLineCap(1)
-    # The band left of the page motif, held clear of the foot of the sheet.
-    detail_for(spec.subject, spec.topic)(c, W * 0.06, H * 0.10, W * 0.46,
-                                         H * 0.21, bold)
-    c.restoreState()
-
+    # 2. Subject decoration. Maths gets the dominant lower-right graphic the
+    # reference photo actually shows, in place of the page motif, not a faint
+    # band beside it; every other subject keeps the mark and gets the small
+    # secondary band, matching english_cover_reference.png.
     reader = _logo_reader()
-    _page_motif(c, v, reader)
+    is_maths = detail_for(spec.subject, spec.topic) is _detail_maths
+    if is_maths:
+        c.saveState()
+        _hero_maths(c, W * 0.04, H * 0.02, W * 0.94, H * 0.48)
+        c.restoreState()
+    else:
+        c.saveState()
+        c.setStrokeColor(v.detail)
+        c.setFillColor(v.detail)
+        c.setStrokeAlpha(v.detail_alpha)
+        c.setFillAlpha(v.detail_alpha)
+        c.setLineWidth(1.6)
+        c.setLineCap(1)
+        # The band left of the page motif, held clear of the foot of the sheet.
+        detail_for(spec.subject, spec.topic)(c, W * 0.06, H * 0.10, W * 0.46,
+                                             H * 0.21, bold)
+        c.restoreState()
+
+        _page_motif(c, v, reader)
 
     # 3. Publisher lockup, top left.
     lock_w = 44.0
