@@ -21,6 +21,7 @@ from reportlab.lib.utils import ImageReader
 
 from .schemas import BookletData, ExamPaper, ValidatedQuestion, WorkedExample
 from .timing import booklet_timing, homework_session_plan
+from .visuals.cover import CoverSpec, render_cover, variant_for
 
 
 PAGE_MARGIN = 2.0 * cm
@@ -1617,21 +1618,134 @@ ASSET_DIR = Path(__file__).resolve().parent / "assets"
 
 
 def cover_background_path() -> str | None:
-    """Resolve the cover background image. Override with the env var
-    FOLIO_COVER_BACKGROUND, otherwise use booklet_gen/assets/cover_background.png
-    if present. Returns None when no background is configured (plain cover)."""
+    """An optional full-bleed image that replaces the drawn cover entirely.
+
+    The cover is now drawn on the canvas (booklet_gen/visuals/cover.py) so it
+    can carry the subject, year, topic and week. This is the escape hatch and
+    nothing more: it is off unless FOLIO_COVER_BACKGROUND points at a file that
+    exists. Dropping a cover_background.png into assets/ no longer changes
+    anything, deliberately, because the old file was still sitting there and
+    would otherwise have silently overridden the new design on every install.
+    """
     env = os.environ.get("FOLIO_COVER_BACKGROUND")
     if env and Path(env).exists():
         return env
-    # Prefer the JPEG: the PNG is the higher-quality source, but it is 1.4MB
-    # and rides along in every booklet, which dominated the output file size.
-    # The JPEG is visually equivalent for a soft-gradient background at a
-    # tenth of the size.
-    for name in ("cover_background.jpg", "cover_background.png"):
-        path = ASSET_DIR / name
-        if path.exists():
-            return str(path)
     return None
+
+
+# Booklet-type wording for the pill on the cover. The design system allows
+# "Practice Booklet", "Practice Exam", "Revision Booklet", "Weekly Practice"
+# and "Assessment Preparation"; a booklet only ever earns one of them from what
+# it actually contains.
+def cover_pill(data: BookletData) -> str:
+    focus = (data.week_focus or "").lower()
+    if data.week_number and data.total_weeks:
+        if "revis" in focus:
+            return "Revision Booklet"
+        return "Weekly Practice"
+    return "Practice Booklet"
+
+
+def cover_topic(data: BookletData) -> str:
+    """The topic line: the topics this booklet actually teaches.
+
+    Two at most. A Year 5 booklet with four subtopics across two topics reads
+    as "Fractions and Volume"; listing all four ran off the trim edge.
+    """
+    seen = []
+    for s in data.sections:
+        t = (s.topic or "").strip()
+        if t and t not in seen:
+            seen.append(t)
+    if not seen:
+        return ""
+    if len(seen) == 1:
+        return seen[0]
+    if len(seen) == 2:
+        return f"{seen[0]} and {seen[1]}"
+    return f"{seen[0]}, {seen[1]} and more"
+
+
+def cover_spec(data: BookletData, times: dict | None = None) -> CoverSpec:
+    """Everything the cover renderer needs, as finished strings.
+
+    Deterministic: render_pdf builds the document twice and both builds have to
+    lay out identically.
+    """
+    times = times or {}
+    subject = (data.subject or "").strip()
+    program = (data.program_label or "").strip()
+    # "Year 6" over "Mathematics", the way both reference covers read. The
+    # product line is the small line above the pill, where it behaves like a
+    # series name rather than displacing what the child is actually studying.
+    title_lines = [t for t in (data.year_level, subject) if t]
+
+    week = ""
+    if data.week_number and data.total_weeks:
+        week = f"{data.week_number} of {data.total_weeks}"
+        if data.week_focus:
+            week += f"  |  {data.week_focus}"
+
+    meta = [date.today().strftime("%d %B %Y")]
+    if times.get("total_minutes"):
+        meta.append(f"Estimated time: about {times['total_minutes']} minutes. "
+                    "Take breaks whenever you need to.")
+
+    return CoverSpec(
+        title_lines=title_lines,
+        pill=cover_pill(data),
+        eyebrow=program,
+        subject=subject,
+        topic=cover_topic(data),
+        student_name=(data.student_name or "").strip(),
+        week=week,
+        # DIFFICULTY is in the design system's field list but BookletData has
+        # no source for it, so it prints only if one is ever added.
+        difficulty=str(getattr(data, "difficulty", "") or ""),
+        meta_lines=meta,
+        footer_note=cover_footer_note(data),
+        variant=variant_for(subject, program, data.year_level or "",
+                            cover_topic(data)),
+        font_regular=FONT_REGULAR, font_bold=FONT_BOLD,
+        background_image=cover_background_path() or "",
+    )
+
+
+def cover_footer_note(data: BookletData) -> str:
+    """The one sentence on the cover that has to be true of the key behind it.
+
+    Two claims that were not true of the booklet they were printed on.
+
+    "show your working" went on every cover, including English booklets, where
+    there is no working to show.
+
+    "symbolically verified" went on every all-maths cover regardless of what
+    actually ran. Only questions SymPy can decide are proved symbolically;
+    everything else, which is most of a primary booklet ("Round 468 to the
+    nearest hundred", "Explain his mistake"), is checked by the LLM judge, the
+    same one English uses. Claiming an algebra engine stood behind "explain his
+    mistake" is the kind of thing a sceptical tutor screenshots, and it
+    devalues the mark on the answers where it is earned. Until the mark
+    distinguishes the two, the cover claims only what is true of all of them.
+
+    The claim has to match the key it points at. A real booklet said "every
+    answer has been checked for accuracy" on page 1 and then printed ten
+    answers out of ninety-nine with no tick beside them, which tells a parent
+    in the product's own notation that the cover is false. Being told that is
+    worse than never claiming it: they do not have to find a wrong answer to
+    want their money back.
+    """
+    section_subjects = {(s.subject or data.subject).strip().lower()
+                        for s in data.sections}
+    only_maths = section_subjects == {"mathematics"}
+    every_answer_checked = all(vq.verified for vq in all_questions(data))
+    return (
+        "Work through it in order"
+        + (" and show your working." if only_maths else ".")
+        + (" Every answer in the key at the back has been checked."
+           if every_answer_checked else
+           " In the key at the back, a tick marks an answer that has been"
+           " checked."))
 
 
 def _draw_page_chrome(canvas, doc):
@@ -1641,16 +1755,17 @@ def _draw_page_chrome(canvas, doc):
         # for it, so it goes on the catalog from the first page.
         canvas.setCatalogEntry("Lang", "en-AU")
     canvas.saveState()
-    # Page 1 is the cover. When a background image is configured, draw it full
-    # bleed and skip the running header/footer so the design stays clean.
-    if doc.page == 1 and getattr(doc, "_cover_bg", None):
+    # Page 1 is the cover, drawn edge to edge on the canvas by
+    # booklet_gen/visuals/cover.py, with no running header or footer over it.
+    # The story contributes nothing to page 1 but the page break, so the whole
+    # front page is one composition rather than text floating on a picture.
+    if doc.page == 1 and getattr(doc, "_cover", None) is not None:
         try:
-            canvas.drawImage(
-                doc._cover_bg, 0, 0, width=A4[0], height=A4[1],
-                preserveAspectRatio=False, mask="auto",
-            )
-        except Exception:
-            pass
+            render_cover(canvas, doc._cover)
+        except Exception as e:
+            # A cover that fails to draw must not cost the customer the
+            # booklet: fall back to a blank front page.
+            log.warning("formatter.cover_failed", extra={"reason": str(e)[:300]})
         canvas.restoreState()
         return
     # Exam papers use a plain cover with no background; still keep the running
@@ -2047,7 +2162,6 @@ LAST_STUDENT_PAGE = "last_student_page"
 
 
 def _booklet_story(styles, data: BookletData, times: dict, *,
-                   cover_bg: str | None,
                    page_map: dict | None, page_refs: dict | None,
                    blank_before_key: bool = False) -> list:
     """Build the whole story for the booklet.
@@ -2064,72 +2178,11 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     page_map = {} if page_map is None else page_map
     story: list = []
 
-    # Cover - lead with the product line (program) when present, otherwise the
-    # subject. The secondary line carries the subject(s) and year level. With a
-    # background image the text is pushed down to sit in the clear centre zone.
-    story.append(Spacer(1, 6.5 * cm if cover_bg else 3 * cm))
-    story.append(Paragraph("FOLIOAI", styles["wordmark"]))
-    story.append(Spacer(1, 0.6 * cm))
-    headline = data.program_label or data.subject
-    story.append(Paragraph(_escape(headline), styles["title"]))
-    secondary = data.subject if data.program_label else "Practice Booklet and Early Preparation"
-    if secondary:
-        story.append(Paragraph(f"{_escape(secondary)}  |  {data.year_level}", styles["subtitle"]))
-    else:
-        story.append(Paragraph(data.year_level, styles["subtitle"]))
-    story.append(Spacer(1, 1.5 * cm))
-    story.append(Paragraph(f"Prepared for <b>{_escape(data.student_name)}</b>", styles["subtitle"]))
-    story.append(Spacer(1, 0.4 * cm))
-    if data.week_number and data.total_weeks:
-        wk_line = f"Week {data.week_number} of {data.total_weeks}"
-        if data.week_focus:
-            wk_line += f"  |  {_escape(data.week_focus)}"
-        story.append(Paragraph(wk_line, styles["meta"]))
-        story.append(Spacer(1, 0.15 * cm))
-    story.append(Paragraph(date.today().strftime("%d %B %Y"), styles["meta"]))
-    if times["total_minutes"]:
-        story.append(Spacer(1, 0.3 * cm))
-        story.append(Paragraph(
-            f"Estimated time: about {times['total_minutes']} minutes. "
-            "Take breaks whenever you need to.",
-            styles["meta"],
-        ))
-    story.append(Spacer(1, 4 * cm))
-    # One booklet, worked through together. The verification mark now lives
-    # beside the answers in the key rather than beside unattempted questions.
-    section_subjects = {(s.subject or data.subject).strip().lower()
-                        for s in data.sections}
-    only_maths = section_subjects == {"mathematics"}
-    # Two claims that were not true of the booklet they were printed on.
-    #
-    # "show your working" went on every cover, including English booklets,
-    # where there is no working to show.
-    #
-    # "symbolically verified" went on every all-maths cover regardless of what
-    # actually ran. Only questions SymPy can decide are proved symbolically;
-    # everything else, which is most of a primary booklet ("Round 468 to the
-    # nearest hundred", "Explain his mistake"), is checked by the LLM judge,
-    # the same one English uses. Claiming an algebra engine stood behind
-    # "explain his mistake" is the kind of thing a sceptical tutor screenshots,
-    # and it devalues the mark on the answers where it is earned. Until the
-    # mark distinguishes the two, the cover claims only what is true of all of
-    # them.
-    # The claim has to match the key it points at. A real booklet said "every
-    # answer has been checked for accuracy" on page 1 and then printed ten
-    # answers out of ninety-nine with no tick beside them, which tells a parent
-    # in the product's own notation that the cover is false. Being told that is
-    # worse than never claiming it: they do not have to find a wrong answer to
-    # want their money back.
-    every_answer_checked = all(vq.verified for vq in all_questions(data))
-    story.append(Paragraph(
-        "Work through it in order"
-        + (" and show your working." if only_maths else ".")
-        + (" Every answer in the key at the back has been checked."
-           if every_answer_checked else
-           " In the key at the back, a tick marks an answer that has been"
-           " checked."),
-        styles["footer_note"],
-    ))
+    # Cover. Every mark on page 1 is drawn on the canvas by
+    # _draw_page_chrome -> booklet_gen/visuals/cover.py, so the story
+    # contributes nothing to it but the break that ends it. The copy the cover
+    # prints, including the sentence about what the answer key has and has not
+    # checked, is assembled by cover_spec()/cover_footer_note() above.
     story.append(PageBreak())
 
     multi_subject = len({(s.subject or "") for s in data.sections if s.subject}) > 1
@@ -2582,7 +2635,7 @@ def booklet_title(data: BookletData) -> str:
     return " - ".join(p for p in parts if p)
 
 
-def _booklet_doc(target, data: BookletData):
+def _booklet_doc(target, data: BookletData, times: dict | None = None):
     doc = BaseDocTemplate(
         target,
         pagesize=A4,
@@ -2598,7 +2651,9 @@ def _booklet_doc(target, data: BookletData):
     )
     _head = data.program_label or data.subject
     doc._header_text = f"{_head}  |  {data.year_level}  |  {data.student_name}"
-    doc._cover_bg = cover_background_path()
+    # Built once per document and read by the page-1 canvas callback. Pure
+    # data, so the probe build and the real build draw an identical cover.
+    doc._cover = cover_spec(data, times)
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="body")
     doc.addPageTemplates([PageTemplate(id="main", frames=frame,
                                        onPage=_draw_page_chrome)])
@@ -2623,26 +2678,23 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     # printed, including the mini-lesson, the worked example and every guided
     # example the student has to work through. See timing.py.
     times = booklet_timing(data)
-    cover_bg = cover_background_path()
 
     # Throwaway build purely to find out which page each question landed on.
     # Everything that affects that pagination sits before the answer key's
     # PageBreak, so the map is the same in the real build.
     page_refs: dict = {}
-    probe = _booklet_doc(io.BytesIO(), data)
+    probe = _booklet_doc(io.BytesIO(), data, times)
     probe.build(_booklet_story(
-        styles, data, times,
-        cover_bg=cover_bg, page_map=page_refs, page_refs=None))
+        styles, data, times, page_map=page_refs, page_refs=None))
 
     # An odd last student page means the key would print on its reverse. The
     # blank verso shifts every key page by one, but nothing references a key
     # page, so the map built above still holds.
     blank_before_key = page_refs.get(LAST_STUDENT_PAGE, 0) % 2 == 1
 
-    doc = _booklet_doc(str(out_path), data)
+    doc = _booklet_doc(str(out_path), data, times)
     doc.build(_booklet_story(
-        styles, data, times,
-        cover_bg=cover_bg, page_map=None, page_refs=page_refs,
+        styles, data, times, page_map=None, page_refs=page_refs,
         blank_before_key=blank_before_key))
     return out_path
 
@@ -2698,8 +2750,10 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
         author="FolioAI",
     )
     doc._header_text = f"{paper.subject}  |  {paper.year_level}  |  {paper.student_name}"
-    # Exams use a plain cover: a decorative background undercuts the look.
-    doc._cover_bg = None
+    # Exams use a plain cover: the booklet cover design undercuts the look of a
+    # formal examination front page, so page 1 stays a text page with no
+    # running header.
+    doc._cover = None
     doc._plain_cover = True
 
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="body")
