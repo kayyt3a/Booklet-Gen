@@ -386,25 +386,15 @@ def _ruler(c, x, y, size, angle_deg) -> None:
 
 
 def _detail_maths(c, x, y, w, h, font: str = "") -> None:
-    # A square lattice, closed on all four sides. Spacing the horizontals by
-    # the horizontal step ran them a long way past the top of the verticals and
-    # left two stray rules floating in the white space above the grid.
-    cols, rows_n = 5, 3
-    step = w / 8.0
-    gx, gy = x + w * 0.40, y + h * 0.30
-    gh = h * 0.46
-    for i in range(cols + 1):
-        c.line(gx + i * step, gy, gx + i * step, gy + gh)
-    for i in range(rows_n + 1):
-        c.line(gx, gy + i * gh / rows_n, gx + cols * step, gy + i * gh / rows_n)
-    # A pie wedge and the four operators: the same details the maths reference
-    # mockup carries, reduced to line work.
-    cx, cy, r = x + w * 0.13, y + h * 0.78, w * 0.09
-    c.circle(cx, cy, r, stroke=1, fill=0)
-    c.line(cx, cy, cx, cy + r)
-    c.line(cx, cy, cx + r * math.cos(math.radians(-30)),
-           cy + r * math.sin(math.radians(-30)))
-    ox, oy, d = x + w * 0.05, y + h * 0.14, w * 0.045
+    # Four groups, each confined to its own corner of the band so their
+    # silhouettes stay readable: the first pass let the pencil and the grid
+    # cross each other, which read as clutter rather than a desk scene. The
+    # reference mockup keeps the grid and the pie up top, the pencil resting
+    # on the ruler low and to the right, and the operators alone at the foot,
+    # touching nothing else.
+    #
+    # Operators, isolated at the foot of the band.
+    ox, oy, d = x + w * 0.05, y + h * 0.08, w * 0.045
     for i, glyph in enumerate(("+", "-", "x", "/")):
         px, py = ox + (i % 2) * d * 3.0, oy + (i // 2) * d * 2.6
         if glyph == "+":
@@ -419,10 +409,29 @@ def _detail_maths(c, x, y, w, h, font: str = "") -> None:
             c.line(px - d, py, px + d, py)
             c.circle(px, py + d * 0.6, d * 0.16, stroke=1, fill=1)
             c.circle(px, py - d * 0.6, d * 0.16, stroke=1, fill=1)
-    # The pencil and set-square, crossing the grid on the diagonal, the way
-    # they sit in the reference mockup rather than off to one side of it.
-    _pencil(c, x + w * 0.62, y + h * 0.56, w * 0.62, w * 0.045, 58)
-    _ruler(c, x + w * 0.58, y + h * 0.06, w * 0.34, 8)
+
+    # A short, wide lattice along the top of the band, well clear of the
+    # pencil below it.
+    cols, rows_n = 5, 2
+    step = w * 0.11
+    gx, gy = x + w * 0.30, y + h * 0.66
+    gh = h * 0.30
+    for i in range(cols + 1):
+        c.line(gx + i * step, gy, gx + i * step, gy + gh)
+    for i in range(rows_n + 1):
+        c.line(gx, gy + i * gh / rows_n, gx + cols * step, gy + i * gh / rows_n)
+
+    # A pie wedge at the top corner, beside the grid rather than crossing it.
+    cx, cy, r = x + w * 0.93, y + h * 0.88, w * 0.06
+    c.circle(cx, cy, r, stroke=1, fill=0)
+    c.line(cx, cy, cx, cy + r)
+    c.line(cx, cy, cx + r * math.cos(math.radians(-30)),
+           cy + r * math.sin(math.radians(-30)))
+
+    # The ruler low and mostly level, the pencil resting across it, tip near
+    # the ruler's corner: the one place these two are meant to touch.
+    _ruler(c, x + w * 0.42, y + h * 0.02, w * 0.42, 5)
+    _pencil(c, x + w * 0.66, y + h * 0.30, w * 0.50, w * 0.042, 54)
 
 
 def _detail_english(c, x, y, w, h, font: str = "Helvetica-Bold") -> None:
