@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% from "_motifs.html" import scatter, pencil, book, hexagon, triangle, check %}
+{% from "_motifs.html" import heroWaves, pencil, book, hexagon, triangle, check %}
 {% block title %}FolioAI - printable practice booklets for Years 1 to 10{% endblock %}
 {% block body %}
 
 <section class="hero bleed">
-  {{ scatter() }}
+  {{ heroWaves() }}
   <div class="heroInner">
     <img class="paulioIntro" src="{{ url_for('static', filename='img/paulio/paulio-welcome.png') }}"
          alt="Paulio, FolioAI's study buddy, waving hello with a notebook under his arm">

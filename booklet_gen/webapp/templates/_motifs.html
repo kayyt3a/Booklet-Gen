@@ -172,3 +172,23 @@
   <span class="s s2 ink-pale">{{ pencil(108) }}</span>
 </div>
 {%- endmacro %}
+
+{#
+  The hero's background, in the same language as the booklet cover
+  (booklet_gen/visuals/cover.py, light_blue variant): layered waves in the
+  same three blues, the real mark cropped by the corner the way it sits on
+  every cover. The product and the page that sells it read as one thing now,
+  instead of a cream page with traced icons in front of a booklet that
+  actually ships with waves and the logo.
+#}
+{% macro heroWaves() -%}
+<div class="heroWaves" aria-hidden="true">
+  <svg viewBox="0 0 1200 300" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M0,140 C220,210 380,80 620,130 C860,180 1000,90 1200,150 L1200,300 L0,300 Z" fill="#DEE9FE"/>
+    <path d="M0,190 C240,240 420,150 650,180 C880,210 1030,160 1200,195 L1200,300 L0,300 Z" fill="#C8DBFD"/>
+    <path d="M0,235 C260,265 440,215 660,230 C900,245 1040,220 1200,240 L1200,300 L0,300 Z" fill="#A8C5FC"/>
+  </svg>
+  <img class="heroMark" alt=""
+       src="{{ url_for('static', filename='img/brand/mark-512.png') }}">
+</div>
+{%- endmacro %}

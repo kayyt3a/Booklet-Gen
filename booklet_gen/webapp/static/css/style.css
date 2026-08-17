@@ -383,6 +383,15 @@ a.link{color:var(--navy);font-weight:600}
 .scatter .s6{top:112px;left:78px}
 .scatter .s7{bottom:26px;left:104px;transform:rotate(10deg)}
 .scatter .s8{top:64px;left:150px}
+/* The hero's waves, confined to the bottom strip so they never sit under the
+ * headline or buttons; only .heroInner's own padding keeps text off them. */
+.heroWaves{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.heroWaves svg{position:absolute;left:0;right:0;bottom:0;width:100%;height:30%;display:block}
+.heroMark{position:absolute;right:-18px;bottom:-14px;width:150px;transform:rotate(-6deg)}
+@media (max-width:700px){
+  .heroWaves svg{height:22%}
+  .heroMark{width:100px}
+}
 @media (max-width:700px){
   /* On a phone the panel is narrow enough that the scatter crowds the words. */
   .scatter .s6,.scatter .s7,.scatter .s8,.scatter .s2{display:none}
