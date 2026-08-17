@@ -470,17 +470,21 @@ def _hero_pencil(c, cx, cy, length, width, angle_deg) -> None:
         p.close()
         return p
 
+    # The ferrule belongs at the blunt end, where it holds the eraser, which
+    # is also where the reference photo's silver band sits. Putting it down by
+    # the wood cone read as a second, paler tip.
+    ferrule_end = -length / 2 + width * 0.75
     c.setFillColor(NAVY)
     c.setStrokeColor(NAVY)
-    c.drawPath(body(-length / 2, barrel_end - width * 0.55), stroke=1, fill=1)
+    c.drawPath(body(ferrule_end, barrel_end), stroke=1, fill=1)
     c.setFillColor(PENCIL_FERRULE)
-    c.drawPath(body(barrel_end - width * 0.55, barrel_end), stroke=1, fill=1)
+    c.drawPath(body(-length / 2, ferrule_end), stroke=1, fill=1)
     # The highlight stripe that reads as a rounded barrel rather than a flat
     # bar, one line's width in from the top edge.
     c.setStrokeColor(BLUE_MID)
     c.setLineWidth(width * 0.16)
-    c.line(-length / 2 + width * 0.3, half * 0.35,
-           barrel_end - width * 0.65, half * 0.35)
+    c.line(ferrule_end + width * 0.3, half * 0.35,
+           barrel_end - width * 0.3, half * 0.35)
     # Wood cone, then the graphite point.
     c.setFillColor(PENCIL_WOOD)
     c.setStrokeColor(NAVY)
@@ -502,47 +506,89 @@ def _hero_pencil(c, cx, cy, length, width, angle_deg) -> None:
     c.restoreState()
 
 
-def _hero_ruler(c, x, y, size, angle_deg) -> None:
-    """A translucent set-square: filled pale blue, navy edge, ticks along
-    the base, the shape the reference cover rests the pencil against."""
+def _hero_set_square(c, ax, ay, bx, by, cx, cy, tick_len) -> None:
+    """The translucent set square, given its three corners.
+
+    Taking corners rather than an origin and a rotation is what lets the
+    layout below place it by measurement instead of by trial: the sloped edge
+    the pencil lies along is (ax,ay)-(cx,cy), and the ticks step along that
+    same edge, so the two can never drift apart.
+    """
     c.saveState()
-    c.translate(x, y)
-    c.rotate(angle_deg)
     c.setFillColor(BLUE_PALE)
     c.setFillAlpha(0.55)
     c.setStrokeColor(NAVY)
-    c.setLineWidth(1.4)
+    c.setLineWidth(1.5)
     p = c.beginPath()
-    p.moveTo(0, 0)
-    p.lineTo(size, 0)
-    p.lineTo(0, size * 0.62)
+    p.moveTo(ax, ay)
+    p.lineTo(bx, by)
+    p.lineTo(cx, cy)
     p.close()
     c.drawPath(p, stroke=1, fill=1)
     c.setFillAlpha(1)
-    ticks = 8
-    for i in range(1, ticks):
-        tx = size * i / ticks
-        c.line(tx, 0, tx, size * 0.62 * (1 - i / ticks) * 0.22)
+    c.setLineWidth(1.2)
+    ex, ey = cx - ax, cy - ay
+    edge = math.hypot(ex, ey) or 1.0
+    ux, uy = ex / edge, ey / edge
+    nx, ny = uy, -ux                 # into the triangle, from that edge
+    for i in range(1, 9):
+        t = i / 9.0
+        sx, sy = ax + ex * t, ay + ey * t
+        c.line(sx, sy, sx + nx * tick_len, sy + ny * tick_len)
     c.restoreState()
+
+
+# Where each prop sits, as a fraction of the illustration box, read off
+# math_cover_reference.png rather than arranged by eye. The box keeps the
+# reference's own 1.80 width-to-height ratio, so these fractions reproduce
+# its arrangement instead of merely approximating it: the pencil points
+# south west lying over the set square, the pie sits above both and between
+# their two high points, the squared paper backs the lot, and the operators
+# cluster off to the left above the pencil's tip.
+_M_GRID = (0.24, 0.25, 1.00, 0.73)          # left, bottom, right, top
+_M_GRID_STEP = 0.076                        # in box widths, so cells stay square
+_M_SQUARE = ((0.41, 0.14), (0.92, 0.14), (0.80, 0.70))   # corners, ccw
+_M_PENCIL = (0.49, 0.51, 0.596, 0.066, 227)  # cx, cy, length, width, angle
+_M_PIE = (0.84, 0.95, 0.094)                 # cx, cy, radius
+_M_OPS = (("-", 0.325, 0.676), ("+", 0.060, 0.513),
+          ("x", 0.205, 0.437), ("/", 0.078, 0.252))
+_M_OP_SIZE = 0.042
 
 
 def _hero_maths(c, x, y, w, h) -> None:
     """The maths cover's dominant lower-right graphic, replacing the page
     motif for this subject. See the module note above _hero_pencil."""
-    # Grid, upper area, pale and behind everything else.
+    def bx_(u):
+        return x + w * u
+
+    def by_(v):
+        return y + h * v
+
+    # 1. The squared paper, behind everything: the backdrop the props lie on.
+    #    Stepped in box widths both ways so the cells are square on the page.
     c.setStrokeColor(BLUE_FAINT)
     c.setLineWidth(1.3)
-    cols, rows_n = 6, 4
-    step = w * 0.075
-    gx, gy = x + w * 0.28, y + h * 0.20
-    gh = h * 0.40
+    gl, gb, gr, gt = _M_GRID
+    step = w * _M_GRID_STEP
+    cols = int(math.ceil((bx_(gr) - bx_(gl)) / step))
+    rows = int((by_(gt) - by_(gb)) / step)
     for i in range(cols + 1):
-        c.line(gx + i * step, gy, gx + i * step, gy + gh)
-    for i in range(rows_n + 1):
-        c.line(gx, gy + i * gh / rows_n, gx + cols * step, gy + i * gh / rows_n)
+        c.line(bx_(gl) + i * step, by_(gb), bx_(gl) + i * step, by_(gb) + rows * step)
+    for i in range(rows + 1):
+        c.line(bx_(gl), by_(gb) + i * step, bx_(gl) + cols * step, by_(gb) + i * step)
 
-    # Pie, filled two-tone, top right corner, clear of the pencil's tip.
-    cx, cy, r = x + w * 0.93, y + h * 0.98, w * 0.075
+    # 2. The set square, flat on the grid.
+    (sax, say), (sbx, sby), (scx, scy) = _M_SQUARE
+    _hero_set_square(c, bx_(sax), by_(say), bx_(sbx), by_(sby),
+                     bx_(scx), by_(scy), w * 0.035)
+
+    # 3. The pencil over it, pointing south west.
+    pcx, pcy, plen, pw, pang = _M_PENCIL
+    _hero_pencil(c, bx_(pcx), by_(pcy), w * plen, w * pw, pang)
+
+    # 4. The pie above both, between the pencil's blunt end and the apex.
+    qcx, qcy, qr = _M_PIE
+    cx, cy, r = bx_(qcx), by_(qcy), w * qr
     c.setFillColor(BLUE_MIST)
     c.setStrokeColor(NAVY)
     c.setLineWidth(1.6)
@@ -559,14 +605,15 @@ def _hero_maths(c, x, y, w, h) -> None:
     c.drawPath(wedge, stroke=1, fill=1)
     c.line(cx, cy, cx, cy + r)
 
-    # Operators, bold and filled, lower left, clear of everything else.
+    # 5. The operators, scattered rather than ranked: a tidy 2x2 block read as
+    #    a table of symbols, which is not what the reference has.
     c.setFillColor(NAVY)
     c.setStrokeColor(NAVY)
-    ox, oy, d = x + w * 0.02, y + h * 0.06, w * 0.05
+    d = w * _M_OP_SIZE
     c.setLineWidth(d * 0.55)
     c.setLineCap(1)
-    for i, glyph in enumerate(("+", "-", "x", "/")):
-        px, py = ox + (i % 2) * d * 3.0, oy + (i // 2) * d * 2.8
+    for glyph, u, v in _M_OPS:
+        px, py = bx_(u), by_(v)
         if glyph == "+":
             c.line(px - d, py, px + d, py)
             c.line(px, py - d, px, py + d)
@@ -579,11 +626,6 @@ def _hero_maths(c, x, y, w, h) -> None:
             c.line(px - d, py, px + d, py)
             c.circle(px, py + d * 0.6, d * 0.18, stroke=0, fill=1)
             c.circle(px, py - d * 0.6, d * 0.18, stroke=0, fill=1)
-
-    # Ruler low and level; the pencil resting across it, tip at the corner,
-    # kept short of the pie so the two shapes don't collide.
-    _hero_ruler(c, x + w * 0.40, y + h * 0.02, w * 0.52, 5)
-    _hero_pencil(c, x + w * 0.60, y + h * 0.26, w * 0.58, w * 0.052, 54)
 
 
 def _detail_english(c, x, y, w, h, font: str = "Helvetica-Bold") -> None:
@@ -782,7 +824,12 @@ def render_cover(c, spec: CoverSpec) -> None:
     is_maths = detail_for(spec.subject, spec.topic) is _detail_maths
     if is_maths:
         c.saveState()
-        _hero_maths(c, W * 0.04, H * 0.02, W * 0.94, H * 0.48)
+        # The box carries the reference illustration's own 1.80 width-to-height
+        # ratio, which is what makes the fractions in _M_* reproduce its
+        # arrangement rather than a stretched version of it. It runs off the
+        # right edge, as the reference does, and stops well below the text.
+        m_w = W * 0.77
+        _hero_maths(c, W * 0.23, H * 0.05, m_w, m_w / 1.804)
         c.restoreState()
     else:
         c.saveState()
