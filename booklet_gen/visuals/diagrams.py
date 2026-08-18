@@ -82,7 +82,8 @@ The rest of the library lives in three sibling modules, registered into
 `_RENDERERS` at the bottom of this file. Each renderer's own docstring names
 the curriculum subtopic it exists for.
 
-    shapes.py    angle, triangle, right_triangle, parallelogram, trapezium,
+    shapes.py    angle, triangle, right_triangle, similar_triangles,
+                 parallelogram, trapezium,
                  circle, grid_area, symmetry, ruler, jug, scale_dial, money,
                  shape_3d, net, parallel_lines, part_whole, factor_tree
     data.py      bar_chart, picture_graph, tally, dot_plot, scatter, box_plot,

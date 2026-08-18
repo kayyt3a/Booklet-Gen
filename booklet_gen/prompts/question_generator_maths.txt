@@ -83,6 +83,7 @@ Shape and space
   of a trapezium -> trapezium
 - circumference or area of a circle -> circle
 - Pythagoras or right-angled trigonometry -> right_triangle
+- similar triangles, similarity, scale factor, enlargement -> similar_triangles
 - volume or capacity of a solid -> cuboid or cylinder
 - surface area -> net, or cuboid or cylinder
 - coordinates, plotting points, translations -> coordinate_plane
@@ -231,6 +232,15 @@ Supported spec types (use exactly these keys):
   hypotenuse. Use for Pythagoras and for trigonometry, where "angle":37 marks
   the acute angle at the bottom-right. ALWAYS list the side being asked for in
   "unknown", or the drawing prints the answer.
+- {"type":"similar_triangles","sides":[6,5,4],"scale":2,"unit":"cm","unknown":["f"]}
+  Two similar triangles side by side: ABC and its enlargement DEF. "sides" is
+  the SMALL triangle as [a,b,c], where a is the base BC, b is the right slant
+  AC and c is the left slant AB. "scale" is the enlargement factor and DEF is
+  drawn from it, so the two are always genuinely similar. Corresponding angles
+  are marked with matching arcs. Name the side being asked for in "unknown",
+  using a, b or c for the small triangle and d, e or f for the large one, or
+  the drawing prints the answer. Use this for "find the missing side",
+  "what is the scale factor" and "are these triangles similar".
 - {"type":"parallelogram","base":9,"height":4,"unit":"cm"}
   Base and perpendicular height, with the slant side labelled only if you also
   give "side". Optional, and the mistake the shape invites, so leave it out

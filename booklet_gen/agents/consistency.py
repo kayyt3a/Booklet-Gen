@@ -462,8 +462,8 @@ _FLAT_TYPES = frozenset({
     # Every flat figure that carries a measurement. A net is deliberately NOT
     # here: it is a flat drawing of a solid, so it is the right picture for a
     # surface-area question and the wrong one to reject for naming a prism.
-    "triangle", "right_triangle", "parallelogram", "trapezium", "circle",
-    "grid_area", "shape", "symmetry",
+    "triangle", "right_triangle", "similar_triangles", "parallelogram",
+    "trapezium", "circle", "grid_area", "shape", "symmetry",
 })
 
 # "Volume", "capacity" and "surface area" need a solid. Note surface area is

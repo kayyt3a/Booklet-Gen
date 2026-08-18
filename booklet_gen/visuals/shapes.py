@@ -277,6 +277,152 @@ def right_triangle(spec: dict, out: Path, f: _Fonts) -> None:
     _finish(fig, ax, out)
 
 
+def similar_triangles(spec: dict, out: Path, f: _Fonts) -> None:
+    """Two similar triangles side by side (Years 9-10 similarity and scale).
+
+    The whole subject is corresponding parts, so the figure is built to make
+    correspondence unmistakable rather than left to the labels: matching angles
+    carry matching arcs (one, two, three), matching sides sit in the same
+    position in both figures, and both are drawn from ONE set of side lengths
+    and a scale factor. That last part is the reason this renderer exists
+    instead of two `triangle` calls. A pair drawn from two independent lists
+    can be printed non-similar, and a question that says "these triangles are
+    similar" above a picture where they are not is worse than no picture.
+
+    Sides follow the usual convention: a is opposite vertex A, b opposite B,
+    c opposite C, and the enlargement's are d, e, f in the same order. Any of
+    the six may be listed in "unknown", which prints "?" and captions the
+    figure not to scale, because both triangles ARE drawn true to their
+    numbers and a child with a ruler would otherwise measure the answer.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Arc, Polygon
+
+    sides = spec.get("sides") or [6, 5, 4]
+    if len(sides) != 3:
+        raise ValueError(f"similar triangles need 3 sides, got {len(sides)}")
+    a, b, c = (float(v) for v in sides)
+    k = float(spec.get("scale", 2))
+    if not all(0 < v <= 500 for v in (a, b, c)):
+        raise ValueError(f"similar triangle sides out of range: {sides}")
+    if not 0 < k <= 10:
+        raise ValueError(f"scale factor out of range: {k}")
+    # A triangle that cannot close would be drawn as a stray line or crash the
+    # square root below.
+    if a + b <= c or a + c <= b or b + c <= a:
+        raise ValueError(f"side lengths do not form a triangle: {sides}")
+
+    def corners(base: float, left: float, right: float):
+        """B at the origin, C along the base, A worked out from the other two."""
+        ax_ = (right * right + base * base - left * left) / (2 * base)
+        ay = math.sqrt(max(right * right - ax_ * ax_, 1e-9))
+        return [(ax_, ay), (0.0, 0.0), (base, 0.0)]
+
+    small = corners(a, b, c)
+    big = [(x * k, y * k) for x, y in corners(a, b, c)]
+    # Wide enough that the small triangle's right-hand vertex letter and the
+    # enlargement's left-hand one cannot meet in the middle. At half the base
+    # they printed as one glyph, "CE".
+    # Every label is offset by `pad`, which is set from the LARGER triangle
+    # and used for both. Offsetting each by its own size looked right at a
+    # scale factor near 1 and fell apart at 2 or 3: the text is the same size
+    # in both figures, so the small one's labels need proportionally more room,
+    # not less, and "4 cm" and "5 cm" printed as "4 cm5 cm".
+    pad = a * max(k, 1.0) * 0.12
+    gap = a * max(k, 1.0) * 0.80
+    shift = a + gap
+    big = [(x + shift, y) for x, y in big]
+
+    width = shift + a * k
+    height = max(small[0][1], big[0][1])
+    scale = 3.0 / max(width, height)
+    fig, ax = plt.subplots(figsize=(width * scale + 1.0, height * scale + 1.1),
+                           dpi=180)
+
+    us = _unit_suffix(spec)
+    names = spec.get("labels") or ["A", "B", "C", "D", "E", "F"]
+    if len(names) != 6:
+        raise ValueError("similar triangles need 6 vertex labels")
+
+    for idx, (pts, keys, verts) in enumerate((
+            (small, ("a", "b", "c"), names[:3]),
+            (big, ("d", "e", "f"), names[3:]))):
+        apex, left_v, right_v = pts
+        ax.add_patch(Polygon(pts, closed=True, facecolor=SHADE_COLOR,
+                             alpha=SHADE_ALPHA * 0.45,
+                             edgecolor=LINE_COLOR, linewidth=LINE_WIDTH))
+        lengths = (a, b, c) if idx == 0 else (a * k, b * k, c * k)
+        span = a if idx == 0 else a * k
+        # The labels are the same physical size in both figures, so the
+        # smaller triangle has to push its two slant labels further out to keep
+        # them apart. Pushing both by one shared distance left "4 cm" and
+        # "5 cm" touching whenever the scale factor was 2 or more.
+        local = pad * (max(k, 1.0) ** 0.7 if idx == 0 else 1.0)
+
+        # The base, then the two slants. Each label sits outside the shape on
+        # the far side of its own edge, so it never lands on the fill or on
+        # the vertex letter beside it.
+        ax.text((left_v[0] + right_v[0]) / 2, -pad * 0.95,
+                _dim_label(spec, keys[0], lengths[0], us),
+                ha="center", va="top", fontsize=f.label(10.5))
+        # Each slant label is pushed straight out from the middle of the
+        # figure, so it clears its own edge without reaching sideways into the
+        # space between the two triangles. Offsetting horizontally instead
+        # meant both inner labels grew into that gap from opposite sides, and
+        # the gap had to be nearly two base widths to keep "7 m" and "7.5 m"
+        # apart, which shrank the whole figure on the page.
+        gx = sum(p[0] for p in pts) / 3
+        gy = sum(p[1] for p in pts) / 3
+        for (p0, p1), key, length in (
+                ((left_v, apex), keys[2], lengths[2]),
+                ((right_v, apex), keys[1], lengths[1])):
+            mx, my = (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2
+            dx, dy = mx - gx, my - gy
+            norm = math.hypot(dx, dy) or 1.0
+            ax.text(mx + dx / norm * local, my + dy / norm * local,
+                    _dim_label(spec, key, length, us),
+                    ha="center", va="center", fontsize=f.label(10.5))
+
+        # Matching arcs are what say which angle corresponds to which. One at
+        # the apex, two at the bottom left, three at the bottom right, the same
+        # in both figures.
+        for vertex, other1, other2, arcs in (
+                (apex, left_v, right_v, 1),
+                (left_v, apex, right_v, 2),
+                (right_v, apex, left_v, 3)):
+            t1 = math.degrees(math.atan2(other1[1] - vertex[1],
+                                         other1[0] - vertex[0]))
+            t2 = math.degrees(math.atan2(other2[1] - vertex[1],
+                                         other2[0] - vertex[0]))
+            lo, hi = sorted((t1, t2))
+            if hi - lo > 180:
+                lo, hi = hi, lo + 360
+            for n in range(arcs):
+                r = span * (0.15 + 0.055 * n)
+                ax.add_patch(Arc(vertex, 2 * r, 2 * r, theta1=lo, theta2=hi,
+                                 edgecolor=ACCENT_COLOR,
+                                 linewidth=LINE_WIDTH * 0.85))
+
+        # Vertex letters, pushed away from the centre of the triangle so they
+        # sit outside the shape rather than on its edge.
+        cx = sum(p[0] for p in pts) / 3
+        cy = sum(p[1] for p in pts) / 3
+        for (px, py), letter in zip(pts, verts):
+            dx, dy = px - cx, py - cy
+            norm = math.hypot(dx, dy) or 1.0
+            ax.text(px + dx / norm * local * 1.05, py + dy / norm * local * 1.05,
+                    str(letter), ha="center", va="center",
+                    fontsize=f.label(11.5), fontweight="bold")
+
+    ax.set_xlim(-a * 0.30, width + a * 0.30)
+    # Extra room underneath when there is a "not to scale" caption, or it
+    # lands on whichever base label is a "?".
+    ax.set_ylim(-height * (0.52 if (spec.get("unknown") or []) else 0.30),
+                height * 1.30)
+    _scale_note(ax, spec, f)
+    _finish(fig, ax, out)
+
+
 def parallelogram(spec: dict, out: Path, f: _Fonts) -> None:
     """Base, perpendicular height and optional slant side (Years 5-6 area).
 
@@ -1332,6 +1478,7 @@ RENDERERS = {
     "angle": angle,
     "triangle": triangle,
     "right_triangle": right_triangle,
+    "similar_triangles": similar_triangles,
     "parallelogram": parallelogram,
     "trapezium": trapezium,
     "circle": circle,
