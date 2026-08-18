@@ -424,6 +424,129 @@ class BookletPipeline:
             prev_focus = "; ".join(taught) if taught else wk.focus
         return booklets
 
+    def run_plan_week(
+        self,
+        program_key: str,
+        year_level: str,
+        student_name: str,
+        *,
+        week: int,
+        total_weeks: int,
+        subject: Optional[str] = None,
+        focus: Optional[str] = None,
+        prev_focus: Optional[str] = None,
+        prev_spelling_words: Optional[list[str]] = None,
+        prev_spelling_week: Optional[int] = None,
+        words_already_set: Optional[list[str]] = None,
+        prev_table: Optional[int] = None,
+        prev_table_week: Optional[int] = None,
+        tables_already_set: Optional[list[int]] = None,
+        is_revision: bool = False,
+    ) -> BookletData:
+        """One week of a stored study plan, generated on its own.
+
+        `run_term_plan` generates ten weeks in a single call and carries the
+        state between them in local variables, which is why spelling and times
+        tables could only ever live there. A customer generating week 4 in
+        August, having printed week 3 in July, needs that same carry-over
+        without the other nine booklets, so the state arrives as arguments
+        instead: the caller reads it back from the plan's history and hands it
+        in. Nothing here touches the database.
+
+        The week is never inferred. A tutor generating week 1 for a fifth
+        student must get week 1 again, so this makes no attempt to work out
+        "the next" week; it generates the week it is given.
+        """
+        from .programs import get_program, normalise_subject
+
+        program = get_program(program_key)
+        plan_subject = (
+            normalise_subject(subject or "") or "Mathematics"
+            if program.pick_subject
+            else (program.subjects[0] if program.subjects else "Mathematics")
+        )
+        spelling = self._spelling_applies(program, plan_subject)
+        tables = tables_agent.tables_apply(program, plan_subject, year_level)
+        log.info("pipeline.plan_week.start",
+                 extra={"program": program.key, "week": week,
+                        "total_weeks": total_weeks, "focus": focus,
+                        "spelling": spelling, "tables": tables})
+
+        data = self.run_program(
+            program_key, year_level, student_name,
+            subject=subject, topic=focus,
+            week_number=week, total_weeks=total_weeks,
+            prev_focus=prev_focus,
+        )
+
+        if spelling:
+            # The test is on the words the previous week actually set, which
+            # the caller read out of the plan. No previous week means a list
+            # and no test, exactly as week 1 of a term plan behaves.
+            previous = (SpellingList(words=list(prev_spelling_words))
+                        if prev_spelling_words else None)
+            data.spelling_test = self._speller.make_test(previous,
+                                                         prev_spelling_week)
+            this_list = self._speller.generate_list(
+                year_level, week, list(words_already_set or []), focus,
+            )
+            if this_list.words:
+                data.spelling_list = this_list
+            else:
+                log.warning("pipeline.plan_week.no_spelling_list",
+                            extra={"week": week})
+
+        if tables:
+            previous_table = TablesList(table=prev_table) if prev_table else None
+            data.tables_test = tables_agent.make_test(previous_table,
+                                                      prev_table_week)
+            # A revision week and the last week of the plan set nothing: the
+            # table would be homework no later booklet ever tests. Same rule
+            # run_term_plan applies, for the same reason.
+            if not is_revision and week != total_weeks:
+                this_table = tables_agent.next_list(
+                    list(tables_already_set or []), year_level)
+                if this_table:
+                    data.tables_list = this_table
+
+        log.info("pipeline.plan_week.done",
+                 extra={"week": week,
+                        "spelling_set": len(data.spelling_list.words)
+                        if data.spelling_list else 0,
+                        "spelling_tested": len(data.spelling_test.words)
+                        if data.spelling_test else 0,
+                        "tables_set": data.tables_list.table
+                        if data.tables_list else None,
+                        "tables_tested": data.tables_test.table
+                        if data.tables_test else None})
+        return data
+
+    def plan_ladder(self, program_key: str, year_level: str,
+                    subject: Optional[str] = None, weeks: int = 10,
+                    topic_hint: Optional[str] = None) -> list[dict]:
+        """The week-by-week skill ladder for a plan, planned once up front.
+
+        Planning the whole term when the plan is created, rather than a week
+        at a time on demand, is what makes the weeks a curriculum rather than
+        ten unrelated booklets: the planner can order them so each builds on
+        the last, and it cannot repeat itself later because it has already
+        committed to every week.
+        """
+        from .programs import get_program, normalise_subject
+
+        program = get_program(program_key)
+        plan_subject = (
+            normalise_subject(subject or "") or "Mathematics"
+            if program.pick_subject
+            else (program.subjects[0] if program.subjects else "Mathematics")
+        )
+        plan = self._term_planner.plan(
+            program.label, plan_subject, year_level, weeks, topic_hint,
+        )
+        return [{"week": w.week, "focus": w.focus,
+                 "difficulty": w.difficulty, "revision": bool(w.revision)}
+                for w in plan.weeks]
+
     @staticmethod
     def _spelling_applies(program, plan_subject: str) -> bool:
         """Whether this product line gets a weekly spelling list.

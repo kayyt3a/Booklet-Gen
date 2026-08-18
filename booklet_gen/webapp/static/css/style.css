@@ -859,3 +859,49 @@ main.wrap:has(> .card.narrow){
 /* Support console. Long comments must wrap rather than stretch the table. */
 .feedbackComment{max-width:420px;white-space:normal;line-height:1.45}
 .ratingCell{color:var(--orange-d);letter-spacing:1px;white-space:nowrap}
+
+/* ---- study plans ----
+ * A plan is a student's whole term on one row: who it is for, the ladder of
+ * weeks, and the one control that matters, which week to generate next. */
+.planNudge{
+  display:flex;gap:var(--s3);align-items:center;flex-wrap:wrap;
+  background:#f4f8ff;border:1px solid #dbe6fa;border-radius:var(--r2);
+  padding:var(--s3) var(--s4);margin-bottom:var(--s5);
+  font-size:var(--t-small);color:#3c4a63;
+}
+.planNudge .link{white-space:nowrap}
+/* One plan per row. `.lines` is the two-column grid the product menu uses, and
+ * borrowing it here put two students side by side, each with their own week
+ * dropdown, which is exactly the confusion plans exist to remove. */
+.planList{display:block;margin-top:var(--s1)}
+.planRow{padding:var(--s4) 0;border-bottom:1px solid #e9edf4}
+.planRow:last-child{border-bottom:0}
+.planHead{display:flex;justify-content:space-between;align-items:center;gap:var(--s3)}
+.planMeta{color:var(--muted);font-size:var(--t-small);margin-left:var(--s2)}
+.planArchive{margin:0}
+.weekList{list-style:none;margin:var(--s3) 0;padding:0;display:grid;gap:2px}
+.weekItem{
+  display:flex;gap:var(--s3);align-items:baseline;
+  font-size:var(--t-small);color:#4a5568;padding:3px 0;
+}
+.weekNo{
+  flex:none;width:1.7em;height:1.7em;border-radius:50%;background:#eef3fc;
+  color:var(--navy);font-weight:700;font-size:var(--t-micro);
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.weekFocus{flex:1 1 auto;min-width:0}
+.weekDone .weekFocus{color:var(--muted)}
+.weekDone .weekNo{background:#e4f4ea;color:var(--green)}
+.weekTick{
+  flex:none;display:inline-flex;align-items:center;gap:4px;
+  color:var(--green);font-size:var(--t-micro);font-weight:600;
+}
+.planGenerate{
+  display:flex;gap:var(--s3);align-items:center;flex-wrap:wrap;margin:0;
+}
+.planGenerate label{margin:0;font-size:var(--t-small)}
+.planGenerate select{width:auto;margin:0}
+.planGenerate .btn{margin-top:0}
+@media (max-width:700px){
+  .planGenerate,.planGenerate select{width:100%}
+}

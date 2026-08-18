@@ -25,6 +25,12 @@ log = logging.getLogger(__name__)
 WELCOME_CREDITS = 2
 DB_PATH = Path(os.environ.get("FOLIO_DB", "folio.db"))
 FILE_RETENTION_PER_USER = int(os.environ.get("FOLIO_FILE_RETENTION", "20"))
+# Kept per plan, not per account. A tutor running fifteen students wants the
+# newest few weeks of each of them; counting all of it against one per-account
+# cap would let one busy student evict another student's weeks, which is the
+# inconsistency study plans exist to remove. Loose booklets that belong to no
+# plan are still capped per account by the number above.
+PLAN_WEEK_RETENTION = int(os.environ.get("FOLIO_PLAN_WEEK_RETENTION", "3"))
 _SCHEMA_LOCK_KEY = 72_461_001
 
 
@@ -145,6 +151,30 @@ CREATE TABLE IF NOT EXISTS booklet_feedback (
 );
 CREATE INDEX IF NOT EXISTS feedback_created_idx
     ON booklet_feedback (created_at DESC);
+CREATE TABLE IF NOT EXISTS study_plans (
+    id           SERIAL PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    student_name TEXT NOT NULL,
+    program      TEXT NOT NULL,
+    subject      TEXT,
+    year_level   TEXT NOT NULL,
+    total_weeks  INTEGER NOT NULL,
+    ladder_json  TEXT NOT NULL,
+    created_at   BIGINT NOT NULL,
+    archived_at  BIGINT
+);
+CREATE INDEX IF NOT EXISTS study_plans_user_idx
+    ON study_plans (user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS study_plan_weeks (
+    plan_id       INTEGER NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+    week          INTEGER NOT NULL,
+    job_id        TEXT,
+    taught        TEXT,
+    spelling_json TEXT,
+    tables_table  INTEGER,
+    generated_at  BIGINT NOT NULL,
+    PRIMARY KEY (plan_id, week)
+);
 """
 
 _SQLITE_SCHEMA = """
@@ -239,6 +269,32 @@ CREATE TABLE IF NOT EXISTS booklet_feedback (
 );
 CREATE INDEX IF NOT EXISTS feedback_created_idx
     ON booklet_feedback (created_at DESC);
+CREATE TABLE IF NOT EXISTS study_plans (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL,
+    student_name TEXT NOT NULL,
+    program      TEXT NOT NULL,
+    subject      TEXT,
+    year_level   TEXT NOT NULL,
+    total_weeks  INTEGER NOT NULL,
+    ladder_json  TEXT NOT NULL,
+    created_at   INTEGER NOT NULL,
+    archived_at  INTEGER,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS study_plans_user_idx
+    ON study_plans (user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS study_plan_weeks (
+    plan_id       INTEGER NOT NULL,
+    week          INTEGER NOT NULL,
+    job_id        TEXT,
+    taught        TEXT,
+    spelling_json TEXT,
+    tables_table  INTEGER,
+    generated_at  INTEGER NOT NULL,
+    PRIMARY KEY (plan_id, week),
+    FOREIGN KEY(plan_id) REFERENCES study_plans(id)
+);
 """
 
 
@@ -269,6 +325,12 @@ def init_db() -> None:
                 "ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_intent_id TEXT",
                 "ALTER TABLE payments ADD COLUMN IF NOT EXISTS reversed_units INTEGER NOT NULL DEFAULT 0",
                 "CREATE INDEX IF NOT EXISTS payments_intent_idx ON payments (payment_intent_id)",
+                # Which plan week this job is, so file retention can keep the
+                # newest weeks per plan rather than per account. Nullable: a
+                # one-off booklet belongs to no plan and never will.
+                "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS plan_id INTEGER",
+                "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS plan_week INTEGER",
+                "CREATE INDEX IF NOT EXISTS jobs_plan_idx ON jobs (plan_id)",
             )
             for statement in migrations:
                 conn.execute(statement)
@@ -297,7 +359,10 @@ def init_db() -> None:
             "attempts": "INTEGER NOT NULL DEFAULT 0",
             "credit_units": "INTEGER NOT NULL DEFAULT 0",
             "request_json": "TEXT",
+            "plan_id": "INTEGER",
+            "plan_week": "INTEGER",
         })
+        conn.execute("CREATE INDEX IF NOT EXISTS jobs_plan_idx ON jobs (plan_id)")
         _sqlite_add_columns(conn, "job_files", {"storage_key": "TEXT"})
         _sqlite_add_columns(conn, "payments", {
             "payment_intent_id": "TEXT",
@@ -731,7 +796,9 @@ def create_job(job_id: str, user_id: int, label: str, units: int = 1) -> None:
 def enqueue_job(job_id: str, user_id: int, label: str, units: int,
                 request_data: dict, reserve_credits: bool,
                 daily_limit: int | None = None,
-                global_daily_limit: int | None = None) -> bool:
+                global_daily_limit: int | None = None,
+                plan_id: int | None = None,
+                plan_week: int | None = None) -> bool:
     """Atomically reserve credits and create a queued generation job.
 
     The abuse caps are counted here, inside the same transaction as the
@@ -776,11 +843,13 @@ def enqueue_job(job_id: str, user_id: int, label: str, units: int,
                 return False
         cur.execute(
             _q("""INSERT INTO jobs
-                (id,user_id,status,label,created_at,units,credit_units,request_json)
-                VALUES (?,?,?,?,?,?,?,?)"""),
+                (id,user_id,status,label,created_at,units,credit_units,
+                 request_json,plan_id,plan_week)
+                VALUES (?,?,?,?,?,?,?,?,?,?)"""),
             (job_id, user_id, "queued", label, now, units,
              units if reserve_credits else 0,
-             json.dumps(request_data, separators=(",", ":"))),
+             json.dumps(request_data, separators=(",", ":")),
+             plan_id, plan_week),
         )
         if reserve_credits:
             cur.execute(
@@ -1166,13 +1235,36 @@ def save_job_file(job_id: str, user_id: int, filename: str,
             (job_id, filename, mimetype, payload, storage_key,
              len(data), int(time.time())),
         )
+        # Two separate caps, because a plan week and a one-off booklet are not
+        # competing for the same shelf. Counting them together let a tutor's
+        # busiest student push another student's weeks out, so a plan that
+        # promised the last three weeks quietly held one.
+        cur.execute(_q("SELECT plan_id FROM jobs WHERE id=?"), (job_id,))
+        row = cur.fetchone()
+        plan_id = row["plan_id"] if row else None
         cur.execute(
             _q("""SELECT f.job_id,f.storage_key FROM job_files f
-                JOIN jobs j ON j.id=f.job_id WHERE j.user_id=?
+                JOIN jobs j ON j.id=f.job_id
+                WHERE j.user_id=? AND j.plan_id IS NULL
                 ORDER BY f.created_at DESC LIMIT 1000 OFFSET ?"""),
             (user_id, FILE_RETENTION_PER_USER),
         )
         old_rows = list(cur.fetchall())
+        if plan_id is not None:
+            # Only this plan can have gained a file, so only this plan needs
+            # trimming.
+            # Newest first, ties broken toward the later week. Two weeks
+            # generated in the same second are ordered arbitrarily otherwise,
+            # and "keep the last three" then decides by insertion order, which
+            # can throw away week 5 and keep week 1.
+            cur.execute(
+                _q("""SELECT f.job_id,f.storage_key FROM job_files f
+                    JOIN jobs j ON j.id=f.job_id WHERE j.plan_id=?
+                    ORDER BY f.created_at DESC, j.plan_week DESC
+                    LIMIT 1000 OFFSET ?"""),
+                (plan_id, PLAN_WEEK_RETENTION),
+            )
+            old_rows.extend(cur.fetchall())
         old_ids = [row["job_id"] for row in old_rows]
         old_storage_keys = [row["storage_key"] for row in old_rows if row["storage_key"]]
         for old_id in old_ids:
@@ -1282,3 +1374,174 @@ def delete_account(user_id: int) -> list:
         except Exception as exc:
             log.warning("could not delete account objects from storage: %s", exc)
     return leftovers
+
+
+# ---------- study plans ----------
+#
+# A plan is one student's term: the ladder of weekly skills, planned once up
+# front, plus a record of what each generated week actually taught. It exists
+# so a standalone booklet can carry over from the week before it.
+#
+# Deliberately not keyed on the student's name. A tutor generating week 1 for
+# five students needs five separate plans, and a parent who types "Sammy" one
+# week and "Sam" the next must not silently start a second term. The plan is
+# a row the customer picks, so neither can happen.
+
+
+def create_plan(user_id: int, student_name: str, program: str,
+                subject: str | None, year_level: str, total_weeks: int,
+                ladder: list[dict]) -> int:
+    now = int(time.time())
+    payload = json.dumps(ladder, separators=(",", ":"))
+    with _cursor(transaction=True) as cur:
+        if is_postgres():
+            cur.execute(
+                """INSERT INTO study_plans
+                   (user_id,student_name,program,subject,year_level,
+                    total_weeks,ladder_json,created_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (user_id, student_name, program, subject, year_level,
+                 total_weeks, payload, now),
+            )
+            return int(cur.fetchone()["id"])
+        cur.execute(
+            """INSERT INTO study_plans
+               (user_id,student_name,program,subject,year_level,
+                total_weeks,ladder_json,created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (user_id, student_name, program, subject, year_level,
+             total_weeks, payload, now),
+        )
+        return int(cur.lastrowid)
+
+
+def _plan_row(row) -> dict:
+    plan = dict(row)
+    try:
+        plan["ladder"] = json.loads(plan.get("ladder_json") or "[]")
+    except (TypeError, ValueError):
+        plan["ladder"] = []
+    return plan
+
+
+def get_plan(plan_id: int, user_id: int | None = None) -> dict | None:
+    """One plan. Pass `user_id` to refuse another account's plan outright,
+    so a forged id in a POST body cannot reach someone else's student."""
+    sql = "SELECT * FROM study_plans WHERE id=?"
+    params: tuple = (plan_id,)
+    if user_id is not None:
+        sql += " AND user_id=?"
+        params = (plan_id, user_id)
+    with _cursor() as cur:
+        cur.execute(_q(sql), params)
+        row = cur.fetchone()
+        return _plan_row(row) if row else None
+
+
+def list_plans(user_id: int, include_archived: bool = False) -> list[dict]:
+    """A user's plans, newest first, each with the weeks already generated."""
+    sql = "SELECT * FROM study_plans WHERE user_id=?"
+    if not include_archived:
+        sql += " AND archived_at IS NULL"
+    sql += " ORDER BY created_at DESC"
+    with _cursor() as cur:
+        cur.execute(_q(sql), (user_id,))
+        plans = [_plan_row(row) for row in cur.fetchall()]
+        if not plans:
+            return []
+        cur.execute(
+            _q("""SELECT w.plan_id, w.week FROM study_plan_weeks w
+                JOIN study_plans p ON p.id=w.plan_id
+                WHERE p.user_id=? ORDER BY w.week"""),
+            (user_id,),
+        )
+        done: dict[int, list[int]] = {}
+        for row in cur.fetchall():
+            done.setdefault(int(row["plan_id"]), []).append(int(row["week"]))
+    for plan in plans:
+        weeks_done = done.get(int(plan["id"]), [])
+        plan["weeks_done"] = weeks_done
+        # The lowest week not yet generated, so the dropdown opens on the work
+        # the student has left rather than on week 1 with "(already generated)"
+        # beside it. Lowest rather than highest-plus-one: someone who skipped
+        # week 3 is offered week 3 back, not pushed further past it.
+        total = int(plan.get("total_weeks") or 0)
+        remaining = [w for w in range(1, total + 1) if w not in set(weeks_done)]
+        plan["next_week"] = remaining[0] if remaining else total
+    return plans
+
+
+def archive_plan(plan_id: int, user_id: int) -> bool:
+    with _cursor(transaction=True) as cur:
+        cur.execute(
+            _q("""UPDATE study_plans SET archived_at=?
+                WHERE id=? AND user_id=? AND archived_at IS NULL"""),
+            (int(time.time()), plan_id, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def get_plan_week(plan_id: int, week: int) -> dict | None:
+    with _cursor() as cur:
+        cur.execute(
+            _q("SELECT * FROM study_plan_weeks WHERE plan_id=? AND week=?"),
+            (plan_id, week),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        record = dict(row)
+        try:
+            record["spelling_words"] = json.loads(record.get("spelling_json") or "[]")
+        except (TypeError, ValueError):
+            record["spelling_words"] = []
+        return record
+
+
+def record_plan_week(plan_id: int, week: int, job_id: str | None,
+                     taught: str | None, spelling_words: list[str] | None,
+                     tables_table: int | None) -> None:
+    """What week `week` actually taught, for the week after it to build on.
+
+    Written after generation rather than from the ladder, because the outline
+    parser chooses the real subtopics and the hour cap can drop some of them.
+    Upserted, so regenerating a week replaces its record instead of failing.
+    """
+    now = int(time.time())
+    words = json.dumps(list(spelling_words or []), separators=(",", ":"))
+    with _cursor(transaction=True) as cur:
+        cur.execute(_q("DELETE FROM study_plan_weeks WHERE plan_id=? AND week=?"),
+                    (plan_id, week))
+        cur.execute(
+            _q("""INSERT INTO study_plan_weeks
+                (plan_id,week,job_id,taught,spelling_json,tables_table,generated_at)
+                VALUES (?,?,?,?,?,?,?)"""),
+            (plan_id, week, job_id, taught, words, tables_table, now),
+        )
+
+
+def plan_history(plan_id: int) -> dict:
+    """Everything the next week of this plan needs to follow on.
+
+    `words_set` and `tables_set` span the whole plan, not just last week, so a
+    new week cannot re-set spelling words or a times table the student has
+    already had. `previous` is the week immediately before, which is the only
+    one a recap or a test may draw from.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            _q("""SELECT week,taught,spelling_json,tables_table
+                FROM study_plan_weeks WHERE plan_id=? ORDER BY week"""),
+            (plan_id,),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    words: list[str] = []
+    tables: list[int] = []
+    for row in rows:
+        try:
+            words.extend(json.loads(row.get("spelling_json") or "[]"))
+        except (TypeError, ValueError):
+            pass
+        if row.get("tables_table") is not None:
+            tables.append(int(row["tables_table"]))
+    return {"weeks": rows, "words_set": words, "tables_set": tables}

@@ -22,6 +22,23 @@
     </div>
   {% endif %}
 
+  {# A one-off booklet carries nothing over from any booklet before it, which
+     is the right default for someone trying the product and the wrong one for
+     a student working through a term. Rather than infer, point at the thing
+     that does carry over. #}
+  <div class="planNudge">
+    {% if plans %}
+      <span>Working through a term with someone?
+        {% for p in plans[:3] %}<strong>{{ p.student_name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}{% if plans|length > 3 %} and others{% endif %}
+        {{ 'have' if plans|length > 1 else 'has' }} a plan.</span>
+      <a class="link" href="{{ url_for('views.plans') }}">Generate a week</a>
+    {% else %}
+      <span>Generating week after week for the same student? A study plan maps
+        out the term so each booklet follows on from the last.</span>
+      <a class="link" href="{{ url_for('views.plans') }}">Start a plan</a>
+    {% endif %}
+  </div>
+
   <form method="post" action="{{ url_for('views.generate') }}">
     {{ csrf_field() }}
     <fieldset class="formSection programPicker">

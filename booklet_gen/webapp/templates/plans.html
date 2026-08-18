@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% from "_motifs.html" import check %}
+{% block title %}Study plans - FolioAI{% endblock %}
+{% block body %}
+<div class="card">
+  <div class="paulioRow">
+    <div>
+      <h1>Study plans</h1>
+      <p class="sub">A plan is one student's term, planned out as {{ term_weeks }} weeks
+        of skills that build on each other. Generate whichever week you like,
+        whenever you like: each one picks up from the week before it, so a gap
+        of a month between booklets costs nothing.</p>
+    </div>
+    <div class="paulioWith">
+      <img class="paulioDesk" src="{{ url_for('static', filename='img/paulio/paulio-working.png') }}"
+           alt="Paulio at his desk with a pencil">
+      <div class="paulioBubble">One plan per student.</div>
+    </div>
+  </div>
+
+  {% if plans %}
+    <div class="planList">
+      {% for plan in plans %}
+        <div class="planRow">
+          <div class="planHead">
+            <div>
+              <strong>{{ plan.student_name }}</strong>
+              <span class="planMeta">{{ plan.year_level }}{% if plan.subject %} &middot; {{ plan.subject }}{% endif %}</span>
+            </div>
+            <form method="post" class="planArchive"
+                  action="{{ url_for('views.archive_plan', plan_id=plan.id) }}"
+                  onsubmit="return confirm('Archive {{ plan.student_name }}\'s plan? Booklets you have already generated stay in My booklets.');">
+              {{ csrf_field() }}
+              <button type="submit" class="btn small secondary">Archive</button>
+            </form>
+          </div>
+          <ol class="weekList">
+            {% for wk in plan.ladder %}
+              {% set done = wk.week in plan.weeks_done %}
+              <li class="weekItem{% if done %} weekDone{% endif %}">
+                <span class="weekNo">{{ wk.week }}</span>
+                <span class="weekFocus">{{ wk.focus }}</span>
+                {% if done %}<span class="weekTick">{{ check(15) }} generated</span>{% endif %}
+              </li>
+            {% endfor %}
+          </ol>
+          <form method="post" action="{{ url_for('views.generate') }}" class="planGenerate">
+            {{ csrf_field() }}
+            <input type="hidden" name="plan_id" value="{{ plan.id }}">
+            <label for="week_{{ plan.id }}">Generate week</label>
+            <select id="week_{{ plan.id }}" name="plan_week">
+              {% for wk in plan.ladder %}
+                <option value="{{ wk.week }}"{% if wk.week == plan.next_week %} selected{% endif %}>
+                  Week {{ wk.week }}{% if wk.week in plan.weeks_done %} (already generated){% endif %}
+                </option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn small">Generate</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty emptyWarm">
+      <p>No plans yet. Start one below and Paulio will map out the whole term
+        before you spend a single credit.</p>
+    </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Start a plan</h2>
+  <p class="sub">One per student. A tutor with five students keeps five plans,
+    so generating week 1 five times gives five different children their own
+    week 1.</p>
+  <form method="post" action="{{ url_for('views.create_plan') }}">
+    {{ csrf_field() }}
+    <label for="student_name">Student name</label>
+    <input id="student_name" class="fieldName" name="student_name" type="text"
+           maxlength="80" placeholder="For example, Alex" autocomplete="off" required>
+
+    <label for="program">Booklet type</label>
+    <select id="program" name="program" required onchange="onPlanProgram()">
+      <option value="" disabled selected>Select a booklet type</option>
+      {% for key, p in programs.items() %}
+        <option value="{{ key }}" data-subject="{{ 'yes' if p.pick_subject else 'no' }}"
+                data-naplan="{{ 'yes' if key in naplan_programs else 'no' }}">{{ p.label }}</option>
+      {% endfor %}
+    </select>
+
+    <div class="row">
+      <div>
+        <label for="year">Year level</label>
+        <select id="year" name="year" required>
+          <option value="" disabled selected>Select a year level</option>
+          {% for y in years %}
+            <option value="{{ y }}"
+                    data-naplan-year="{{ 'yes' if y in naplan_years else 'no' }}">{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div id="planSubjectField" hidden>
+        <label for="subject">Subject</label>
+        <select id="subject" name="subject">
+          <option value="" disabled selected>Select a subject</option>
+          {% for s in subjects %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <button type="submit">Plan the term</button>
+    <p class="fieldHelp">Planning the term is free. Credits are only spent when
+      you generate a week.</p>
+  </form>
+</div>
+
+<script>
+  // The subject dropdown only applies to programs that let the parent pick
+  // one, and NAPLAN is only sat in four year levels. Same rules the generate
+  // form applies, enforced again on the server either way.
+  function onPlanProgram() {
+    var sel = document.getElementById('program');
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt) { return; }
+    document.getElementById('planSubjectField').hidden =
+      opt.getAttribute('data-subject') !== 'yes';
+    var naplan = opt.getAttribute('data-naplan') === 'yes';
+    var year = document.getElementById('year');
+    for (var i = 0; i < year.options.length; i++) {
+      var o = year.options[i];
+      if (!o.value) { continue; }
+      var ok = !naplan || o.getAttribute('data-naplan-year') === 'yes';
+      o.hidden = !ok;
+      o.disabled = !ok;
+      if (!ok && o.selected) { year.selectedIndex = 0; }
+    }
+  }
+  onPlanProgram();
+</script>
+{% endblock %}

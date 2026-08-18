@@ -41,6 +41,8 @@
         {% if g.user %}
           <a href="{{ url_for('views.index') }}"
              class="{{ 'active' if request.endpoint == 'views.index' }}">Create</a>
+          <a href="{{ url_for('views.plans') }}"
+             class="{{ 'active' if request.endpoint == 'views.plans' }}">Plans</a>
           <a href="{{ url_for('views.library') }}"
              class="{{ 'active' if request.endpoint == 'views.library' }}">
              <span class="desktopLabel">My booklets</span><span class="mobileLabel">Booklets</span></a>

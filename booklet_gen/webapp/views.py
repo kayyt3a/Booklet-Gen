@@ -56,6 +56,11 @@ TERM_WEEKS = TERM_PLAN_WEEKS
 GLOBAL_DAILY_BOOKLET_LIMIT = int(
     os.environ.get("FOLIO_GLOBAL_DAILY_BOOKLET_LIMIT", "120"))
 
+# Active study plans one account may hold. A tutor is the intended buyer, so
+# this is generous rather than tight; it exists because creating a plan runs a
+# planner call, and an unbounded button is an unbounded bill.
+MAX_PLANS_PER_USER = int(os.environ.get("FOLIO_MAX_PLANS", "40"))
+
 # How long a single job may run before it is presumed dead. Generation is a
 # background thread with no timeout of its own, so without this a hung LLM
 # call leaves the row "running" and the user watching a spinner for ever.
@@ -126,7 +131,88 @@ def index():
         exam_years=EXAM_YEARS,
         credits=db.credit_balance(g.user["id"]),
         payments_enabled=payments_enabled(),
+        plans=db.list_plans(g.user["id"]),
     )
+
+
+@bp.route("/plans")
+@login_required
+def plans():
+    return render_template(
+        "plans.html", plans=db.list_plans(g.user["id"]),
+        programs=customer_programs(), years=BOOKLET_YEARS,
+        subjects=ACCELERATE_SUBJECTS, naplan_years=NAPLAN_YEARS,
+        naplan_programs=sorted(NAPLAN_PROGRAMS), term_weeks=TERM_WEEKS,
+    )
+
+
+@bp.route("/plans/new", methods=["POST"])
+@login_required
+def create_plan():
+    """Start a plan, which is where the whole term's ladder gets planned.
+
+    Planning here rather than at the first generation is deliberate: it is one
+    planner call and it happens while the customer is looking at the page, so
+    they see the weeks before they spend a credit on any of them.
+    """
+    enforce_rate_limit("plan-create", 20, 3600)
+    name = (request.form.get("student_name") or "").strip()
+    program = (request.form.get("program") or "").strip()
+    year = (request.form.get("year") or "").strip()
+    subject = (request.form.get("subject") or "").strip()
+
+    if not name:
+        flash("Give the plan a student name so you can tell it from the others.")
+        return redirect(url_for("views.plans"))
+    if len(name) > 80:
+        flash("Student names cannot be longer than 80 characters.")
+        return redirect(url_for("views.plans"))
+    if program not in customer_programs():
+        flash("That booklet type is not currently available.")
+        return redirect(url_for("views.plans"))
+    if program in EXAM_PROGRAMS:
+        flash("Exam papers are single papers, not a weekly plan.")
+        return redirect(url_for("views.plans"))
+    if year not in BOOKLET_YEARS:
+        flash("Practice booklets are available for Years 1 to 10.")
+        return redirect(url_for("views.plans"))
+    if PROGRAMS[program].pick_subject and subject not in ACCELERATE_SUBJECTS:
+        flash("Please choose a subject for Academic Accelerate.")
+        return redirect(url_for("views.plans"))
+    if program in NAPLAN_PROGRAMS and year not in NAPLAN_YEARS:
+        flash(f"NAPLAN is only sat in {', '.join(NAPLAN_YEARS[:-1])} and "
+              f"{NAPLAN_YEARS[-1]}.")
+        return redirect(url_for("views.plans"))
+    if len(db.list_plans(g.user["id"])) >= MAX_PLANS_PER_USER:
+        flash(f"You can have {MAX_PLANS_PER_USER} active plans. Archive one "
+              "you have finished to start another.")
+        return redirect(url_for("views.plans"))
+
+    try:
+        from ..pipeline import BookletPipeline
+        ladder = BookletPipeline().plan_ladder(
+            program, year, subject=subject or None, weeks=TERM_WEEKS,
+        )
+    except Exception:
+        log.exception("could not plan a ladder for a new study plan")
+        flash("The weekly plan could not be built just now. Please try again "
+              "in a moment. Nothing has been charged.")
+        return redirect(url_for("views.plans"))
+
+    plan_id = db.create_plan(g.user["id"], name, program, subject or None,
+                             year, TERM_WEEKS, ladder)
+    log.info("study plan %s created for user %s", plan_id, g.user["id"])
+    flash(f"{name}'s plan is ready. Generate any week of it whenever you like.")
+    return redirect(url_for("views.plans"))
+
+
+@bp.route("/plans/<int:plan_id>/archive", methods=["POST"])
+@login_required
+def archive_plan(plan_id: int):
+    if db.archive_plan(plan_id, g.user["id"]):
+        flash("Plan archived. Booklets you have already generated are still "
+              "in My Booklets.")
+    return redirect(url_for("views.plans"))
 
 
 @bp.route("/generate", methods=["POST"])
@@ -138,6 +224,35 @@ def generate():
     topic = (request.form.get("topic") or "").strip()
     name = (request.form.get("student_name") or "").strip() or "Student"
     is_term = request.form.get("term_plan") == "on"
+
+    # A plan overrides the form's own program, year and subject rather than
+    # trusting them alongside it. They are separate POST fields, so a stale
+    # page could otherwise generate "week 4 of Sam's Year 5 Maths plan" as a
+    # Year 9 English booklet and record it against the plan as if it belonged.
+    plan = None
+    plan_week = None
+    if request.form.get("plan_id"):
+        try:
+            plan = db.get_plan(int(request.form["plan_id"]), g.user["id"])
+        except (TypeError, ValueError):
+            plan = None
+        if plan is None:
+            flash("That plan could not be found on your account.")
+            return redirect(url_for("views.index"))
+        try:
+            plan_week = int(request.form.get("plan_week") or 0)
+        except (TypeError, ValueError):
+            plan_week = 0
+        if not 1 <= plan_week <= int(plan["total_weeks"]):
+            flash(f"Choose a week between 1 and {plan['total_weeks']}.")
+            return redirect(url_for("views.index"))
+        program = plan["program"]
+        year = plan["year_level"]
+        subject = plan["subject"] or ""
+        name = plan["student_name"]
+        # One week is one booklet. A plan is generated a week at a time, which
+        # is the whole point of it, so the term-plan checkbox does not apply.
+        is_term = False
 
     if program not in customer_programs():
         flash("That booklet type is not currently available.")
@@ -192,9 +307,14 @@ def generate():
         label = f"{label} - {name}"
     if is_term:
         label = f"{label} (term plan)"
+    if plan is not None:
+        label = f"{label} (week {plan_week})"
     args = dict(program=program, year=year, subject=subject or None,
                 topic=topic or None, name=name, is_term=is_term,
                 is_exam=is_exam)
+    if plan is not None:
+        args["plan_id"] = int(plan["id"])
+        args["plan_week"] = plan_week
     available, why = generation_is_available()
     if not available:
         log.error("refusing generation: the queue has no live worker (%s)", why)
@@ -205,7 +325,9 @@ def generate():
             job_id, g.user["id"], label, units, args,
             reserve_credits=payments_enabled(),
             daily_limit=None,
-            global_daily_limit=GLOBAL_DAILY_BOOKLET_LIMIT):
+            global_daily_limit=GLOBAL_DAILY_BOOKLET_LIMIT,
+            plan_id=int(plan["id"]) if plan is not None else None,
+            plan_week=plan_week):
         flash("You need more booklet credits for that selection.")
         return redirect(url_for("payments.pricing"))
     _dispatch_job(job_id, args)

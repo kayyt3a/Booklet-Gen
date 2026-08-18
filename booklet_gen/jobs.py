@@ -128,12 +128,71 @@ def _generate(job: dict, args: dict) -> None:
         _finish_and_clean(job_id, folder)
         return
 
-    data = pipeline.run_program(
-        args["program"], args["year"], args["name"],
-        subject=args.get("subject"), topic=args.get("topic"),
-    )
+    plan_id = args.get("plan_id")
+    if plan_id:
+        data = _run_plan_week(pipeline, args, int(plan_id), job_id)
+    else:
+        data = pipeline.run_program(
+            args["program"], args["year"], args["name"],
+            subject=args.get("subject"), topic=args.get("topic"),
+        )
     path = out_dir / f"{job_id}.pdf"
     render_pdf(data, path)
     db.save_job_file(job_id, user_id, f"{slug}.pdf",
                      "application/pdf", path.read_bytes())
     _finish_and_clean(job_id, path)
+
+
+def _run_plan_week(pipeline, args: dict, plan_id: int, job_id: str):
+    """Generate one week of a study plan, then record what it taught.
+
+    The reading and the writing both live here rather than in the pipeline,
+    which knows nothing about the database. What gets recorded is what the
+    booklet actually contains: the outline parser picks the real subtopics and
+    the hour cap can drop some of them, so storing the planner's label would
+    have next week recapping a heading the student never sat through.
+    """
+    plan = db.get_plan(plan_id)
+    if plan is None:
+        # The customer deleted the plan between ordering and generation. Their
+        # credit is already spent, so produce the booklet they paid for rather
+        # than failing; it simply carries nothing over.
+        log.warning("job %s names plan %s, which is gone; generating "
+                    "a standalone booklet", job_id, plan_id)
+        return pipeline.run_program(
+            args["program"], args["year"], args["name"],
+            subject=args.get("subject"), topic=args.get("topic"),
+        )
+
+    week = int(args.get("plan_week") or 1)
+    ladder = {int(entry.get("week", 0)): entry for entry in plan["ladder"]}
+    entry = ladder.get(week, {})
+    history = db.plan_history(plan_id)
+    previous = db.get_plan_week(plan_id, week - 1) if week > 1 else None
+
+    data = pipeline.run_plan_week(
+        plan["program"], plan["year_level"], plan["student_name"],
+        week=week, total_weeks=int(plan["total_weeks"]),
+        subject=plan["subject"],
+        focus=entry.get("focus") or args.get("topic"),
+        # Only the week immediately before may be recapped or tested, so a
+        # gap in the plan carries nothing rather than reaching further back
+        # and asking about a booklet the student may never have printed.
+        prev_focus=(previous or {}).get("taught"),
+        prev_spelling_words=(previous or {}).get("spelling_words"),
+        prev_spelling_week=(week - 1) if previous else None,
+        words_already_set=history["words_set"],
+        prev_table=(previous or {}).get("tables_table"),
+        prev_table_week=(week - 1) if previous else None,
+        tables_already_set=history["tables_set"],
+        is_revision=bool(entry.get("revision")),
+    )
+
+    taught = "; ".join(s.subtopic for s in data.sections if s.subtopic)
+    db.record_plan_week(
+        plan_id, week, job_id,
+        taught or entry.get("focus"),
+        data.spelling_list.words if data.spelling_list else [],
+        data.tables_list.table if data.tables_list else None,
+    )
+    return data
