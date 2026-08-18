@@ -859,33 +859,12 @@ def _lesson_html(text: str) -> str:
 # child is meant to work out wrapped in [[ ]], and the same string renders two
 # ways: a ruled gap on the page they write on, the value itself in the answer
 # key. One source of truth, so a blank and its answer cannot disagree.
-_BLANK_RE = re.compile(r"\[\[(.+?)\]\]")
-
-# A gap is written into in pencil by a child, so it is sized for a hand rather
-# than for the text it hides: the padding is what makes "21" comfortable to
-# write rather than cramped. It still grows with the answer, so the gap hints
-# at the size of what goes in it, and it is capped so a long phrase cannot push
-# the line off the page.
-_BLANK_PAD = 3
-_BLANK_MIN_CHARS, _BLANK_MAX_CHARS = 6, 16
-
-
-def has_blanks(text: str) -> bool:
-    return bool(_BLANK_RE.search(text or ""))
-
-
-def blank_out(escaped: str) -> str:
-    """Replace every [[value]] with a ruled gap to write the value into."""
-    def gap(m: re.Match) -> str:
-        width = min(max(len(m.group(1)) + _BLANK_PAD, _BLANK_MIN_CHARS),
-                    _BLANK_MAX_CHARS)
-        return f"<u>{'&nbsp;' * width}</u>"
-    return _BLANK_RE.sub(gap, escaped or "")
-
-
-def fill_in(escaped: str) -> str:
-    """Replace every [[value]] with the value, bold, for the answer key."""
-    return _BLANK_RE.sub(lambda m: f"<b>{m.group(1)}</b>", escaped or "")
+# The [[value]] convention lives in blanks.py, because the LLM judge needs it
+# too and cannot import this module. Aliased to the private names the rest of
+# this file and the check scripts already use.
+from .blanks import (BLANK_RE as _BLANK_RE, MAX_CHARS as _BLANK_MAX_CHARS,
+                     MIN_CHARS as _BLANK_MIN_CHARS, PAD as _BLANK_PAD,
+                     blank_out, fill_in, has_blanks, strip_markers)
 
 
 MAX_IMG_WIDTH = 7.5 * cm
@@ -1082,7 +1061,18 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
         # Set apart, indented and quoted, so the task and the thing the task is
         # about are not one run-on paragraph.
         inner.append(Spacer(1, 0.2 * cm))
-        inner.append(Paragraph(f'"{_escape(specimen)}"', styles["we_specimen"]))
+        # The specimen is the sentence the example works on, so a [[ ]] in it
+        # is a gap the student fills when this box is guided, and just words
+        # when it is the finished "I do" example above. It used to be neither:
+        # the markers printed raw, because only the instruction was handled.
+        spec_html = apply_bold_markup(_escape(specimen))
+        if reveal:
+            spec_html = fill_in(spec_html)
+        elif guided:
+            spec_html = blank_out(spec_html)
+        else:
+            spec_html = strip_markers(spec_html)
+        inner.append(Paragraph(f'"{spec_html}"', styles["we_specimen"]))
         inner.append(Spacer(1, 0.2 * cm))
     img = _make_image(we.image_path, max_w=WE_IMG_WIDTH, max_h=WE_IMG_HEIGHT)
     if img is not None:
@@ -1576,14 +1566,19 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
     # material it is about should not read as one paragraph.
     instruction, specimen = split_instruction_and_specimen(vq.question.question)
     shown = q_num if display_num is None else display_num
+    # A cloze question carries its missing word as [[word]], so the sentence
+    # and the word it is missing come from one string and cannot disagree. The
+    # gap is drawn here and the word itself only ever appears in the key.
+    # `blank_out` leaves text without markers alone, so every other subject and
+    # question type is unaffected.
     block.append(
         Paragraph(
-            f"<b>{shown}.</b> {_escape(instruction)}",
+            f"<b>{shown}.</b> {blank_out(_escape(instruction))}",
             styles["question"],
         ),
     )
     if specimen:
-        block.append(Paragraph(f'"{_escape(specimen)}"',
+        block.append(Paragraph(f'"{blank_out(_escape(specimen))}"',
                                styles["question_specimen"]))
     img = _make_image(vq.image_path)
     if img is not None:
@@ -2857,13 +2852,18 @@ def _answer_block(styles, q_num: int, vq: ValidatedQuestion, page: int | None = 
     # in lowest terms. An exam marking key does neither: senior answers carry
     # compound units and exact forms that must be reproduced as marked.
     answer = key_answer(vq.question) if tidy_answer else (vq.question.answer or "")
+    # A cloze answer is the word the gap was hiding, so the key prints it
+    # plainly. `strip_markers` is the backstop for a model that wraps the
+    # answer field as well as the sentence: the key must never show a customer
+    # the machinery, and "[[melancholy]]" beside question 4 is exactly that.
     block = [
         Paragraph(
-            f"<b>{q_num}.</b> Answer: {_escape(answer)}{symbol_html}{page_html}",
+            f"<b>{q_num}.</b> Answer: {strip_markers(_escape(answer))}"
+            f"{symbol_html}{page_html}",
             styles["answer"],
         ),
     ]
     for line in solution_lines(vq.question.working):
-        block.append(Paragraph(_escape(line), styles["working"]))
+        block.append(Paragraph(strip_markers(_escape(line)), styles["working"]))
     block.append(Spacer(1, 0.35 * cm))
     return KeepTogether(block)

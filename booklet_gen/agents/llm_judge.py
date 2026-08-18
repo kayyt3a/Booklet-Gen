@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from pydantic import BaseModel, ValidationError
 
+from ..blanks import plain_gap
 from ..llm import LLMClient
 from ..schemas import Passage, Question
 from ._shared import load_prompt, extract_json
@@ -92,7 +93,7 @@ class LLMJudgeValidator:
         user = (
             f"Subject: {subject}\n"
             f"Year level: {year_level}\n"
-            f"Question: {q.question}\n"
+            f"Question: {plain_gap(q.question)}\n"
             f"Proposed answer: {q.answer}\n"
             f"Proposed working: {q.working}\n\n"
             "Solve the question yourself first, then grade the proposed answer "
@@ -173,7 +174,7 @@ class LLMJudgeValidator:
             blocks.append(
                 f"[Question {i}]\n"
                 f"{about}"
-                f"Question: {q.question}\n"
+                f"Question: {plain_gap(q.question)}\n"
                 f"Proposed answer: {q.answer}\n"
                 f"Proposed working: {q.working}"
             )

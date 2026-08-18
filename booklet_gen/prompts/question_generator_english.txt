@@ -63,6 +63,10 @@ Content rules:
   - Punctuation: "Add the missing punctuation: 'Its cold outside said Sam'"
   - Identification: "Identify the literary device in the sentence: 'The wind whispered through the trees.'"
   - Vocabulary: "Give a synonym for the word 'melancholy' as it is used in 'The Lighthouse Keeper'."
+  - Vocabulary in context (fill in the blank): a sentence with ONE word taken out, wrapped in double square brackets so the booklet knows where the gap goes. Write it as: Complete the sentence with the correct word: "The keeper's [[melancholy]] expression told us he had been alone a long time." The `answer` field is that word and nothing else: "melancholy".
+    * The word must be one the student has just met in this booklet's reading or mini-lesson. A blank on a word they have never seen tests luck, not vocabulary.
+    * Exactly ONE blank per question, and never on a word the rest of the sentence does not pin down. "The dog was [[brown]]" has a hundred right answers; the sentence has to make one word clearly the best fit.
+    * Never bracket anything else. The brackets mark a gap the student writes in, so a bracketed word anywhere else prints as an empty line where a word should be.
   - Reading comprehension: a specific question on one of your passages with a factually determinable answer (a stated detail, an inference the text supports, the main idea, tone).
   - Sentence structure: identify subject, verb, clause type, or sentence type.
 - Do NOT write spelling-correction items ("which word is misspelt", "fix the spelling"). Spelling is set as a weekly word list and tested by dictation elsewhere in the booklet.
@@ -82,7 +86,7 @@ Vary the questions within the set:
   * Grammar/language conventions: rewrite one sentence, identify the error in another, then edit a short passage carrying several errors.
   * Reading comprehension: on each passage pair a "find the stated fact" question with an "explain the character's feeling" question and an inference question, so the student gets three different demands from one reading.
   * Literary devices: one identification, one explanation of effect, one "write a sentence using this device".
-  * Vocabulary: one synonym, one antonym, one word-in-context.
+  * Vocabulary: one synonym, one antonym, one fill-in-the-blank using a word from the reading.
 
 IMAGES (optional per question)
 A booklet that is nothing but text is a wall a child bounces off, so give each passage ONE photograph of the real-world thing it is set among, by putting `image_query` on the first question about that passage. A set with no passages may carry at most one image, on the question that gains most from it. Every other question leaves `image_query` null.
