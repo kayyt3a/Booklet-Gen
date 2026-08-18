@@ -67,6 +67,14 @@ log = logging.getLogger(__name__)
 # changes, we fall back to Helvetica and the booklet still renders.
 FONT_REGULAR = "Helvetica"
 FONT_BOLD = "Helvetica-Bold"
+# The heading face. A booklet set entirely in one sans reads as a document
+# somebody exported, because that is what an unstyled export looks like; every
+# printed workbook a parent has paid for pairs a display face for its headings
+# with a text face for its body. Serif here also matches the website, whose
+# headings are already a serif, so the page a parent buys on and the page they
+# print are recognisably the same product.
+FONT_DISPLAY = "Helvetica-Bold"
+FONT_DISPLAY_REGULAR = "Helvetica"
 FONT_ITALIC = "Helvetica-Oblique"
 
 _UNICODE_FONT = False
@@ -75,6 +83,7 @@ _UNICODE_FONT = False
 def _register_fonts() -> None:
     """Register DejaVu Sans with ReportLab. Falls back to Helvetica silently."""
     global FONT_REGULAR, FONT_BOLD, FONT_ITALIC, _UNICODE_FONT
+    global FONT_DISPLAY, FONT_DISPLAY_REGULAR
     if _UNICODE_FONT:
         return
     try:
@@ -88,6 +97,8 @@ def _register_fonts() -> None:
             "DejaVuSans-Bold": "DejaVu Sans:bold",
             "DejaVuSans-Oblique": "DejaVu Sans:italic",
             "DejaVuSans-BoldOblique": "DejaVu Sans:bold:italic",
+            "DejaVuSerif": "DejaVu Serif",
+            "DejaVuSerif-Bold": "DejaVu Serif:bold",
         }
         for name, query in faces.items():
             prop = font_manager.FontProperties()
@@ -104,8 +115,17 @@ def _register_fonts() -> None:
             "DejaVuSans", normal="DejaVuSans", bold="DejaVuSans-Bold",
             italic="DejaVuSans-Oblique", boldItalic="DejaVuSans-BoldOblique",
         )
+        registerFontFamily(
+            "DejaVuSerif", normal="DejaVuSerif", bold="DejaVuSerif-Bold",
+            italic="DejaVuSerif", boldItalic="DejaVuSerif-Bold",
+        )
         FONT_REGULAR, FONT_BOLD, FONT_ITALIC = (
             "DejaVuSans", "DejaVuSans-Bold", "DejaVuSans-Oblique")
+        # Both serif faces ship in fonts-dejavu-core, the package the Dockerfile
+        # already installs, so this needs nothing new in production. If the
+        # lookup fails the whole block falls through to Helvetica together and
+        # the booklet still prints.
+        FONT_DISPLAY, FONT_DISPLAY_REGULAR = "DejaVuSerif-Bold", "DejaVuSerif"
         _UNICODE_FONT = True
     except Exception as e:
         log.info("formatter.font_fallback", extra={"reason": str(e)[:200]})
@@ -116,7 +136,7 @@ def _make_styles():
     base = getSampleStyleSheet()
     return {
         "title": ParagraphStyle(
-            "title", parent=base["Title"], fontName=FONT_BOLD,
+            "title", parent=base["Title"], fontName=FONT_DISPLAY,
             fontSize=26, leading=30, alignment=TA_CENTER, spaceAfter=6,
         ),
         "subtitle": ParagraphStyle(
@@ -134,14 +154,14 @@ def _make_styles():
             spaceAfter=4,
         ),
         "subject_band": ParagraphStyle(
-            "subject_band", parent=base["Heading1"], fontName=FONT_BOLD,
+            "subject_band", parent=base["Heading1"], fontName=FONT_DISPLAY,
             fontSize=15, leading=19, spaceBefore=10, spaceAfter=10,
             textColor=colors.white, backColor=colors.HexColor("#1F3A5F"),
             borderPadding=(6, 8, 6, 8), alignment=TA_CENTER,
         ),
         "part_band": ParagraphStyle(
-            "part_band", parent=base["Heading1"], fontName=FONT_BOLD,
-            fontSize=17, leading=20, textColor=colors.white, alignment=TA_CENTER,
+            "part_band", parent=base["Heading1"], fontName=FONT_DISPLAY,
+            fontSize=18, leading=22, textColor=colors.white, alignment=TA_CENTER,
         ),
         "part_band_sub": ParagraphStyle(
             "part_band_sub", parent=base["Normal"], fontName=FONT_REGULAR,
@@ -154,8 +174,8 @@ def _make_styles():
             spaceBefore=4, spaceAfter=4,
         ),
         "topic": ParagraphStyle(
-            "topic", parent=base["Heading1"], fontName=FONT_BOLD,
-            fontSize=18, leading=22, spaceBefore=6, spaceAfter=8,
+            "topic", parent=base["Heading1"], fontName=FONT_DISPLAY,
+            fontSize=19, leading=23, spaceBefore=14, spaceAfter=2,
             textColor=colors.HexColor("#1F3A5F"),
         ),
         # The four parts of the answer key. In the body each of these gets a
@@ -165,13 +185,13 @@ def _make_styles():
         # could not see where one part stopped and the next began. The key
         # reuses the body's bands instead.
         "key_part": ParagraphStyle(
-            "key_part", parent=base["Heading1"], fontName=FONT_BOLD,
+            "key_part", parent=base["Heading1"], fontName=FONT_DISPLAY,
             fontSize=21, leading=25, spaceBefore=16, spaceAfter=1,
         ),
         "subtopic": ParagraphStyle(
-            "subtopic", parent=base["Heading2"], fontName=FONT_BOLD,
-            fontSize=13.5, leading=17, spaceBefore=12, spaceAfter=7,
-            textColor=colors.HexColor("#333333"),
+            "subtopic", parent=base["Heading2"], fontName=FONT_DISPLAY,
+            fontSize=13, leading=17, spaceBefore=10, spaceAfter=6,
+            textColor=colors.HexColor("#2A3F73"),
         ),
         "intro_para": ParagraphStyle(
             "intro_para", parent=base["Normal"], fontName=FONT_REGULAR,
@@ -246,12 +266,12 @@ def _make_styles():
             leftIndent=12,
         ),
         "answers_heading": ParagraphStyle(
-            "answers_heading", parent=base["Heading1"], fontName=FONT_BOLD,
+            "answers_heading", parent=base["Heading1"], fontName=FONT_DISPLAY,
             fontSize=20, leading=24, alignment=TA_CENTER, spaceAfter=12,
             textColor=colors.HexColor("#1F3A5F"),
         ),
         "challenge_heading": ParagraphStyle(
-            "challenge_heading", parent=base["Heading1"], fontName=FONT_BOLD,
+            "challenge_heading", parent=base["Heading1"], fontName=FONT_DISPLAY,
             fontSize=22, leading=26, alignment=TA_CENTER, spaceAfter=6,
             textColor=colors.HexColor(PART_CHALLENGE),
         ),
