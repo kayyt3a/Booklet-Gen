@@ -1590,7 +1590,8 @@ _ORPHAN_MIN_CM = 2.5
 
 
 def orphan_break(headings: list, width: float = BODY_WIDTH,
-                 follow_cm: float = _ORPHAN_MIN_CM) -> CondPageBreak:
+                 follow_cm: float = _ORPHAN_MIN_CM,
+                 follow: list | None = None) -> CondPageBreak:
     """A break that stops this run of headings printing with nothing under it.
 
     Sized for the headings themselves, measured, plus room for the start of
@@ -1599,13 +1600,22 @@ def orphan_break(headings: list, width: float = BODY_WIDTH,
     first finds room for a topic heading and the second then moves the subtopic
     heading underneath it to the next page.
 
+    `follow` is what actually comes next, when the caller knows. A practice
+    question is a KeepTogether and cannot be split, so reserving a couple of
+    centimetres under a heading and hoping the first line of the question lands
+    in it does not work: the whole block moves and the heading is left alone
+    after all. Given the block, the break is measured against it and the
+    heading either keeps its question or travels with it. `follow_cm` is the
+    fallback for the callers that do not yet know what follows.
+
     `width` is the measure the headings will be set in, which is a key column
     rather than the page for anything in the answer key. Used inside a column
     frame, a CondPageBreak moves to the next column and only then to the next
     page, which is the behaviour wanted in both places.
     """
-    return CondPageBreak(min(stack_height(headings, width) + follow_cm * cm,
-                             _MAX_COND_BREAK))
+    need = stack_height(headings + _unwrap(follow), width) if follow \
+        else stack_height(headings, width) + follow_cm * cm
+    return CondPageBreak(min(need, _MAX_COND_BREAK))
 
 
 def _lesson_cond_break(headings: list, lesson: list) -> list:
@@ -3026,6 +3036,30 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         n, display, vq, subject, floor = cells[row[0]]
         return _question_block(styles, n, vq, page_map, floor, display, subject)
 
+    def first_practice_row(section, qs, floor: float = 0.0):
+        """The first block a run of questions will print, built to be measured.
+
+        Nothing draws it, so the PageMarker inside it never fires and the page
+        map is untouched. It exists so a heading can be given room for the
+        thing that actually follows it: a question is a KeepTogether and cannot
+        split, so an allowance that is a centimetre short does not keep the
+        first line of it, it moves the whole block and strands the heading.
+        """
+        subject = section.subject or data.subject
+        for passage, group in passage_groups(qs, section_passages(section)):
+            if not group:
+                continue
+            cells, _ = plan(group, subject, floor, counter["n"])
+            if passage is not None:
+                n, display, vq, subj, fl = cells[0]
+                return _passage_question_block(
+                    styles, passage,
+                    _question_flowables(styles, n, vq, None, fl, display, subj))
+            rows = two_up_rows([two_up_eligible(styles, vq, display, subj, fl)
+                                for _, display, vq, subj, fl in cells])
+            return question_row(cells, rows[0])
+        return None
+
     def render_questions(qs, space_floor_cm: float = 0.0):
         # The Warm-up and the Final Challenge belong to the booklet rather than
         # to a subtopic, so the booklet's own subject decides their panel.
@@ -3160,13 +3194,17 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                 label = Paragraph("Now you try:", styles["practice_label"])
                 # "Now you try:" as the last thing on a page, with question 1
                 # overleaf, is an instruction pointing at blank paper.
-                story.append(orphan_break([label]))
+                first = first_practice_row(section, section.questions)
+                story.append(orphan_break(
+                    [label], follow=[first] if first is not None else None))
                 story.append(label)
         else:
             # No lesson to measure, so nothing has asked for room under these
             # headings yet. A subtopic name at the foot of a page with its
             # first question on the next is the same defect in miniature.
-            story.insert(mark, orphan_break(story[mark:]))
+            first = first_practice_row(section, section.questions)
+            story.insert(mark, orphan_break(
+                story[mark:], follow=[first] if first is not None else None))
 
         render_passage_questions(section, section.questions)
 
@@ -3177,12 +3215,18 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # and throw the rest of the page away: one real booklet finished the
         # section two questions into a page and left the other two thirds
         # blank. The coloured band is divider enough, so only break when there
-        # is too little room left to be worth starting Homework here.
-        # Homework will not begin with less than HOMEWORK_MIN_START_CM left,
-        # so up to seven centimetres of the page Class Work finished on is
-        # given up. The strip fills it when there is a gap and draws nothing
-        # when there is not.
-        story.append(CondPageBreak(HOMEWORK_MIN_START_CM * cm))
+        # is too little room left to be worth starting Homework here. Homework
+        # will not begin with less than HOMEWORK_MIN_START_CM left, so up to
+        # seven centimetres of the page Class Work finished on is given up.
+        #
+        # Seven is a floor and not the whole answer, because nothing under this
+        # break may ask for a second one: the Homework band is placed first, so
+        # a break anywhere below it leaves the band at the foot of a page with
+        # nothing under it. So this one break has to cover everything down to
+        # the first question: the band, the first session band, the topic
+        # opener, the subtopic heading and the first row. Measured, because
+        # that run varies by centimetres with how many subtopics the topic
+        # holds and whether the first row is one question or two.
         sessions = homework_session_plan(data)
         # The number on this band has to be the number the page underneath it
         # adds up to. It used to be the whole homework half, Final Challenge and
@@ -3201,8 +3245,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         if data.challenge_questions and times["challenge_minutes"]:
             hw_sub += (" The Final Challenge at the end adds about "
                        f"{times['challenge_minutes']} min.")
-        story.append(_part_band(styles, "Homework", PART_HOMEWORK, hw_sub))
-        story.append(Spacer(1, 0.3 * cm))
+        hw_band = _part_band(styles, "Homework", PART_HOMEWORK, hw_sub)
 
         # Session boundaries are indices into the flat homework list, so a
         # session may start part way through a subtopic. When it starts on the
@@ -3217,6 +3260,25 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             i, s = hit
             return _session_band(styles, i, len(sessions), s["minutes"],
                                  s["count"])
+
+        opening = [hw_band, Spacer(1, 0.3 * cm)]
+        band0 = session_band_for(0)
+        if band0 is not None:
+            opening += [band0, Spacer(1, 0.25 * cm)]
+        first_hw = next((s for s in data.sections if s.homework_questions), None)
+        if first_hw is not None:
+            probe: list = []
+            subject_topic_headers(first_hw, {"subject": None, "topic": None},
+                                  out=probe)
+            probe.append(Paragraph(_escape(first_hw.subtopic),
+                                   styles["subtopic"]))
+            row = first_practice_row(first_hw, first_hw.homework_questions)
+            opening += probe + (_unwrap([row]) if row is not None else [])
+        story.append(CondPageBreak(min(
+            max(HOMEWORK_MIN_START_CM * cm, stack_height(opening)),
+            _MAX_COND_BREAK)))
+        story.append(hw_band)
+        story.append(Spacer(1, 0.3 * cm))
 
         flat = 0
         state = {"subject": None, "topic": None}
@@ -3241,19 +3303,6 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                 story.extend(lesson)
             headings = story[mark:]
             del story[mark:]
-            # How much has to be left on the page for these headings to be
-            # worth printing here: the headings themselves, and either the
-            # worked-example box they introduce or the first line or two of the
-            # first question. The break itself is placed further down, once it
-            # is known whether a session band goes above them, because two
-            # breaks in a row would strand whatever sits between them.
-            # One stack, not two added: measuring them separately drops the
-            # gap the frame puts between the last heading and the first line
-            # under it, which is enough to strand a worked-example box.
-            headings_need = (stack_height(head_only + _lesson_opening(lesson))
-                             if lesson
-                             else stack_height(head_only) + _ORPHAN_MIN_CM * cm)
-
             # Flattened into printed order first, so the two-up decision can
             # look at the question after this one. A question that a session
             # band is printed above has to start its own row, or the band would
@@ -3276,6 +3325,32 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             rows = two_up_rows(eligible,
                                [k for k in range(len(ordered))
                                 if (flat + k) in starts])
+            # Built only to be measured. Nothing draws it, so the PageMarker
+            # inside it never fires and the page map is untouched.
+            first_row = question_row(cells, rows[0]) if rows else None
+
+            # How much has to be left on the page for these headings to be
+            # worth printing here: the headings themselves and the first thing
+            # that goes under them, which is the worked-example box when the
+            # lesson came down with the subtopic and the first row of questions
+            # otherwise. The break itself is placed further down, once it is
+            # known whether a session band goes above them, because two breaks
+            # in a row would strand whatever sits between them.
+            #
+            # One stack, not two added: measuring the headings and what follows
+            # separately drops the gap the frame puts between them, which is
+            # enough on its own to strand a worked-example box.
+            #
+            # And measured against the real first row rather than a flat
+            # allowance. A practice question is a KeepTogether and cannot
+            # split, so reserving 2.5cm and hoping its first line lands in that
+            # does not work: the whole block moves and the heading is left with
+            # nothing under it after all.
+            headings_need = (
+                stack_height(head_only + _lesson_opening(lesson)) if lesson
+                else stack_height(head_only + _unwrap([first_row]))
+                if first_row is not None
+                else stack_height(head_only) + _ORPHAN_MIN_CM * cm)
 
             j = 0
             for row in rows:

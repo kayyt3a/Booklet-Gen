@@ -205,7 +205,7 @@ PROMISES = {"Now you try:"}
 GUTTER = (A4[0] / 2 - 10, A4[0] / 2 + 10)
 
 
-def lowest_lines(index):
+def lowest_lines(document, index, key_start):
     """The bottom text line of each column on this page.
 
     The body runs in one column, the answer key in two, so the key is split at
@@ -213,7 +213,7 @@ def lowest_lines(index):
     continuing at the top of the right is the same orphan as one at the foot
     of a full-width page, and only shows up if the columns are measured apart.
     """
-    page = doc[index]
+    page = document[index]
     height = page.rect.height
     columns = {}
     for block in page.get_text("dict")["blocks"]:
@@ -225,17 +225,24 @@ def lowest_lines(index):
             if y0 < PAGE_MARGIN - 6 or y1 > height - PAGE_MARGIN + 6:
                 continue
             key = ("right" if x0 > GUTTER[1] else "left") \
-                if index >= KEY_START else "page"
+                if index >= key_start else "page"
             if key not in columns or y1 > columns[key][0]:
                 columns[key] = (y1, line["spans"][0]["font"], text)
     return columns
 
 
-orphans = []
-for i in range(1, len(PAGES)):
-    for column, (_, font, text) in lowest_lines(i).items():
-        if "Serif" in font or text in PROMISES:
-            orphans.append((f"page {i + 1}", column, text[:44]))
+def stranded_headings(document, key_start):
+    """Every heading that is the last thing in its column."""
+    out = []
+    for i in range(1, len(document)):
+        for column, (_, font, text) in lowest_lines(document, i,
+                                                    key_start).items():
+            if "Serif" in font or text in PROMISES:
+                out.append((f"page {i + 1}", column, text[:44]))
+    return out
+
+
+orphans = stranded_headings(doc, KEY_START)
 
 check(not orphans,
       f"no heading is the last thing in its column, across all "
@@ -245,6 +252,66 @@ check(not orphans,
       "at the foot of a page it is a broken one, and on a key page three of "
       "them stacked with no answer beneath reads as a page that failed to "
       "print")
+
+# The Homework part band is placed before anything under it can ask for a page
+# break of its own, because a break below the band would leave the band itself
+# at the foot of a page. So the one break in front of the band has to cover the
+# whole opening run: the band, the first session band, the topic opener, the
+# subtopic heading and the first row of questions.
+#
+# A flat seven centimetres does not cover it. This fixture is tuned so Class
+# Work finishes with roughly that much of a page left: with the break measured
+# the subtopic heading arrives with its questions, and with a flat seven it
+# prints at the foot of the page with nothing under it. The class-work count is
+# what moves the boundary, so it is the thing varied here, and a run of them is
+# rendered rather than one, because a single count only proves one alignment.
+
+
+def homework_boundary_booklet(classwork_per_subtopic):
+    sections = []
+    for i, (topic, subtopic, marker, steps, guided) in enumerate(SUBTOPICS[:4]):
+        sections.append(SubtopicOutput(
+            topic=topic, subtopic=subtopic,
+            teaching=teaching(marker, steps, guided),
+            questions=[
+                vq(f"Question {i}.{j}: A box is {j + 2} cm long, 2 cm wide and "
+                   "3 cm high. What is its volume in cubic centimetres?")
+                for j in range(classwork_per_subtopic)],
+            # Short and easy, so the first row of Homework is two questions
+            # side by side and taller than a two and a half centimetre
+            # allowance, which is exactly the case a flat allowance misses.
+            homework_questions=[
+                vq(f"Calculate {j + 1}/12 + {j + 1}/12.", difficulty="easy")
+                for j in range(5)],
+            estimated_minutes=10))
+    return BookletData(
+        subject="Mathematics", year_level="Year 5", student_name="Lleyton",
+        program_label="Academic Accelerate", sections=sections,
+        recap_questions=[vq("Calculate 15 * 4 + 7.", difficulty="easy")],
+        challenge_questions=[vq("A pool is 10 m x 5 m x 1.5 m. What is its "
+                                "volume in cubic metres?", difficulty="hard")],
+        recap_minutes=6, classwork_minutes=60, homework_minutes=105,
+        challenge_minutes=18, total_minutes=170)
+
+
+boundary = []
+for n in (2, 3, 5):
+    path = out.parent / f"homework-boundary-{n}.pdf"
+    render_pdf(homework_boundary_booklet(n), path)
+    other = pymupdf.open(path)
+    start = next(i for i, page in enumerate(other)
+                 if "Worked Solutions" in page.get_text())
+    boundary += [(n,) + o for o in stranded_headings(other, start)]
+    other.close()
+
+check(not boundary,
+      "and none is stranded where Homework starts, across three booklets whose "
+      "Class Work ends at different points down the page",
+      f"these headings were left at the foot of a page where Homework begins: "
+      f"{boundary} (class work per subtopic, page, column, text). The one "
+      "break in front of the Homework band has to cover everything down to the "
+      "first question, because nothing below the band can ask for a break "
+      "without stranding the band itself")
 
 print("\nTHE RULES THAT LEAVE A PAGE SHORT ARE STILL IN FORCE")
 
