@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from ..llm import LLMClient
 from ..schemas import Subtopic, SubtopicTeaching
 from ._shared import load_prompt, extract_json
+from .consistency import seal_guided_example
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +82,29 @@ def _reading_budget(year_level: str) -> str:
     )
 
 
+def _seal(teaching: SubtopicTeaching, subject: str, subtopic: str) -> None:
+    """Make every guided example withhold what the child is meant to supply.
+
+    The prompt asks for it and the model does not always comply, and the two
+    ways it fails both print a finished demonstration under a heading that
+    says "together": no [[ ]] at all, or the answer restated in plain text
+    inside a step, above the gap that asks for it. Repaired here rather than
+    in the formatter so that everything downstream, the answer key and the
+    judge included, reads the same repaired string.
+
+    The "I do" worked example is deliberately left alone: it is the only
+    complete model of the method on the page.
+    """
+    for example in teaching.guided_examples or []:
+        notes = seal_guided_example(example)
+        if notes:
+            log.warning(
+                "intro_writer.guided_example_sealed",
+                extra={"subject": subject, "subtopic": subtopic,
+                       "repairs": "; ".join(notes)},
+            )
+
+
 class IntroWriterAgent:
     """Produces a mini-lesson (intro + worked example) for a subtopic."""
 
@@ -135,6 +159,7 @@ class IntroWriterAgent:
             try:
                 data = extract_json(raw)
                 teaching = SubtopicTeaching.model_validate(data)
+                _seal(teaching, subject, subtopic.name)
                 log.info(
                     "intro_writer.success",
                     extra={"attempt": attempt, "subject": subject,

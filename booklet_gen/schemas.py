@@ -130,8 +130,10 @@ class SubtopicTeaching(BaseModel):
     # when one fits naturally. Sticky hooks help kids remember.
     mnemonic: Optional[str] = None
     worked_example: WorkedExample              # "I do" - fully worked
-    # "We do" - a couple of follow-along examples with the solution shown, the
+    # "We do" - a couple of follow-along examples the STUDENT fills in, the
     # guided middle step between the worked example and independent practice.
+    # Every value they are meant to work out is wrapped in [[ ]] (blanks.py):
+    # a ruled gap on their page, the value itself in the answer key.
     guided_examples: List[WorkedExample] = Field(default_factory=list)
 
 

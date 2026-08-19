@@ -26,6 +26,12 @@ All of these were found in real booklets that had passed validation:
    exist. The judge reads the text only, so a missing picture is invisible
    to it too.
 
+5. A guided example that printed its own answer inside its own steps. "Now
+   let's try one together" is only an exercise if part of it is withheld, and
+   a step reading "so the order is 3,105, 3,142, 3,190" sits two lines above
+   the ruled gap that asks for exactly that. The judge never sees the guided
+   example at all.
+
 None of these is repairable by prompting alone, because all are cases of the
 model being locally plausible and globally wrong.
 """
@@ -969,3 +975,176 @@ def implausible_magnitude(text: str) -> Optional[str]:
                     return (f"{label}: {value:,.0f} is more than ten times the "
                             f"plausible maximum of {plausible_max:,.0f}")
     return None
+
+
+# --------------------------------------------------------------------------
+# 5. A guided example that hands over its own answer
+# --------------------------------------------------------------------------
+
+# "Now let's try one together" is the one box on the page the child writes in.
+# It works only because parts of it are missing, and the [[value]] convention
+# in blanks.py is how the model says which parts: the student's page prints a
+# ruled gap, the answer key prints the value in bold.
+#
+# Two failures got through to a rendered booklet, and both leave a box that
+# asks nothing:
+#
+#   * No [[ ]] anywhere. The formatter then prints a finished demonstration
+#     with an empty Answer line under it, so the child copies the last number
+#     of the working into the gap. That is transcription, not practice.
+#   * [[ ]] on the answer, and the answer restated in plain words inside a
+#     step: "16 x 3 = [[48]], so the volume is 48 m3". The gap is two lines
+#     below the value that fills it.
+#
+# REPAIR, NOT REGENERATE. Asking the model again costs another strong-tier
+# call per subtopic, comes back leaking in some new way often enough to need
+# this check anyway, and the mini-lesson is a soft failure, so a second
+# refusal would ship the subtopic with no teaching at all. Wrapping the leaked
+# value in [[ ]] is deterministic, costs nothing, and produces exactly the
+# artefact that was wanted: nothing is deleted, because everything blanked
+# here is printed in full in the answer key.
+#
+# The rules below are narrow on purpose. Blanking a number the QUESTION gave
+# would leave a step the child cannot do, which is worse than the leak, so a
+# short value only counts when something marks it as a result ("=", "is",
+# "gives"), and a longer value has to appear in full.
+
+# A value a step can end on: 48, 3,105, 1.5, 5/8, 12 cm, $4.50, 60%, 90.
+_STEP_VALUE = (r"\$?\d[\d,]*(?:\.\d+)?(?:\s*[/⁄]\s*\d+)?"
+               r"(?:\s*(?:%|°|[a-zA-Z]{1,3}(?:\^?\d|[²³])?))?")
+
+# What marks the thing after it as a result rather than as a given.
+_RESULT_CUE = (r"(?:=|\bis\b|\bare\b|\bgives?\b|\bequals?\b|\bmakes?\b"
+               r"|\bbecomes?\b|\bleaves?\b|\bcomes\s+to\b|\bsimplifies\s+to\b"
+               r"|\bso\b|\btotals?\b)")
+
+_RESULT_AFTER_EQUALS = re.compile(rf"=\s*({_STEP_VALUE})")
+_ALREADY_BLANK = re.compile(r"\[\[.+?\]\]", re.DOTALL)
+_ANSWER_TAIL = " .,:;!"
+
+# An English step quotes the line the answer sits in: Look at "she left
+# reluctantly". Blanking the word there hides the evidence the child is being
+# taught to hunt for, so quoted text is left alone and only the step's own
+# conclusion is blanked.
+_QUOTED = re.compile(r"['\"‘“][^'\"’”]{2,200}['\"’”]")
+
+
+def _inside_blank(text: str, index: int) -> bool:
+    """True where a value must be left alone: already blanked, or quoted."""
+    return any(m.start() <= index < m.end()
+               for pattern in (_ALREADY_BLANK, _QUOTED)
+               for m in pattern.finditer(text))
+
+
+def _wrap_group(text: str, pattern: re.Pattern) -> tuple[str, int]:
+    """Wrap group 1 of every match that is not already inside [[ ]]."""
+    out, last, wrapped = [], 0, 0
+    for m in pattern.finditer(text):
+        if m.start(1) < last or _inside_blank(text, m.start(1)):
+            continue
+        out.append(text[last:m.start(1)])
+        out.append(f"[[{m.group(1)}]]")
+        last = m.end(1)
+        wrapped += 1
+    out.append(text[last:])
+    return "".join(out), wrapped
+
+
+def _answer_variants(answer: str) -> list[str]:
+    """The spellings of the answer a step could leak, longest first.
+
+    "48 m3" leaks as itself and as a bare "48", and the bare form is the one
+    that turns up after an equals sign.
+
+    The answer field is usually already wrapped in [[ ]] when a step leaks it,
+    because blanking the Answer line is the half of the instruction the model
+    does follow, so the markers come off before anything is compared.
+    """
+    body = re.sub(r"\[\[(.+?)\]\]", r"\1", answer or "", flags=re.S)
+    body = re.sub(r"^\s*answers?\s*[:=]\s*", "", body, flags=re.I)
+    body = " ".join(body.split()).strip(_ANSWER_TAIL)
+    if not body:
+        return []
+    variants = [body]
+    m = re.match(rf"^({_STEP_VALUE})$", body)
+    if m:
+        number = re.match(r"^\$?\d[\d,]*(?:\.\d+)?(?:\s*[/⁄]\s*\d+)?", body)
+        if number and number.group(0) != body:
+            variants.append(number.group(0))
+    return sorted(set(variants), key=len, reverse=True)
+
+
+def _leak_pattern(variant: str) -> re.Pattern:
+    body = re.escape(variant).replace(r"\ ", r"\s+")
+    before = r"(?<![\d.,])" if variant[0].isdigit() else r"(?<!\w)"
+    after = r"(?![\d.,]?\d)" if variant[-1].isdigit() else r"(?!\w)"
+    core = rf"{before}({body}){after}"
+    if len(variant) >= 3:
+        # Long enough that repeating it verbatim is never a coincidence.
+        return re.compile(core, re.IGNORECASE)
+    # "8" is as likely to be a number the question gave, so it only counts as
+    # a leak where the step announces it as the result.
+    return re.compile(rf"{_RESULT_CUE}[\s:,]*{core}", re.IGNORECASE)
+
+
+def _blank_last_result(step: str) -> tuple[str, bool]:
+    """Blank the value after the step's final "=", if it ends on one.
+
+    One gap per step, the last one, so every word of the method and every
+    number the question gave stays on the page and only the result the child
+    is meant to produce is hidden.
+    """
+    matches = [m for m in _RESULT_AFTER_EQUALS.finditer(step)
+               if not _inside_blank(step, m.start(1))]
+    if not matches:
+        return step, False
+    m = matches[-1]
+    value = m.group(1).rstrip()
+    end = m.start(1) + len(value)
+    return f"{step[:m.start(1)]}[[{value}]]{step[end:]}", True
+
+
+def seal_guided_example(example) -> list[str]:
+    """Blank whatever in a guided example gives its own answer away.
+
+    Mutates `example.steps` and `example.answer` and returns one short note
+    per repair, for the caller to log. An example that already carries its
+    [[values]] and never restates the answer comes back untouched, which is
+    the common case; this only fires on the ones that would have printed a
+    finished demonstration.
+
+    Never call this on the "I do" worked example. That one is the single
+    complete model of the method on the page, and the practice underneath
+    starts from it.
+    """
+    notes: list[str] = []
+    steps = list(getattr(example, "steps", None) or [])
+    variants = _answer_variants(getattr(example, "answer", "") or "")
+
+    for i, step in enumerate(steps):
+        for variant in variants:
+            step, wrapped = _wrap_group(step, _leak_pattern(variant))
+            if wrapped:
+                notes.append(f"step {i + 1} stated the answer {variant!r}")
+        steps[i] = step
+
+    if not any(_ALREADY_BLANK.search(s) for s in steps):
+        blanked = 0
+        for i, step in enumerate(steps):
+            steps[i], done = _blank_last_result(step)
+            blanked += done
+        if blanked:
+            notes.append(f"no [[ ]] anywhere: blanked {blanked} step result(s)")
+
+    answer = getattr(example, "answer", "") or ""
+    if answer.strip() and not _ALREADY_BLANK.search(answer):
+        body = answer.strip()
+        tail = ""
+        while body and body[-1] in ".!":
+            body, tail = body[:-1], body[-1] + tail
+        if body:
+            example.answer = f"[[{body}]]{tail}"
+            notes.append("the answer line was printed, not blanked")
+
+    example.steps = steps
+    return notes
