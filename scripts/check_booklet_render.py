@@ -1104,19 +1104,67 @@ def _exempt_pages(pages_, stop: int) -> set[int]:
 _PART_BREAK_SLACK_CM = 0.6
 
 
-def page_fill(pages_, lows_, label):
+# The tinted fill of a worked-example box. A page that opens with a mini-lesson
+# is recognised by having one of these near its top.
+_WE_BOX_FILL = (0.957, 0.969, 0.984)
+
+
+def lesson_openings(path) -> dict:
+    """{page index: height in cm of the mini-lesson that opens that page}.
+
+    A mini-lesson has to arrive on one page with its own worked example: the
+    box is a Table and cannot split, so a lesson that starts at the foot of a
+    page leaves its heading, its introduction and its key points above five
+    centimetres of white with the example overleaf. The formatter therefore
+    moves the whole lesson to the next page when it does not fit, which is
+    right, and which necessarily leaves the foot of the page before it short.
+
+    How short is allowed to be is not a constant. It is exactly how tall the
+    lesson turned out to be, which varies by several centimetres with the
+    number of steps the model wrote. So it is measured off the page the lesson
+    actually landed on: from the top of the type area to the bottom of the
+    first worked-example box.
+    """
+    doc = pymupdf.open(str(path))
+    out = {}
+    for i, page in enumerate(doc):
+        boxes = [d["rect"] for d in page.get_drawings()
+                 if d.get("fill") and max(abs(a - b) for a, b in
+                                          zip(d["fill"], _WE_BOX_FILL)) < 0.01
+                 and d["rect"].width > 0.5 * (A4[0] - 2 * PAGE_MARGIN)]
+        if not boxes:
+            continue
+        first = min(boxes, key=lambda r: r.y0)
+        # Near the top: a box further down the page arrived under questions,
+        # so the page did not open with a lesson.
+        if first.y0 - PAGE_MARGIN < 8 * cm:
+            out[i] = (first.y1 - PAGE_MARGIN) / cm
+    doc.close()
+    return out
+
+
+def page_fill(pages_, lows_, label, path=None):
     """Worst tail of blank space on the question pages, ignoring part breaks.
 
-    Two parts are allowed to start on a fresh page rather than squeeze into
-    the foot of the one before: Homework and the Final Challenge. Each has its
-    own threshold in formatter.py, and each is measured against its own. The
-    Final Challenge used to be missing from this list, so the one break that
+    Three things are allowed to start on a fresh page rather than squeeze into
+    the foot of the one before: Homework, the Final Challenge and a mini-lesson.
+    Each is measured against its own threshold rather than against a flat 6cm.
+    The Final Challenge used to be missing from this list, so the one break that
     may legally throw away nine centimetres was judged as if it were an
     ordinary page, and it passed only for as long as pagination happened to
     keep it off a boundary.
+
+    The mini-lesson case was added when short questions started being set two to
+    a row. Two-up packing puts more questions on a page, so the room left over
+    when the next lesson does not fit is larger than it was, and a flat 6cm
+    began failing on a break that is doing exactly what it was built to do. The
+    replacement is not a looser number: it is the height of the lesson itself,
+    measured off the page it landed on, so a break still fails if it threw away
+    more room than the lesson needed.
     """
     stop = key_page(pages_)
     tails = [(low - BODY_BOTTOM) / cm for low in lows_[:stop]]
+    lessons = lesson_openings(path) if path is not None else {}
 
     def break_limit(i):
         """The threshold this page's tail is allowed, or None if it is not a
@@ -1126,6 +1174,8 @@ def page_fill(pages_, lows_, label):
             return HOMEWORK_MIN_START_CM + _PART_BREAK_SLACK_CM
         if "Final Challenge" in head:
             return _CHALLENGE_MIN_START_CM + _PART_BREAK_SLACK_CM
+        if i + 1 in lessons:
+            return lessons[i + 1] + _PART_BREAK_SLACK_CM
         return None
 
     exempt = _exempt_pages(pages_, stop)
@@ -1148,7 +1198,7 @@ def page_fill(pages_, lows_, label):
           f"mean tail {mean:.1f}cm")
 
 
-page_fill(pages, lows, "booklet")
+page_fill(pages, lows, "booklet", booklet)
 
 print("\nPage fill under stress (200 questions of varied length)")
 import random                                                   # noqa: E402
@@ -1301,8 +1351,8 @@ english = BookletData(
     spelling_list=SpellingList(words=SPELL_LIST),
     spelling_test=SpellingTest(words=SPELL_TEST, from_week=2))
 
-e_pages, e_lows, e_runs, e_bolds, e_rules = read(
-    render_pdf(english, tmp / "english.pdf"))
+e_pdf = render_pdf(english, tmp / "english.pdf")
+e_pages, e_lows, e_runs, e_bolds, e_rules = read(e_pdf)
 e_key_start = key_page(e_pages)
 e_question_pages = e_pages[:e_key_start]
 e_question_text = "\n".join(e_question_pages)
@@ -1448,7 +1498,7 @@ check('"the dog runs"' in e_question_text and '"the dog run"' in e_question_text
 check('"enormous"' in e_question_text and '"big"' in e_question_text,
       "and so do the ones in a key point")
 
-page_fill(e_pages, e_lows, "English")
+page_fill(e_pages, e_lows, "English", e_pdf)
 
 print("\nExam paper (shares these styles)")
 exam = ExamPaper(

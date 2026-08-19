@@ -1483,8 +1483,16 @@ def _lesson_cond_break(headings: list, lesson: list) -> list:
     fit it moves whole to the next page and leaves the topic heading, the
     subtopic heading, the intro paragraph and the key points sitting above four
     or five centimetres of white. Measured, not guessed: see stack_height.
+
+    Measured as ONE stack rather than as two added together. The frame sets the
+    gap between the last heading and the first line of the lesson to the larger
+    of the heading's spaceAfter and the paragraph's spaceBefore, and measuring
+    the two runs separately loses that junction entirely: 6pt, about 0.21cm,
+    which is enough to leave a lesson believing it fits with 9.83cm left when
+    it needs 9.89cm, and the worked-example box then moves to the next page on
+    its own. Small enough to hide until something repaginates the booklet.
     """
-    needed = min(stack_height(headings) + stack_height(_lesson_opening(lesson)),
+    needed = min(stack_height(headings + _lesson_opening(lesson)),
                  _MAX_COND_BREAK)
     return [CondPageBreak(needed)]
 
@@ -1888,7 +1896,9 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
                         page_map: dict | None = None,
                         space_floor_cm: float = 0.0,
                         display_num: int | None = None,
-                        subject: str | None = None) -> list:
+                        subject: str | None = None,
+                        working_cm: float | None = None,
+                        fixed_working: bool = False) -> list:
     """The flowables of one numbered question, before they are bound together.
 
     Returned as a flat list rather than a KeepTogether because a passage binds
@@ -1931,13 +1941,151 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
         # No credit line under the picture. A licence string under every image
         # reads as clutter on a child's worksheet; the attributions are still
         # printed, gathered on a references page at the very back.
-    block.append(WorkingSpace(
-        _working_space_cm(vq.question, space_floor_cm) * cm,
+    # `working_cm` is set only by the two-up grid, where both cells of a row
+    # are given the taller of the pair's entitlements so the row's two panels
+    # end on the same line. `fixed_working` stops the panel shrinking inside a
+    # table cell: a row cannot split anyway, so there is nothing to gain by
+    # giving, and a cell measured with an unbounded height would otherwise
+    # quote its squeezed minimum and print the whole grid a quarter short.
+    height = (_working_space_cm(vq.question, space_floor_cm)
+              if working_cm is None else working_cm) * cm
+    space = WorkingSpace(
+        height,
         answer_line_labels(vq.question),
+        min_height=height + _ANSWER_LINE_CM * cm * len(
+            answer_line_labels(vq.question)) if fixed_working else None,
         rules=written_response_rules(vq.question),
         panel=working_panel(subject, vq.question),
-    ))
+    )
+    block.append(space)
     return block
+
+
+# ---------------------------------------------------------------------------
+# The two-up practice grid
+#
+# A booklet of short arithmetic used to print one question per row for twelve
+# consecutive pages: bold number, one line of text, a panel, an answer rule,
+# four or five to a page, nothing changing size, weight, width or position from
+# one page to the next. A parent flipping the printed stack has no landmarks in
+# it, and the pages are half empty sideways while the booklet runs long.
+#
+# So a question short enough to be set at half measure is set at half measure,
+# two to a row, each with its own panel. Which questions qualify is decided by
+# the booklet's own content rather than by a fixed pattern, so the rhythm
+# differs from booklet to booklet by itself: a page that runs a two-up row, then
+# a full-width word problem, then another two-up row reads as laid out rather
+# than as stamped.
+_TWO_UP_GAP = 0.6 * cm
+TWO_UP_COLUMN = (BODY_WIDTH - _TWO_UP_GAP) / 2
+
+# The tallest working area a question may claim and still be set two-up. The
+# `easy` tier is 1.6cm and the Warm-up floor is 2.2cm; anything above that is a
+# question that wants room to think in, and room to think in wants the measure.
+_TWO_UP_MAX_WORKING_CM = 2.2
+
+
+def two_up_eligible(styles, vq: ValidatedQuestion, display_num: int,
+                    subject: str | None = None, space_floor_cm: float = 0.0,
+                    width: float | None = None) -> bool:
+    """Whether this question can be set at half measure beside another.
+
+    Two conditions, and both are about what the question needs rather than
+    about what would fit: its text has to sit on ONE line in the narrow column,
+    and its working area has to be small. A question that wraps to two lines at
+    half measure has been squeezed rather than laid out, and a word problem or
+    anything wanting real working stays across the page.
+
+    Everything that carries something other than a line of text and a panel is
+    out: a picture, a reading passage, ruled lines for a written answer, a
+    drawing space, or parts a) and b) with a rule each.
+    """
+    width = TWO_UP_COLUMN if width is None else width
+    q = getattr(vq, "question", None)
+    if q is None:
+        return False
+    if image_is_usable(getattr(vq, "image_path", None)):
+        return False
+    if getattr(q, "passage_id", None):
+        return False
+    if written_response_rules(q):
+        return False
+    if working_panel(subject, q) == "none":
+        return False
+    # Exactly one "Answer:" rule. Parts a) and b) get one each, and they also
+    # earn extra height, so they belong across the measure.
+    if len(answer_line_labels(q)) != 1:
+        return False
+    if _working_space_cm(q, space_floor_cm) > _TWO_UP_MAX_WORKING_CM + 1e-6:
+        return False
+    instruction, specimen = split_instruction_and_specimen(q.question)
+    if specimen:
+        return False
+    style = styles["question"]
+    para = Paragraph(f"<b>{display_num}.</b> {blank_out(_escape(instruction))}",
+                     style)
+    try:
+        _, h = para.wrap(width, BODY_HEIGHT)
+    except Exception:
+        return False
+    return h <= style.leading + 0.5
+
+
+def two_up_rows(eligible: list[bool], breaks=()) -> list[list[int]]:
+    """Group question positions into printed rows, in reading order.
+
+    Rows of two where two adjacent questions both qualify, rows of one
+    otherwise. Reading order is left cell then right cell then the next row
+    down, which is the order the numbering, the page map and the answer key all
+    already walk, so none of them has to change.
+
+    `breaks` are positions that must start a row of their own: a homework
+    question that a session band is printed above cannot be the right-hand half
+    of a row begun before the band.
+    """
+    rows: list[list[int]] = []
+    i = 0
+    while i < len(eligible):
+        if (eligible[i] and i + 1 < len(eligible) and eligible[i + 1]
+                and (i + 1) not in set(breaks)):
+            rows.append([i, i + 1])
+            i += 2
+        else:
+            rows.append([i])
+            i += 1
+    return rows
+
+
+def _two_up_block(styles, cells: list, page_map: dict | None = None):
+    """One row of two short questions, each with its own working panel.
+
+    The two panels are given the same height, the taller of the pair's
+    entitlements, and the cells are top aligned, so the row ends on one line
+    rather than stepping down in the middle.
+
+    The panel's grid is NOT scaled to the column. A 5mm square is 5mm wherever
+    it sits, because that is the whole point of an exercise-book grid: a child
+    counting squares to line up a column addition has to be counting the same
+    square they counted on the page before. A narrow column simply holds fewer
+    of them. WorkingSpace draws from an absolute pitch, so this comes for free
+    and the check pins it there.
+    """
+    height = max(_working_space_cm(vq.question, floor)
+                 for _, _, vq, _, floor in cells)
+    built = [_question_flowables(styles, n, vq, page_map, floor, display,
+                                 subject, working_cm=height, fixed_working=True)
+             for n, display, vq, subject, floor in cells]
+    row = [built[0], "", built[1] if len(built) > 1 else ""]
+    tbl = Table([row], colWidths=[TWO_UP_COLUMN, _TWO_UP_GAP, TWO_UP_COLUMN],
+                hAlign="LEFT")
+    tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return tbl
 
 
 def _question_block(styles, q_num: int, vq: ValidatedQuestion,
@@ -2544,16 +2692,37 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # the working space that belongs to it.
     Q_GAP = 0.3 * cm
 
+    def plan(qs, subject, floor, start_n, breaks=()):
+        """A run of questions turned into printed rows.
+
+        Returns the cells, one per question in reading order, and the rows: a
+        row is one position or two, and two only when both questions are short
+        enough to be set at half measure. Numbering is assigned here, before
+        anything is laid out, so a two-up row cannot renumber anything: the
+        left cell is always the lower number and the right cell the next one.
+        """
+        cells = [(start_n + k + 1, shown(start_n + k + 1), vq, subject, floor)
+                 for k, vq in enumerate(qs)]
+        return cells, two_up_rows(
+            [two_up_eligible(styles, vq, display, subj, fl)
+             for _, display, vq, subj, fl in cells], breaks)
+
+    def question_row(cells, row):
+        """One printed row: two questions side by side, or one full measure."""
+        if len(row) == 2:
+            return _two_up_block(styles, [cells[i] for i in row], page_map)
+        n, display, vq, subject, floor = cells[row[0]]
+        return _question_block(styles, n, vq, page_map, floor, display, subject)
+
     def render_questions(qs, space_floor_cm: float = 0.0):
         # The Warm-up and the Final Challenge belong to the booklet rather than
         # to a subtopic, so the booklet's own subject decides their panel.
-        for i, vq in enumerate(qs):
-            counter["n"] += 1
+        cells, rows = plan(qs, data.subject, space_floor_cm, counter["n"])
+        for i, row in enumerate(rows):
             if i:
                 story.append(Spacer(1, Q_GAP))
-            story.append(_question_block(styles, counter["n"], vq, page_map,
-                                         space_floor_cm, shown(counter["n"]),
-                                         data.subject))
+            story.append(question_row(cells, row))
+        counter["n"] += len(qs)
 
     def render_passage_questions(section, qs, space_floor_cm: float = 0.0):
         """Questions grouped under their reading, passage first.
@@ -2565,25 +2734,27 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         subject = section.subject or data.subject
         first = True
         for passage, group in passage_groups(qs, section_passages(section)):
-            for i, vq in enumerate(group):
-                counter["n"] += 1
+            cells, _ = plan(group, subject, space_floor_cm, counter["n"])
+            counter["n"] += len(group)
+            head = 1 if passage is not None else 0
+            if head:
+                n, display, vq, subj, floor = cells[0]
+                # Built from loose flowables, never by wrapping the finished
+                # block: a KeepTogether inside a KeepTogether measures as
+                # 0xffffff and breaks the page every time.
+                story.append(_passage_question_block(
+                    styles, passage,
+                    _question_flowables(styles, n, vq, page_map, floor,
+                                        display, subj)))
+                first = False
+            rest = cells[head:]
+            rows = two_up_rows([two_up_eligible(styles, vq, display, subj, fl)
+                                for _, display, vq, subj, fl in rest])
+            for row in rows:
                 if not first:
                     story.append(Spacer(1, Q_GAP))
                 first = False
-                if passage is not None and i == 0:
-                    # Built from loose flowables, never by wrapping the
-                    # finished block: a KeepTogether inside a KeepTogether
-                    # measures as 0xffffff and breaks the page every time.
-                    block = _passage_question_block(
-                        styles, passage,
-                        _question_flowables(styles, counter["n"], vq, page_map,
-                                            space_floor_cm,
-                                            shown(counter["n"]), subject))
-                else:
-                    block = _question_block(styles, counter["n"], vq, page_map,
-                                            space_floor_cm,
-                                            shown(counter["n"]), subject)
-                story.append(block)
+                story.append(question_row(rest, row))
 
     def subject_topic_headers(section, state, key: bool = False,
                               out: list | None = None):
@@ -2756,78 +2927,98 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # first question. The break itself is placed further down, once it
             # is known whether a session band goes above them, because two
             # breaks in a row would strand whatever sits between them.
-            headings_need = stack_height(head_only) + (
-                stack_height(_lesson_opening(lesson)) if lesson
-                else _ORPHAN_MIN_CM * cm)
+            # One stack, not two added: measuring them separately drops the
+            # gap the frame puts between the last heading and the first line
+            # under it, which is enough to strand a worked-example box.
+            headings_need = (stack_height(head_only + _lesson_opening(lesson))
+                             if lesson
+                             else stack_height(head_only) + _ORPHAN_MIN_CM * cm)
+
+            # Flattened into printed order first, so the two-up decision can
+            # look at the question after this one. A question that a session
+            # band is printed above has to start its own row, or the band would
+            # land between the two halves of a row already begun.
+            ordered = [(passage, i, vq)
+                       for passage, group in passage_groups(
+                           section.homework_questions,
+                           section_passages(section))
+                       for i, vq in enumerate(group)]
+            subject = section.subject or data.subject
+            cells, _ = plan([vq for _, _, vq in ordered], subject, 0.0,
+                            counter["n"])
+            counter["n"] += len(ordered)
+            eligible = [
+                # The first question under a reading is bound to that reading
+                # and printed across the measure with it.
+                not (p is not None and i == 0)
+                and two_up_eligible(styles, vq, display, subj, fl)
+                for (p, i, _), (_, display, vq, subj, fl) in zip(ordered, cells)]
+            rows = two_up_rows(eligible,
+                               [k for k in range(len(ordered))
+                                if (flat + k) in starts])
 
             j = 0
-            for passage, group in passage_groups(section.homework_questions,
-                                                 section_passages(section)):
-                for i, vq in enumerate(group):
-                    if j:
-                        story.append(Spacer(1, Q_GAP))
-                    band = session_band_for(flat)
-                    if band is not None:
-                        # The session starts part way through this subtopic, so
-                        # the heading was printed pages back under an earlier
-                        # session. Without this the child sits down on
-                        # Wednesday to "Session 2 of 2" followed by "2. Write
-                        # 0.305 in words", with no sign of what the work is
-                        # about or where question one went.
-                        cont = Paragraph(
-                            _escape(f"{section.subtopic} (continued)"),
-                            styles["subtopic"]) if j else None
-                        if flat:
-                            # Do not leave a session band stranded at the foot
-                            # of a page with its first question overleaf, and
-                            # do not strand the heading that goes under it
-                            # either. One break covers the band, the heading
-                            # and the start of what follows.
-                            need = stack_height([band]) + 0.25 * cm + (
-                                stack_height([cont]) + _ORPHAN_MIN_CM * cm
-                                if cont is not None else headings_need)
-                            story.append(Spacer(1, 0.3 * cm))
-                            story.append(CondPageBreak(
-                                min(max(need, 3.5 * cm), _MAX_COND_BREAK)))
-                        # The first band of all needs no break of its own: the
-                        # Homework part band is directly above it and has
-                        # already guaranteed HOMEWORK_MIN_START_CM of room. A
-                        # second break here would break the page between that
-                        # band and this one, which is the worse strand.
-                        story.append(band)
-                        story.append(Spacer(1, 0.25 * cm))
-                        if cont is not None:
-                            story.append(cont)
-                    elif j == 0:
+            for row in rows:
+                passage, i, vq = ordered[row[0]]
+                if j:
+                    story.append(Spacer(1, Q_GAP))
+                band = session_band_for(flat)
+                if band is not None:
+                    # The session starts part way through this subtopic, so
+                    # the heading was printed pages back under an earlier
+                    # session. Without this the child sits down on
+                    # Wednesday to "Session 2 of 2" followed by "2. Write
+                    # 0.305 in words", with no sign of what the work is
+                    # about or where question one went.
+                    cont = Paragraph(
+                        _escape(f"{section.subtopic} (continued)"),
+                        styles["subtopic"]) if j else None
+                    if flat:
+                        # Do not leave a session band stranded at the foot
+                        # of a page with its first question overleaf, and
+                        # do not strand the heading that goes under it
+                        # either. One break covers the band, the heading
+                        # and the start of what follows.
+                        need = stack_height([band]) + 0.25 * cm + (
+                            stack_height([cont]) + _ORPHAN_MIN_CM * cm
+                            if cont is not None else headings_need)
+                        story.append(Spacer(1, 0.3 * cm))
                         story.append(CondPageBreak(
-                            min(headings_need, _MAX_COND_BREAK)))
-                    if j == 0:
-                        story.extend(headings)
-                    counter["n"] += 1
-                    if passage is not None and i == 0:
-                        # Homework is worked days later and pages away from the
-                        # class work, so a passage used in both parts is printed
-                        # again here rather than referred back to.
-                        #
-                        # Built from the loose flowables, never by wrapping the
-                        # finished question block: a KeepTogether inside a
-                        # KeepTogether reports 0xffffff for its height, so the
-                        # outer one believes it can never fit and breaks the
-                        # page every time, stranding the band above it.
-                        block = _passage_question_block(
-                            styles, passage,
-                            _question_flowables(styles, counter["n"], vq,
-                                                page_map, 0.0,
-                                                shown(counter["n"]),
-                                                section.subject or data.subject))
-                    else:
-                        block = _question_block(styles, counter["n"], vq,
-                                                page_map, 0.0,
-                                                shown(counter["n"]),
-                                                section.subject or data.subject)
-                    story.append(block)
-                    flat += 1
-                    j += 1
+                            min(max(need, 3.5 * cm), _MAX_COND_BREAK)))
+                    # The first band of all needs no break of its own: the
+                    # Homework part band is directly above it and has
+                    # already guaranteed HOMEWORK_MIN_START_CM of room. A
+                    # second break here would break the page between that
+                    # band and this one, which is the worse strand.
+                    story.append(band)
+                    story.append(Spacer(1, 0.25 * cm))
+                    if cont is not None:
+                        story.append(cont)
+                elif j == 0:
+                    story.append(CondPageBreak(
+                        min(headings_need, _MAX_COND_BREAK)))
+                if j == 0:
+                    story.extend(headings)
+                if passage is not None and i == 0:
+                    # Homework is worked days later and pages away from the
+                    # class work, so a passage used in both parts is printed
+                    # again here rather than referred back to.
+                    #
+                    # Built from the loose flowables, never by wrapping the
+                    # finished question block: a KeepTogether inside a
+                    # KeepTogether reports 0xffffff for its height, so the
+                    # outer one believes it can never fit and breaks the
+                    # page every time, stranding the band above it.
+                    n, display, _, subj, floor = cells[row[0]]
+                    block = _passage_question_block(
+                        styles, passage,
+                        _question_flowables(styles, n, vq, page_map, floor,
+                                            display, subj))
+                else:
+                    block = question_row(cells, row)
+                story.append(block)
+                flat += len(row)
+                j += len(row)
 
         if data.challenge_questions:
             # The Final Challenge is a scored part of the booklet, the same as
