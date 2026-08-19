@@ -201,6 +201,20 @@ def _make_styles():
             fontSize=19, leading=23, spaceBefore=14, spaceAfter=2,
             textColor=colors.HexColor("#1F3A5F"),
         ),
+        # Where in the booklet this topic is, set above its name on the topic
+        # opener. Small, upper case and grey: it is a locator, not a heading,
+        # and it must not compete with the name it introduces.
+        "topic_kicker": ParagraphStyle(
+            "topic_kicker", parent=base["Normal"], fontName=FONT_BOLD,
+            fontSize=8, leading=11, spaceBefore=0, spaceAfter=0,
+            textColor=colors.HexColor("#647082"),
+        ),
+        # The subtopics inside a topic, listed on the opener as a contents.
+        "topic_contents": ParagraphStyle(
+            "topic_contents", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=9, leading=12.5, spaceBefore=0, spaceAfter=0,
+            textColor=colors.HexColor("#3A4A63"),
+        ),
         # The four parts of the answer key. In the body each of these gets a
         # full-width coloured band, and the key used to set them in "topic",
         # the same style as the topic name inside them, so "Class Work" and
@@ -1337,6 +1351,116 @@ def _key_part_heading(styles, text: str, hex_colour: str,
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     return KeepTogether([tab, rule, Spacer(1, 0.25 * cm)])
+
+
+# ---------------------------------------------------------------------------
+# The topic opener
+#
+# A topic used to get a 19pt serif line and nothing else. Set two points above
+# the subtopic heading under it, in the same face and the same colour, which
+# meant a new topic could begin two thirds of the way down a page with no more
+# separation from the topic before it than a slightly larger font. The biggest
+# structural division in the booklet was its weakest typographic one, and a
+# parent flipping the stack had nothing to navigate by.
+#
+# So a topic arrives on a full-measure opener: a rule, where in the booklet
+# this is, the topic's name, and the subtopics inside it as a mini contents.
+# That gives a flip-through a landmark every two or three pages and turns the
+# largest run of whitespace in the booklet into something that was designed.
+#
+# Deliberately NOT a reversed-out solid band. This is printed at home, and four
+# reversed bands would roughly double the booklet's band ink for no reading
+# gain. What carries the weight is a 2.5pt rule across the measure and a tint
+# behind the contents line only, which together cost about a fortieth of what a
+# solid band costs.
+_TOPIC_OPENER_TINT = "#EEF2F7"
+_TOPIC_OPENER_RULE = 2.5
+_TOPIC_SEPARATOR = "   ·   "
+
+
+def topic_contents(data: BookletData) -> dict:
+    """{topic: (its number, how many topics, [its subtopics])}, in printed order.
+
+    Computed from the booklet rather than counted as the story is built,
+    because the opener has to say "Topic 2 of 4" the first time the topic
+    appears and the same thing again when Homework reaches it, and the two must
+    agree. A topic lists every subtopic the booklet teaches under it, which is
+    what makes it a contents rather than a caption.
+    """
+    order: list[str] = []
+    subs: dict[str, list[str]] = {}
+    for section in getattr(data, "sections", None) or []:
+        topic = (section.topic or "").strip()
+        if not topic:
+            continue
+        if topic not in subs:
+            order.append(topic)
+            subs[topic] = []
+        name = (section.subtopic or "").strip()
+        if name and name not in subs[topic]:
+            subs[topic].append(name)
+    return {t: (i + 1, len(order), subs[t]) for i, t in enumerate(order)}
+
+
+def _topic_opener(styles, topic: str, index: int, total: int,
+                  subtopics: list, colour: str = PART_CLASSWORK):
+    """The full-measure arrival of a topic: rule, name, position, contents.
+
+    Costed against the 19pt line it replaces, because paper is the currency
+    here: a landmark that adds a page to a six page English booklet has made
+    the booklet worse, not better. "Topic 2 of 4" sits on the same line as the
+    name rather than above it, and the contents strip is printed only when the
+    topic holds more than one subtopic, because a contents listing one item is
+    not a contents. That keeps the common case within a quarter of a
+    centimetre of the plain heading it replaces.
+    """
+    width = A4[0] - 2 * PAGE_MARGIN
+    name_style = ParagraphStyle("topic_opener_name", parent=styles["topic"],
+                                spaceBefore=0, spaceAfter=0)
+    kicker = ParagraphStyle("topic_opener_kicker", parent=styles["topic_kicker"],
+                            alignment=TA_RIGHT)
+    kicker_w = 3.4 * cm
+    rows = [["", ""],
+            [Paragraph(_escape(topic), name_style),
+             Paragraph(f"TOPIC {index} OF {total}", kicker)]]
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(colour)),
+        ("SPAN", (0, 0), (-1, 0)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 1), (-1, 1), 3),
+        ("BOTTOMPADDING", (0, 1), (-1, 1), 3),
+        # The locator sits on the name's baseline, not on the cap line.
+        ("VALIGN", (1, 1), (1, 1), "BOTTOM"),
+        ("BOTTOMPADDING", (1, 1), (1, 1), 7),
+    ]
+    listed = [s for s in (subtopics or []) if s]
+    if len(listed) > 1:
+        rows.append([Paragraph(_escape(_TOPIC_SEPARATOR.join(listed)),
+                               styles["topic_contents"]), ""])
+        style += [
+            ("SPAN", (0, 2), (-1, 2)),
+            ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor(_TOPIC_OPENER_TINT)),
+            ("LINEBELOW", (0, 2), (-1, 2), 0.6, colors.HexColor(colour)),
+            ("LEFTPADDING", (0, 2), (-1, 2), 8),
+            ("RIGHTPADDING", (0, 2), (-1, 2), 8),
+            ("TOPPADDING", (0, 2), (-1, 2), 3),
+            ("BOTTOMPADDING", (0, 2), (-1, 2), 4),
+        ]
+    else:
+        style.append(("LINEBELOW", (0, 1), (-1, 1), 0.6, colors.HexColor(colour)))
+    heights = [_TOPIC_OPENER_RULE] + [None] * (len(rows) - 1)
+    tbl = Table(rows, colWidths=[width - kicker_w, kicker_w],
+                rowHeights=heights, hAlign="LEFT")
+    tbl.setStyle(TableStyle(style))
+    # A whole opener at the foot of a page with its first subtopic overleaf is
+    # the defect this replaced, in a louder typeface. It travels as one block
+    # and the break in front of the lesson under it is measured to include it.
+    tbl.spaceBefore = 12
+    tbl.spaceAfter = 3
+    return tbl
 
 
 def _part_band(styles, text: str, bg_hex: str, subtitle: str = ""):
@@ -2682,6 +2806,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # actually printed, which restarts at each reading and each subtopic.
     counter = {"n": 0}
     nums = question_numbering(data)
+    contents = topic_contents(data)
 
     def shown(n: int) -> int:
         return nums.get(n, n)
@@ -2772,8 +2897,16 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             state["subject"] = section.subject
             state["topic"] = None
         if section.topic != state["topic"]:
-            dest.append(Paragraph(_escape(section.topic),
-                                  styles["key_topic" if key else "topic"]))
+            if key:
+                # The key is set in two columns, where a full-measure opener
+                # has no measure to be full across.
+                dest.append(Paragraph(_escape(section.topic),
+                                      styles["key_topic"]))
+            else:
+                index, total, subs = contents.get(
+                    (section.topic or "").strip(), (1, 1, []))
+                dest.append(_topic_opener(styles, section.topic, index, total,
+                                          subs))
             state["topic"] = section.topic
 
     # ---- Spelling Test (dictation on last week's list, before anything else) ----

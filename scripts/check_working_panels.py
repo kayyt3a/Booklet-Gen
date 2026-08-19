@@ -155,6 +155,8 @@ render_pdf(data, out)
 print(f"  rendered {out}")
 
 INK = tuple(round(int(F._PANEL_INK[i:i + 2], 16) / 255, 3) for i in (1, 3, 5))
+# The darker ink the "Answer:" rule itself is stroked in.
+RULE_INK = tuple(round(int("#9AA6B8"[i:i + 2], 16) / 255, 3) for i in (1, 3, 5))
 
 
 def panel_paths(page):
@@ -250,9 +252,16 @@ print("\nTHE ANSWER RULE SITS INSIDE THE PANEL")
 loose = []
 for n, page in enumerate(body, start=2):
     rects, _ = panel_paths(page)
+    # Identified by the answer rule's own stroke colour, not by weight alone.
+    # A 0.6pt line is a common enough weight that other designed elements use
+    # it too, and the topic opener closes with one across the measure; this
+    # check is about where the ANSWER rule is, so it looks for that ink.
     hairlines = [d for d in page.get_drawings()
                  if (d.get("width") or 0) > 0.5 and (d.get("width") or 0) < 0.7
-                 and d["rect"].height < 1]
+                 and d["rect"].height < 1
+                 and d.get("color")
+                 and max(abs(a - b) for a, b in
+                         zip(d["color"], RULE_INK)) < 0.01]
     for d in hairlines:
         y = d["rect"].y0
         if not any(r["rect"].y0 <= y <= r["rect"].y1 for r in rects) and rects:

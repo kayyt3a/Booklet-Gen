@@ -971,8 +971,15 @@ if boundary_section:
     n, part = boundary_section
     # From the Homework band on: the Class Work half lists the same subtopic
     # names higher up the booklet.
-    hw_text = aligned_text[aligned_text.index("Split into"):]
-    check(hw_text.index(f"Session {n} of") < hw_text.index(f"Part {part}"),
+    # Line by line, not by substring. The topic opener lists every subtopic in
+    # the topic as a contents line, so "Part 3" appears there too, pages above
+    # the session band; what this is about is where the HEADING is.
+    hw_lines = aligned_text[aligned_text.index("Split into"):].splitlines()
+    band_line = next((i for i, ln in enumerate(hw_lines)
+                      if ln.strip().startswith(f"Session {n} of")), 10 ** 6)
+    head_line = next((i for i, ln in enumerate(hw_lines)
+                      if ln.strip() == f"Part {part}"), -1)
+    check(band_line < head_line,
           "the session band sits above the subtopic heading it starts on",
           f"session {n} / Part {part}")
 
