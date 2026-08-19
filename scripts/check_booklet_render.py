@@ -1150,6 +1150,34 @@ def lesson_openings(path) -> dict:
     return out
 
 
+def content_heights(path) -> dict:
+    """{page index: how tall the printed block on that page is, in cm}.
+
+    Top of the highest mark to the bottom of the lowest, ignoring the running
+    head and the page number. Used to judge a break by the size of what moved
+    across it rather than by a constant.
+    """
+    doc = pymupdf.open(str(path))
+    out = {}
+    for i, page in enumerate(doc):
+        ys = []
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                if "".join(s["text"] for s in line["spans"]).strip():
+                    ys += [line["bbox"][1], line["bbox"][3]]
+        for drawing in page.get_drawings():
+            ys += [drawing["rect"].y0, drawing["rect"].y1]
+        for image in page.get_images(full=True):
+            box = page.get_image_bbox(image)
+            ys += [box.y0, box.y1]
+        inside = [y for y in ys
+                  if PAGE_MARGIN + 0.5 * cm < y < A4[1] - PAGE_MARGIN]
+        if inside:
+            out[i] = (max(inside) - min(inside)) / cm
+    doc.close()
+    return out
+
+
 def page_fill(pages_, lows_, label, path=None):
     """Worst tail of blank space on the question pages, ignoring part breaks.
 
@@ -1172,6 +1200,7 @@ def page_fill(pages_, lows_, label, path=None):
     stop = key_page(pages_)
     tails = [(low - BODY_BOTTOM) / cm for low in lows_[:stop]]
     lessons = lesson_openings(path) if path is not None else {}
+    endings = content_heights(path) if path is not None else {}
 
     def break_limit(i):
         """The threshold this page's tail is allowed, or None if it is not a
@@ -1183,6 +1212,12 @@ def page_fill(pages_, lows_, label, path=None):
             return _CHALLENGE_MIN_START_CM + _PART_BREAK_SLACK_CM
         if i + 1 in lessons:
             return lessons[i + 1] + _PART_BREAK_SLACK_CM
+        # The finish page. The sign-off, the score card, the mascot and the
+        # wordmark travel together onto a page of their own when they do not
+        # fit under the last question, so the page before it is allowed to end
+        # as short as that block is tall, and no shorter.
+        if i + 1 < stop and "Marked by:" in pages_[i + 1]:
+            return endings.get(i + 1, 0.0) + _PART_BREAK_SLACK_CM
         return None
 
     exempt = _exempt_pages(pages_, stop)

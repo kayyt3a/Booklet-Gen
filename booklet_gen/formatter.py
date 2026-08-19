@@ -349,6 +349,14 @@ def _make_styles():
             "footer_note", parent=base["Normal"], fontName=FONT_ITALIC,
             fontSize=9, textColor=colors.HexColor("#5F5F5F"), alignment=TA_CENTER,
         ),
+        # The line under the wordmark at the end of the answer key. Quiet, the
+        # way a colophon is: it is a statement about the document, not part of
+        # the document's content.
+        "colophon": ParagraphStyle(
+            "colophon", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=8.5, leading=11.5, alignment=TA_CENTER,
+            textColor=colors.HexColor("#5F6B7D"),
+        ),
         "footer_note_left": ParagraphStyle(
             "footer_note_left", parent=base["Normal"], fontName=FONT_REGULAR,
             fontSize=9, leading=12, textColor=colors.HexColor("#555555"),
@@ -2325,6 +2333,22 @@ def cover_spec(data: BookletData, times: dict | None = None) -> CoverSpec:
     )
 
 
+def every_answer_checked(data: BookletData) -> bool:
+    """Whether every answer in this booklet's key carries a verification mark.
+
+    The one condition under which the booklet is allowed to say so in as many
+    words. A real booklet claimed "every answer has been checked for accuracy"
+    on page 1 and then printed ten answers out of ninety-nine with no tick
+    beside them, which tells a parent in the product's own notation that the
+    cover is false. Being told that is worse than never claiming it: they do
+    not have to find a wrong answer to want their money back.
+
+    One function, read by the cover and by the key's colophon, so the front of
+    the booklet and the back of it cannot end up claiming different things.
+    """
+    return all(vq.verified for vq in all_questions(data))
+
+
 def cover_footer_note(data: BookletData) -> str:
     """The one sentence on the cover that has to be true of the key behind it.
 
@@ -2352,12 +2376,11 @@ def cover_footer_note(data: BookletData) -> str:
     section_subjects = {(s.subject or data.subject).strip().lower()
                         for s in data.sections}
     only_maths = section_subjects == {"mathematics"}
-    every_answer_checked = all(vq.verified for vq in all_questions(data))
     return (
         "Work through it in order"
         + (" and show your working." if only_maths else ".")
         + (" Every answer in the key at the back has been checked."
-           if every_answer_checked else
+           if every_answer_checked(data) else
            " In the key at the back, a tick marks an answer that has been"
            " checked."))
 
@@ -2479,6 +2502,170 @@ def _score_card(styles, data: BookletData):
         "<b>Score</b>      Marked by: ____________________      "
         "Date: ______________", styles["footer_note_left"])
     return KeepTogether([caption, Spacer(1, 0.1 * cm), tbl])
+
+
+# ---------------------------------------------------------------------------
+# The last page, and the last page of the key
+#
+# Both used to just stop. The closing note and the score card floated in the
+# top third of a page with twelve to fifteen centimetres of white beneath them,
+# and they are two of the best-designed elements in the document; the key's
+# last column ended mid-air with the same amount of nothing under it. A
+# document that stops rather than ends is the clearest signal in the whole
+# booklet that nobody laid it out.
+#
+# So the booklet gets a finish page: the sign-off, the score card, the mascot at
+# a size he is worth here and nowhere else, and the wordmark, centred on the
+# sheet. Nothing about the score table itself changes; its proportions and its
+# hierarchy were already right.
+_FINISH_MASCOT_PATH = (
+    Path(__file__).resolve().parent / "webapp" / "static" / "img" / "paulio"
+    / "paulio-success.png"
+)
+_FINISH_MASCOT_H = 4.6 * cm
+_BRAND_MARK_PATH = (
+    Path(__file__).resolve().parent / "webapp" / "static" / "img" / "brand"
+    / "mark-512.png"
+)
+_COLOPHON_MARK = 0.62 * cm
+_COLOPHON_CHECKED = "Every answer in this key has been checked."
+_COLOPHON_PARTIAL = "A tick beside an answer means that answer was checked."
+
+
+def _unwrap(flowables: list) -> list:
+    """A flat list with every KeepTogether replaced by its contents."""
+    out: list = []
+    for f in flowables:
+        inner = getattr(f, "_content", None)
+        out.extend(_unwrap(list(inner)) if inner else [f])
+    return out
+
+
+# A frame keeps 6pt of padding top and bottom, so the room offered to the first
+# flowable on a fresh page is 12pt short of the type area rather than equal to
+# it. Anything within this of the full height is a page nothing has been put on.
+_FRESH_PAGE_SLACK = 0.8 * cm
+# What separates the ending from the last question when the two share a page.
+_FINISH_GAP = 0.6 * cm
+
+
+class CentreOnPage(Flowable):
+    """Blank space that pushes the block after it to the middle of the sheet.
+
+    Given the measured height of what follows, it takes half of whatever is
+    left over. Reports nothing at all when it is being measured rather than
+    placed (availHeight above the frame's own height), because a measurement
+    must not commit to centring on a page that has not been reached yet.
+    """
+
+    def __init__(self, block_height: float):
+        super().__init__()
+        self.block = block_height
+        self._h = 0.0
+
+    def wrap(self, availWidth, availHeight):
+        if availHeight > BODY_HEIGHT:
+            # Being measured, not placed. A measurement must not commit to
+            # centring on a page that has not been reached yet.
+            self._h = 0.0
+        elif availHeight >= BODY_HEIGHT - _FRESH_PAGE_SLACK:
+            # A whole page to itself, which is the case this exists for.
+            self._h = max(0.0, (availHeight - self.block) / 2)
+        else:
+            # Sharing the page with the last of the questions. One line of air
+            # and no more: the ending follows the work, and half a page pushed
+            # between them would be the defect this was built to remove,
+            # printed one page earlier.
+            self._h = _FINISH_GAP
+        return availWidth, self._h
+
+    def draw(self):
+        return
+
+
+def _wordmark_lockup(styles, size: float = _COLOPHON_MARK):
+    """The brand mark and "FOLIO AI", side by side, centred.
+
+    Falls back to the words alone if the mark will not load, because a missing
+    image must not take the wordmark down with it.
+    """
+    # "FOLIO" then "AI" in the accent, with the space between them the cover
+    # sets: the two halves of the wordmark are not one word.
+    text = Paragraph('FOLIO <font color="#2F5FBF">AI</font>', styles["wordmark"])
+    mark = _make_image(str(_BRAND_MARK_PATH), max_w=size, max_h=size)
+    if mark is None:
+        return text
+    tbl = Table([[mark, text]], colWidths=[size + 6, 3.0 * cm], hAlign="CENTER")
+    tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (0, 0), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return tbl
+
+
+def _finish_page(styles, data: BookletData) -> list:
+    """The booklet's ending: sign-off, score card, mascot, wordmark, centred.
+
+    The mascot is printed only where he already teaches. He narrates the worked
+    examples up to Year 6 and is deliberately absent above it, and a large
+    teddy on the last page of a Year 10 booklet undoes every other decision on
+    the page.
+    """
+    # Unwrapped, because a KeepTogether reports 0xffffff for its height rather
+    # than a real one, and the centring below is only as good as the
+    # measurement it is given. Nothing on this page needs keeping together in
+    # any case: the page break above it is unconditional.
+    block = _unwrap([_closing_note(styles, data), Spacer(1, 0.45 * cm),
+                     _score_card(styles, data)])
+    if paulio_teaches(data.year_level):
+        mascot = _make_image(str(_FINISH_MASCOT_PATH),
+                             max_w=_FINISH_MASCOT_H, max_h=_FINISH_MASCOT_H)
+        if mascot is not None:
+            mascot.hAlign = "CENTER"
+            block = [mascot, Spacer(1, 0.5 * cm)] + block
+    block += [Spacer(1, 0.9 * cm), _wordmark_lockup(styles)]
+    # Measured, not guessed: the score card's height varies with how many parts
+    # the booklet has, and a constant would put a five-part booklet's ending
+    # visibly off centre from a three-part one's.
+    #
+    # A conditional break, not an unconditional one. When the ending fits under
+    # the last question it prints there and the page ends on it, which is what
+    # it always did and costs nothing. It is when it does NOT fit that the
+    # defect appeared: it took a page of its own and floated in the top third
+    # of it with twelve to fifteen centimetres of white underneath. That page
+    # is now the finish page, and it is centred on the sheet.
+    height = stack_height(block)
+    return [CondPageBreak(min(height + _FINISH_GAP, _MAX_COND_BREAK)),
+            CentreOnPage(height)] + block
+
+
+def _key_colophon(styles, data: BookletData, width: float) -> list:
+    """The end of the answer key: a rule, the wordmark, and what the key is.
+
+    The claim is the point, and it is only printed when it is true. Whether
+    every answer carries a verification mark is decided by the same function
+    the cover asks, so the front of the booklet and the back of it cannot end
+    up saying different things about the same key.
+    """
+    line = (_COLOPHON_CHECKED if every_answer_checked(data)
+            else _COLOPHON_PARTIAL)
+    rule = Table([[""]], colWidths=[width], rowHeights=[1.2], hAlign="LEFT")
+    rule.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#B7C3D4")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return [KeepTogether([
+        Spacer(1, 0.5 * cm), rule, Spacer(1, 0.3 * cm),
+        _wordmark_lockup(styles),
+        Spacer(1, 0.15 * cm),
+        Paragraph(line, styles["colophon"])])]
 
 
 def _session_band(styles, index: int, of: int, minutes: int, count: int):
@@ -3188,11 +3375,11 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
 
     # ---- Closing ----
     # The booklet used to stop dead: the page after the last question was the
-    # answer key. Say something to the student first, by name.
-    story.append(Spacer(1, 0.6 * cm))
-    story.append(_closing_note(styles, data))
-    story.append(Spacer(1, 0.35 * cm))
-    story.append(_score_card(styles, data))
+    # answer key. Then it said something to the student by name, and floated
+    # that and the score card in the top third of a page with twelve to fifteen
+    # centimetres of white under them. Both are now the content of a page that
+    # is about finishing.
+    story.extend(_finish_page(styles, data))
 
     # ---- Answer key (same order: recap, class work, homework, challenge) ----
     #
@@ -3347,6 +3534,10 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # omits "Final Challenge" reads as a key with a section missing.
     lay_headings()
     story.extend(_image_credits_block(styles, data))
+    # The key used to stop in mid-column. It ends on a rule, the wordmark, and
+    # one line saying what the key is, which is the only place in the booklet
+    # the accuracy claim is made where a marker can act on it.
+    story.extend(_key_colophon(styles, data, KEY_COLUMN_WIDTH))
     return story
 
 
