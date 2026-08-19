@@ -1628,7 +1628,15 @@ BODY_WIDTH = A4[0] - 2 * PAGE_MARGIN
 _MAX_COND_BREAK = 0.8 * BODY_HEIGHT
 
 
-def stack_height(flowables, width: float = BODY_WIDTH) -> float:
+# The height a flowable is offered while it is being measured rather than
+# placed, which is what ReportLab's _listWrapOn hands each member of a
+# KeepTogether. A working panel answers this with its floor rather than its full
+# height, because the floor is all it will insist on: see WorkingSpace.wrap.
+_MEASURING_HEIGHT = 0xfffffff
+
+
+def stack_height(flowables, width: float = BODY_WIDTH,
+                 demanded: bool = False) -> float:
     """How tall this run of flowables will actually be, asked of the flowables.
 
     Used to size the CondPageBreak in front of a mini-lesson. The height of a
@@ -1639,15 +1647,27 @@ def stack_height(flowables, width: float = BODY_WIDTH) -> float:
     every heading. So each flowable is asked to wrap itself, exactly as the
     document will ask it during the build.
 
+    `demanded` measures what the run will INSIST on rather than what it would
+    take if the page were empty, and it is the honest question to ask in front
+    of a heading. A question is a KeepTogether, and the frame decides whether
+    one fits by wrapping its contents unbounded; the working panel inside
+    answers that with its floor, because the panel gives when a page runs out
+    and only stops at three quarters of its full room. So a heading measured
+    against the full panel reserves up to a centimetre that the question will
+    never ask for, and moves to a fresh page over space that was there all
+    along. Nothing is squeezed by this that the frame was not already entitled
+    to squeeze; the 75% floor is untouched.
+
     A KeepTogether reports 0xffffff for its height rather than a real one, so
     anything that answers with a number that large is skipped rather than
     allowed to poison the total.
     """
+    offer = _MEASURING_HEIGHT if demanded else BODY_HEIGHT
     total = 0.0
     prev_after = 0.0
     for f in flowables:
         try:
-            _, h = f.wrap(width, BODY_HEIGHT)
+            _, h = f.wrap(width, offer)
             before, after = f.getSpaceBefore(), f.getSpaceAfter()
         except Exception:
             continue
@@ -1708,8 +1728,8 @@ def orphan_break(headings: list, width: float = BODY_WIDTH,
     frame, a CondPageBreak moves to the next column and only then to the next
     page, which is the behaviour wanted in both places.
     """
-    need = stack_height(headings + _unwrap(follow), width) if follow \
-        else stack_height(headings, width) + follow_cm * cm
+    need = stack_height(headings + _unwrap(follow), width, demanded=True) \
+        if follow else stack_height(headings, width) + follow_cm * cm
     return CondPageBreak(min(need, _MAX_COND_BREAK))
 
 
@@ -1753,7 +1773,8 @@ def part_opening_break(opening: list, floor_cm: float = 0.0) -> CondPageBreak:
     `floor_cm` is the part's own minimum start where it has one. It is a floor
     and not the whole answer.
     """
-    return CondPageBreak(min(max(floor_cm * cm, stack_height(opening)),
+    return CondPageBreak(min(max(floor_cm * cm,
+                                 stack_height(opening, demanded=True)),
                              _MAX_COND_BREAK))
 
 
@@ -3521,7 +3542,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # nothing under it after all.
             headings_need = (
                 stack_height(head_only + _lesson_opening(lesson)) if lesson
-                else stack_height(head_only + _unwrap([first_row]))
+                else stack_height(head_only + _unwrap([first_row]),
+                                  demanded=True)
                 if first_row is not None
                 else stack_height(head_only) + _ORPHAN_MIN_CM * cm)
 

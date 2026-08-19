@@ -38,11 +38,16 @@ from pathlib import Path
 import pymupdf
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
+from reportlab.pdfgen.canvas import Canvas
+from reportlab.platypus import Paragraph
+from reportlab.platypus.flowables import _listWrapOn
 
-from booklet_gen.formatter import (HOMEWORK_MIN_START_CM, PAGE_MARGIN,
-                                   PART_CHALLENGE, PART_CLASSWORK,
+from booklet_gen.formatter import (BODY_WIDTH, HOMEWORK_MIN_START_CM,
+                                   PAGE_MARGIN, PART_CHALLENGE, PART_CLASSWORK,
                                    PART_HOMEWORK, PART_RECAP,
-                                   _CHALLENGE_MIN_START_CM, render_pdf)
+                                   _CHALLENGE_MIN_START_CM, _make_styles,
+                                   _question_block, _unwrap, orphan_break,
+                                   render_pdf, stack_height)
 from booklet_gen.schemas import (BookletData, Question, SubtopicOutput,
                                  SubtopicTeaching, ValidatedQuestion,
                                  WorkedExample)
@@ -413,6 +418,58 @@ check(not bands,
       "unfinished-looking page in the booklet. The break in front of a band "
       "has to cover the whole run the band opens, or the run moves to a fresh "
       "page and the band stays behind")
+
+print("\nA HEADING RESERVES WHAT THE BLOCK UNDER IT INSISTS ON, NOT MORE")
+
+# The room kept free in front of a heading has to be what the block underneath
+# will actually insist on. A question is a KeepTogether, and the frame decides
+# whether one fits by wrapping its contents unbounded; the working panel inside
+# answers that with its floor rather than its full height, because the panel
+# gives when a page runs out and stops at three quarters of its room.
+#
+# So a heading measured against the panel's full height reserves up to a
+# centimetre the question is never going to ask for, and moves itself and its
+# question to a fresh page over space that was there all along. That is where
+# the three and four centimetre tails at the foot of the Homework pages came
+# from. Nothing here shrinks a panel further than the frame was already
+# entitled to shrink it; the 75% floor is untouched and check_working_panels
+# guards it.
+#
+# The number is checked against ReportLab's own measurement of the block rather
+# than against the formatter's, so this cannot pass by both sides agreeing on
+# the same mistake.
+
+styles = _make_styles()
+probe = _question_block(styles, 1, vq("What is 24 x 7?", answer="168"),
+                        None, 0.0, 1, "Mathematics")
+heading = Paragraph("Subtracting with regrouping", styles["subtopic"])
+_, insists = _listWrapOn(probe._content, BODY_WIDTH, Canvas("/dev/null"))
+reserved = orphan_break([heading], follow=[probe]).height
+head_h = stack_height([heading])
+give = stack_height(_unwrap([probe])) - insists
+
+check(reserved >= head_h + insists,
+      f"the break in front of a heading keeps the whole block under it: "
+      f"{reserved / cm:.2f}cm reserved for {(head_h + insists) / cm:.2f}cm",
+      f"only {reserved / cm:.2f}cm is reserved where the heading and the block "
+      f"under it need {(head_h + insists) / cm:.2f}cm. The heading will print "
+      "at the foot of a page and its question overleaf")
+
+check(reserved <= head_h + insists + 0.3 * cm,
+      f"and reserves no more than that: {reserved / cm:.2f}cm against "
+      f"{(head_h + insists) / cm:.2f}cm insisted on",
+      f"{reserved / cm:.2f}cm is reserved where the block only insists on "
+      f"{(head_h + insists) / cm:.2f}cm. The extra is the working panel's give, "
+      "which the panel hands back at the foot of a page anyway. Reserving it "
+      "sends the heading and its question to a fresh page and leaves that much "
+      "white behind for nothing")
+
+check(give >= 0.4 * cm,
+      f"and the give the panel hands back is real: {give / cm:.2f}cm on one "
+      "medium question",
+      f"the panel only gives {give / cm:.2f}cm, so the two checks above are "
+      "measuring nothing. Either the shrink floor moved or the question used "
+      "here stopped having a panel that shrinks")
 
 print("\nTHE RULES THAT LEAVE A PAGE SHORT ARE STILL IN FORCE")
 
