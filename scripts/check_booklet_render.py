@@ -773,8 +773,15 @@ check(_escape("2/12 = 1/6") in key_text and _escape("10/12 = 5/6") in key_text,
 # Read in order, not into a dict keyed by the printed number: numbering now
 # restarts at each reading and each subtopic, so several answers print as "3"
 # and keying by the number would silently collapse them.
+#
+# The tick and the page reference are set in their own right-aligned column
+# now, so that they line up down the page instead of trailing whatever length
+# the answer happened to be. That puts them in a separate text run from the
+# answer, which is why this reads across the line break (re.S) rather than
+# expecting "1. Answer: 67 (p2)" on one extracted line.
 refs = [(int(n), int(p)) for n, p in
-        re.findall(r"^(\d+)\. Answer:.*?\(p(\d+)\)", key_text, re.MULTILINE)]
+        re.findall(r"^(\d+)\. Answer:.*?\(p(\d+)\)", key_text,
+                   re.MULTILINE | re.DOTALL)]
 check(len(refs) == n_questions, "every answer carries a page reference",
       f"{len(refs)} of {n_questions}")
 wrong = []

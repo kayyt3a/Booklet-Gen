@@ -13,8 +13,9 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
-    BaseDocTemplate, Frame, PageTemplate, Paragraph, Spacer,
-    PageBreak, CondPageBreak, KeepTogether, Table, TableStyle, Image,
+    BaseDocTemplate, Frame, FrameBreak, NextPageTemplate, PageTemplate,
+    Paragraph, Spacer, PageBreak, CondPageBreak, KeepTogether, Table,
+    TableStyle, Image,
 )
 from reportlab.platypus.flowables import Flowable
 from reportlab.lib.utils import ImageReader
@@ -25,6 +26,28 @@ from .visuals.cover import CoverSpec, render_cover, variant_for
 
 
 PAGE_MARGIN = 2.0 * cm
+
+# ---------------------------------------------------------------------------
+# The answer key's measure
+#
+# The key used to be set across the full 539pt of the page and the median
+# answer line ended at 300pt, so half of every key page was blank, over six
+# pages. A line of ten words across a measure built for thirty is what a
+# printed list of answers looks like when nobody chose a measure for it.
+#
+# Two columns fixes both halves of that: the measure suits the line length the
+# key actually produces, and the key comes down from about six pages to three,
+# which is three fewer sheets a customer prints per booklet.
+KEY_COLUMN_GAP = 0.8 * cm
+KEY_COLUMN_WIDTH = (A4[0] - 2 * PAGE_MARGIN - KEY_COLUMN_GAP) / 2
+# The right-aligned strip holding the tick and the "(p9)" back-reference.
+_KEY_MARK_CM = 1.45
+# How far a wrapped answer hangs, so its later lines line up under the answer
+# rather than under the question number. Set at the width of "12. ", which
+# leaves the number alone in the margin and the answer in one block: a deeper
+# hang would look tidier on a full page and leaves too little measure in a
+# column for a comprehension answer, which is the longest thing in the key.
+_KEY_HANG_CM = 0.85
 
 # Where the running header and the page number sit, measured from the sheet
 # edge. They used to sit at 1.2cm, which put the descender of "Page" 11.3mm
@@ -186,7 +209,21 @@ def _make_styles():
         # reuses the body's bands instead.
         "key_part": ParagraphStyle(
             "key_part", parent=base["Heading1"], fontName=FONT_DISPLAY,
-            fontSize=21, leading=25, spaceBefore=16, spaceAfter=1,
+            fontSize=16, leading=20, spaceBefore=0, spaceAfter=0,
+        ),
+        # The topic and subtopic inside the key. Separate from the body's,
+        # because the key is set in two columns: the body's 19pt topic wrapped
+        # to three lines in an 8cm measure, and because the part heading above
+        # them is now a reversed-out tab, these have to sit clearly below it.
+        "key_topic": ParagraphStyle(
+            "key_topic", parent=base["Heading1"], fontName=FONT_DISPLAY,
+            fontSize=12.5, leading=16, spaceBefore=8, spaceAfter=1,
+            textColor=colors.HexColor("#1F3A5F"),
+        ),
+        "key_subtopic": ParagraphStyle(
+            "key_subtopic", parent=base["Heading2"], fontName=FONT_DISPLAY,
+            fontSize=10.5, leading=14, spaceBefore=4, spaceAfter=4,
+            textColor=colors.HexColor("#2A3F73"),
         ),
         "subtopic": ParagraphStyle(
             "subtopic", parent=base["Heading2"], fontName=FONT_DISPLAY,
@@ -253,6 +290,20 @@ def _make_styles():
         "answer": ParagraphStyle(
             "answer", parent=base["Normal"], fontName=FONT_BOLD,
             fontSize=10.5, leading=14.5,
+        ),
+        # The answer key's own answer line. Hanging: a wrapped answer used to
+        # start its second line flush with the question number, so the run-on
+        # of one answer sat in the same column as the number of the next.
+        "key_answer": ParagraphStyle(
+            "key_answer", parent=base["Normal"], fontName=FONT_BOLD,
+            fontSize=10, leading=13, leftIndent=_KEY_HANG_CM * cm,
+            firstLineIndent=-_KEY_HANG_CM * cm,
+        ),
+        # The tick and the page reference, in their own right-aligned column so
+        # they line up down the page and a missing tick is visible at a glance.
+        "key_mark": ParagraphStyle(
+            "key_mark", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=10, leading=13, alignment=TA_RIGHT,
         ),
         # Marks printed in the right margin of an exam question.
         "exam_marks": ParagraphStyle(
@@ -670,12 +721,45 @@ _BARE_ENUMERATOR_RE = re.compile(r"^\d{1,2}\s*[.)]?$")
 
 
 def solution_lines(working: str) -> list[str]:
+    """The working, as the lines the answer key prints it on.
+
+    One line per STEP, where a step is a clause and the arithmetic that
+    finishes it. Splitting on every sentence boundary instead, which is what
+    this used to do, turned a three-clause solution into six lines of four
+    words:
+
+        Compare thousands:
+        all have 1.
+        Compare hundreds:
+        2, 5 and 8.
+        Order:
+        1,299 < 1,562 < 1,840.
+
+    Half of that is a label with its value on the next line. Set down the page
+    like that, over six pages, the key reads as debug output rather than as
+    something written for the adult marking it, and the columns of four words
+    are what made the key look machine-produced at a glance.
+
+    So a clause is joined to the arithmetic it introduces, and a new line
+    starts only once the current one has resolved into an "=" step. Working
+    with no equals sign in it at all is prose, and prose is one wrapped
+    paragraph. The model's own newlines are always honoured: when it lays a
+    method out one operation per line, that is the method's shape.
+    """
     lines: list[str] = []
     for raw in (working or "").splitlines():
+        current = ""
         for part in _SOLUTION_SPLIT_RE.split(raw.strip()):
             part = _strip_step_prefix(part.strip())
-            if part and not _BARE_ENUMERATOR_RE.match(part):
-                lines.append(part)
+            if not part or _BARE_ENUMERATOR_RE.match(part):
+                continue
+            if current and "=" in current:
+                lines.append(current)
+                current = part
+            else:
+                current = f"{current} {part}".strip()
+        if current:
+            lines.append(current)
     return lines
 
 
@@ -1033,15 +1117,9 @@ def split_instruction_and_specimen(text: str) -> tuple[str, str | None]:
     return instruction, specimen
 
 
-# The worked-example box, minus its left/right padding (10pt each, set in the
-# TableStyle below) and its border. The header row's two columns have to sum
-# to this or the icon column pushes the box wider than the page.
-_WE_BOX_INNER_WIDTH = A4[0] - 2 * PAGE_MARGIN - 0.4 * cm - 20
-
-
 def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked example",
                              paulio: bool = False, guided: bool = False,
-                             reveal: bool = False):
+                             reveal: bool = False, width: float | None = None):
     """Return a bordered box containing a worked example. `label` distinguishes
     the "I do" worked example from the "we do" guided ones. `paulio` puts his
     icon beside the label, for the same year levels he narrates in.
@@ -1055,13 +1133,17 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
     # **term** the model marked up there becomes bold rather than printing its
     # asterisks, and a stray run of asterisks is dropped.
     instruction, specimen = split_instruction_and_specimen(we.question)
+    # The box is normally the width of the page. In the answer key it is the
+    # width of a key column, because the key is set in two.
+    box_w = (width if width is not None else A4[0] - 2 * PAGE_MARGIN) - 0.4 * cm
+    inner_w = box_w - 20
     label_para = Paragraph(label, styles["we_label"])
     icon = _make_image(str(_PAULIO_ICON_PATH), max_w=PAULIO_ICON_SIZE,
                        max_h=PAULIO_ICON_SIZE) if paulio else None
     if icon is not None:
         icon_col = PAULIO_ICON_SIZE + 0.15 * cm
         header = Table([[icon, label_para]],
-                       colWidths=[icon_col, _WE_BOX_INNER_WIDTH - icon_col])
+                       colWidths=[icon_col, inner_w - icon_col])
         header.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -1122,7 +1204,7 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
         answer_html = render(we.answer)
     inner.append(Paragraph(f"Answer: {answer_html}", styles["we_answer"]))
 
-    tbl = Table([[inner]], colWidths=[A4[0] - 2 * PAGE_MARGIN - 0.4 * cm])
+    tbl = Table([[inner]], colWidths=[box_w])
     tbl.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#B7C3D4")),
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F4F7FB")),
@@ -1214,21 +1296,39 @@ def _passage_flowable(styles, passage):
     return tbl
 
 
-def _key_part_heading(styles, text: str, hex_colour: str):
+def _key_part_heading(styles, text: str, hex_colour: str,
+                      width: float | None = None):
     """A part divider inside the answer key: Warm-up, Class Work, Homework,
     Final Challenge.
 
-    Carries the part's own colour from the body and a rule under it, so the
-    marker can find where Class Work stops without reading every heading. A
-    solid band would match the body exactly, but there are four of them and a
-    reversed-out band costs about five plain pages' worth of ink; the key is
-    read by an adult with a pen, and it needs to be scannable rather than
-    inviting.
+    Reversed out of a short tab in the part's own colour, with a rule under it
+    across the measure. It used to be coloured TEXT at 21pt over a topic
+    heading at 19pt, both navy: two points apart and the same shape, so
+    "Class Work" and "Number and Place Value" read as the same rank and the
+    marker could not see where one part stopped. In the body those two ranks
+    are a full colour band against a plain heading, and the key was
+    contradicting the hierarchy the body had already taught.
+
+    A tab rather than a full-width band. A reversed-out band four times over
+    costs about five plain pages' worth of ink; a tab is the width of the
+    words, which is a tenth of that, and it still reads as a different order of
+    thing from a heading in text.
     """
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    width = width if width is not None else A4[0] - 2 * PAGE_MARGIN
     style = ParagraphStyle("key_part_" + text.replace(" ", ""),
-                           parent=styles["key_part"],
-                           textColor=colors.HexColor(hex_colour))
-    rule = Table([[""]], colWidths=[A4[0] - 2 * PAGE_MARGIN], rowHeights=[2])
+                           parent=styles["key_part"], textColor=colors.white)
+    label = _escape(text)
+    tab_w = min(width, stringWidth(label, style.fontName, style.fontSize) + 18)
+    tab = Table([[Paragraph(label, style)]], colWidths=[tab_w], hAlign="LEFT")
+    tab.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(hex_colour)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    rule = Table([[""]], colWidths=[width], rowHeights=[2.5], hAlign="LEFT")
     rule.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(hex_colour)),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -1236,8 +1336,7 @@ def _key_part_heading(styles, text: str, hex_colour: str):
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
-    return KeepTogether([Paragraph(_escape(text), style), rule,
-                         Spacer(1, 0.25 * cm)])
+    return KeepTogether([tab, rule, Spacer(1, 0.25 * cm)])
 
 
 def _part_band(styles, text: str, bg_hex: str, subtitle: str = ""):
@@ -2248,7 +2347,7 @@ def _tables_key_block(styles, test):
     answers = ", ".join(f"{i}. {product}"
                         for i, (_, _, product) in enumerate(items, 1))
     return [KeepTogether([
-        Paragraph("Times Tables Test", styles["topic"]),
+        Paragraph("Times Tables Test", styles["key_topic"]),
         Paragraph(f"The {table} times table, {source}. Answers in the order "
                   "the questions are printed on the test page.",
                   styles["challenge_blurb"]),
@@ -2279,7 +2378,7 @@ def _spelling_key_block(styles, test):
               f"These are {n} {word_s} from last week's list. ")
     numbered = ", ".join(f"{i}. {_escape(str(w))}" for i, w in enumerate(words, 1))
     return [KeepTogether([
-        Paragraph("Spelling Test", styles["topic"]),
+        Paragraph("Spelling Test", styles["key_topic"]),
         Paragraph(source + "Read them out one at a time, in this order. They "
                   "are deliberately not printed on the test page.",
                   styles["challenge_blurb"]),
@@ -2375,13 +2474,20 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                                             shown(counter["n"]), subject)
                 story.append(block)
 
-    def subject_topic_headers(section, state):
+    def subject_topic_headers(section, state, key: bool = False):
+        """The subject band and topic heading, when either has just changed.
+
+        `key` picks the answer key's smaller pair: the key is set in two
+        columns, and the body's 19pt topic wraps to three lines in an 8cm
+        measure.
+        """
         if multi_subject and section.subject and section.subject != state["subject"]:
             story.append(Paragraph(_escape(section.subject), styles["subject_band"]))
             state["subject"] = section.subject
             state["topic"] = None
         if section.topic != state["topic"]:
-            story.append(Paragraph(_escape(section.topic), styles["topic"]))
+            story.append(Paragraph(_escape(section.topic),
+                                   styles["key_topic" if key else "topic"]))
             state["topic"] = section.topic
 
     # ---- Spelling Test (dictation on last week's list, before anything else) ----
@@ -2615,11 +2721,20 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         story.append(Paragraph(
             "This page is intentionally blank, so the answers start on a new "
             "sheet of paper.", styles["footer_note"]))
+    # The key is set in two columns from here to the end, and the answers
+    # heading spans them: the first key page uses a template whose top frame is
+    # full width, every page after it is two plain columns. "*" restarts the
+    # cycle at the second entry, so "key" repeats for the rest of the booklet.
+    story.append(NextPageTemplate(["key_open", "*", "key"]))
     story.append(PageBreak())
     story.append(Paragraph("Answers &amp; Worked Solutions", styles["answers_heading"]))
     story.append(Paragraph(
-        "For whoever is marking. Page numbers in brackets point back to the "
-        "question.", styles["challenge_blurb"]))
+        "For whoever is marking. A tick means the answer was checked. Page "
+        "numbers in brackets point back to the question.",
+        styles["challenge_blurb"]))
+    # Nothing else belongs in the full-width banner: without this the next
+    # flowable would be laid across both columns before the columns start.
+    story.append(FrameBreak())
     story.extend(_spelling_key_block(styles, getattr(data, "spelling_test", None)))
     story.extend(_tables_key_block(styles, getattr(data, "tables_test", None)))
     acount = {"n": 0}
@@ -2630,7 +2745,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             page = (page_refs or {}).get(acount["n"])
             # Numbered as the body numbered it. The running index still drives
             # the page lookup, because several questions now print as "3".
-            story.append(_answer_block(styles, shown(acount["n"]), vq, page))
+            story.append(_answer_block(styles, shown(acount["n"]), vq, page,
+                                       width=KEY_COLUMN_WIDTH))
 
     def render_section_answers(section, questions):
         """Answers for one subtopic, with each reading named above its group.
@@ -2652,7 +2768,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             render_answers(qs)
 
     if data.recap_questions:
-        story.append(_key_part_heading(styles, "Warm-up Recap", PART_RECAP))
+        story.append(_key_part_heading(styles, "Warm-up Recap", PART_RECAP,
+                                       KEY_COLUMN_WIDTH))
         render_answers(data.recap_questions)
 
     # The gaps in "let's try one together" are the only thing in the booklet a
@@ -2663,16 +2780,19 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
               for ge in ((s.teaching.guided_examples if s.teaching else []) or [])]
     if guided:
         story.append(_key_part_heading(styles, "Let's try one together",
-                                       PART_CLASSWORK))
+                                       PART_CLASSWORK, KEY_COLUMN_WIDTH))
         state = {"subject": None, "topic": None}
         for section, ge in guided:
-            subject_topic_headers(section, state)
-            story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+            subject_topic_headers(section, state, key=True)
+            story.append(Paragraph(_escape(section.subtopic),
+                                   styles["key_subtopic"]))
             story.append(_worked_example_flowable(
-                styles, ge, "Completed", guided=True, reveal=True))
+                styles, ge, "Completed", guided=True, reveal=True,
+                width=KEY_COLUMN_WIDTH))
             story.append(Spacer(1, 0.2 * cm))
 
-    story.append(_key_part_heading(styles, "Class Work", PART_CLASSWORK))
+    story.append(_key_part_heading(styles, "Class Work", PART_CLASSWORK,
+                                   KEY_COLUMN_WIDTH))
     state = {"subject": None, "topic": None}
     for section in data.sections:
         # A subtopic the hour cap moved out has no class work, and its answers
@@ -2682,25 +2802,28 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # equivalent guard.
         if not section.questions:
             continue
-        subject_topic_headers(section, state)
-        story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+        subject_topic_headers(section, state, key=True)
+        story.append(Paragraph(_escape(section.subtopic), styles["key_subtopic"]))
         # Grouping questions under their passage changes the printed order, so
         # the key has to be walked in the same order or every number after the
         # first passage points at the wrong question.
         render_section_answers(section, section.questions)
 
     if has_homework:
-        story.append(_key_part_heading(styles, "Homework", PART_HOMEWORK))
+        story.append(_key_part_heading(styles, "Homework", PART_HOMEWORK,
+                                       KEY_COLUMN_WIDTH))
         state = {"subject": None, "topic": None}
         for section in data.sections:
             if not section.homework_questions:
                 continue
-            subject_topic_headers(section, state)
-            story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+            subject_topic_headers(section, state, key=True)
+            story.append(Paragraph(_escape(section.subtopic),
+                                   styles["key_subtopic"]))
             render_section_answers(section, section.homework_questions)
 
     if data.challenge_questions:
-        story.append(_key_part_heading(styles, "Final Challenge", PART_CHALLENGE))
+        story.append(_key_part_heading(styles, "Final Challenge", PART_CHALLENGE,
+                                       KEY_COLUMN_WIDTH))
         render_answers(data.challenge_questions)
 
     story.extend(_image_credits_block(styles, data))
@@ -2747,7 +2870,9 @@ def _image_credits_block(styles, data: BookletData) -> list:
     credits = image_credits(data)
     if not credits:
         return []
-    out = [PageBreak(),
+    # Back to one column: the key is set in two, and a page of attributions is
+    # neither a key nor something anybody reads down a column.
+    out = [NextPageTemplate("main"), PageBreak(),
            Paragraph("Picture Credits", styles["answers_heading"]),
            Paragraph(
                "The photographs in this booklet come from Wikimedia Commons "
@@ -2794,8 +2919,44 @@ def _booklet_doc(target, data: BookletData, times: dict | None = None):
     doc._cover = cover_spec(data, times)
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="body")
     doc.addPageTemplates([PageTemplate(id="main", frames=frame,
-                                       onPage=_draw_page_chrome)])
+                                       onPage=_draw_page_chrome)]
+                         + _key_templates(doc))
     return doc
+
+
+# How much of the first key page the full-width banner takes: the "Answers &
+# Worked Solutions" heading and the line under it telling the marker what the
+# tick and the page references mean.
+_KEY_BANNER_CM = 2.9
+
+
+def _key_templates(doc) -> list:
+    """The answer key's page templates: two columns, and a banner on page one.
+
+    The body is untouched. Only the key changes measure, because only the key
+    has the problem: its lines are short (an answer, a tick, a page number, and
+    a line or two of working) and across the full width of an A4 page the
+    typical line used half the measure and left the other half blank, over six
+    pages. Two columns fit the lines the key actually produces and take it from
+    about six pages to three.
+    """
+    def columns(height, bottom):
+        w = (doc.width - KEY_COLUMN_GAP) / 2
+        return [Frame(doc.leftMargin, bottom, w, height, id="key_left",
+                      leftPadding=0, rightPadding=0),
+                Frame(doc.leftMargin + w + KEY_COLUMN_GAP, bottom, w, height,
+                      id="key_right", leftPadding=0, rightPadding=0)]
+
+    banner_h = _KEY_BANNER_CM * cm
+    open_frames = [Frame(doc.leftMargin, doc.bottomMargin + doc.height - banner_h,
+                         doc.width, banner_h, id="key_banner",
+                         leftPadding=0, rightPadding=0)]
+    open_frames += columns(doc.height - banner_h, doc.bottomMargin)
+    return [
+        PageTemplate(id="key_open", frames=open_frames, onPage=_draw_page_chrome),
+        PageTemplate(id="key", frames=columns(doc.height, doc.bottomMargin),
+                     onPage=_draw_page_chrome),
+    ]
 
 
 def render_pdf(data: BookletData, out_path: Path) -> Path:
@@ -2981,15 +3142,33 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
 
 
 def _answer_block(styles, q_num: int, vq: ValidatedQuestion, page: int | None = None,
-                  tidy_answer: bool = True):
+                  tidy_answer: bool = True, width: float | None = None):
+    """One numbered answer, its verification mark, and its working.
+
+    Laid out as a row rather than as one run of text, for two reasons a person
+    marking would notice.
+
+    The answer used to lose its hanging indent when it wrapped: the second line
+    started flush with the question number, so at a glance "1299, 1562, 1840"
+    and the number of the NEXT question sat in the same column. It now hangs
+    under the word "Answer", the way a reference list does.
+
+    The tick and the page reference used to trail whatever the answer happened
+    to be, which put them at a different x on every line, and a wrapped answer
+    pushed them onto the line below. They are set in their own right-aligned
+    column, so the ticks form a column that can be scanned down rather than
+    read one by one, and a missing one is visible instantly.
+    """
+    width = width if width is not None else A4[0] - 2 * PAGE_MARGIN
     # The only place a verification mark belongs: beside a worked answer, where
     # it tells the person marking that this solution was checked. The check
-    # glyph is outside Latin-1, so drop it when we fell back to Helvetica.
-    mark = "✓ verified" if _UNICODE_FONT else "verified"
-    symbol_html = f' <font color="#146B2C"><b>{mark}</b></font>' if vq.verified else ""
+    # glyph is outside Latin-1, so fall back to the word when we fell back to
+    # Helvetica. The key's own intro line says what the tick means.
+    mark = "✓" if _UNICODE_FONT else "checked"
+    symbol_html = f'<font color="#146B2C"><b>{mark}</b></font>' if vq.verified else ""
     # Marking 63 questions spread over 18 pages means constant flipping, so the
     # key says where the question was.
-    page_html = (f' <font size=9 color="#5F5F5F">(p{page})</font>'
+    page_html = (f'<font size=8.5 color="#5F5F5F">(p{page})</font>'
                  if page else "")
     # Booklet keys restore the unit the question asked for and show a fraction
     # in lowest terms. An exam marking key does neither: senior answers carry
@@ -2999,14 +3178,21 @@ def _answer_block(styles, q_num: int, vq: ValidatedQuestion, page: int | None = 
     # plainly. `strip_markers` is the backstop for a model that wraps the
     # answer field as well as the sentence: the key must never show a customer
     # the machinery, and "[[melancholy]]" beside question 4 is exactly that.
-    block = [
-        Paragraph(
-            f"<b>{q_num}.</b> Answer: {strip_markers(_escape(answer))}"
-            f"{symbol_html}{page_html}",
-            styles["answer"],
-        ),
-    ]
+    row = Table(
+        [[Paragraph(f"<b>{q_num}.</b> Answer: {strip_markers(_escape(answer))}",
+                    styles["key_answer"]),
+          Paragraph(f"{symbol_html} {page_html}".strip(), styles["key_mark"])]],
+        colWidths=[width - _KEY_MARK_CM * cm, _KEY_MARK_CM * cm], hAlign="LEFT",
+    )
+    row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    block = [row]
     for line in solution_lines(vq.question.working):
         block.append(Paragraph(strip_markers(_escape(line)), styles["working"]))
-    block.append(Spacer(1, 0.35 * cm))
+    block.append(Spacer(1, 0.3 * cm))
     return KeepTogether(block)
