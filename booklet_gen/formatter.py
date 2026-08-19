@@ -1393,6 +1393,71 @@ _ANSWER_LINE_CM = 0.75
 _WORKING_SHRINK_FLOOR = 0.75
 
 BODY_HEIGHT = A4[1] - 2 * PAGE_MARGIN
+BODY_WIDTH = A4[0] - 2 * PAGE_MARGIN
+
+# A CondPageBreak taller than the frame it is in breaks the page and then finds
+# the fresh page too short as well, so it can throw a sheet away for nothing.
+# Nothing this file asks for is allowed past four fifths of the type area.
+_MAX_COND_BREAK = 0.8 * BODY_HEIGHT
+
+
+def stack_height(flowables, width: float = BODY_WIDTH) -> float:
+    """How tall this run of flowables will actually be, asked of the flowables.
+
+    Used to size the CondPageBreak in front of a mini-lesson. The height of a
+    lesson is not a constant that can be guessed at: the worked-example box
+    varies by several centimetres with the number of steps the model wrote and
+    whether the subtopic carries a diagram, and a guessed constant is either
+    too small to prevent the strand or so large it throws away a page under
+    every heading. So each flowable is asked to wrap itself, exactly as the
+    document will ask it during the build.
+
+    A KeepTogether reports 0xffffff for its height rather than a real one, so
+    anything that answers with a number that large is skipped rather than
+    allowed to poison the total.
+    """
+    total = 0.0
+    prev_after = 0.0
+    for f in flowables:
+        try:
+            _, h = f.wrap(width, BODY_HEIGHT)
+            before, after = f.getSpaceBefore(), f.getSpaceAfter()
+        except Exception:
+            continue
+        if h > BODY_HEIGHT:
+            continue
+        # The frame collapses the gap between two flowables to the larger of
+        # the pair rather than adding them. Adding them would overstate a
+        # lesson by a couple of centimetres and throw away a page for it.
+        total += max(prev_after, before) + h
+        prev_after = after
+    return total
+
+
+def _lesson_opening(flowables: list) -> list:
+    """The part of a mini-lesson that has to land on one page with its heading.
+
+    Everything up to and including the worked-example box, which is the only
+    Table a lesson contains. Past that point come the guided examples, and
+    those are separate boxes that can perfectly well start on the next page.
+    """
+    for i, f in enumerate(flowables):
+        if isinstance(f, Table):
+            return flowables[:i + 1]
+    return flowables
+
+
+def _lesson_cond_break(headings: list, lesson: list) -> CondPageBreak:
+    """The break that stops a heading being stranded above its worked example.
+
+    The worked-example box is one Table and cannot split, so when it does not
+    fit it moves whole to the next page and leaves the topic heading, the
+    subtopic heading, the intro paragraph and the key points sitting above four
+    or five centimetres of white. Measured, not guessed: see stack_height.
+    """
+    needed = stack_height(headings) + stack_height(_lesson_opening(lesson))
+    return CondPageBreak(min(needed, _MAX_COND_BREAK))
+
 
 # Room needed at the foot of a page for the Homework part to start there rather
 # than on a fresh page: the band, a heading and a question or two. Raise this to
@@ -2523,6 +2588,12 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # minutes of teaching whether or not practice follows it.
         if not section.questions:
             continue
+        # Built before anything is appended, so the run can be measured and a
+        # break asked for in front of it. Otherwise the worked-example box, one
+        # unsplittable Table, moves to the next page on its own and leaves the
+        # headings, the intro and the key points above five centimetres of
+        # white.
+        mark = len(story)
         subject_topic_headers(section, state)
         time_badge = (
             f'  <font size=9 color="#146B2C">'
@@ -2532,7 +2603,9 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
 
         t = section.teaching
         if t is not None:
-            story.extend(_lesson_flowables(styles, t, data.year_level))
+            lesson = _lesson_flowables(styles, t, data.year_level)
+            story.insert(mark, _lesson_cond_break(story[mark:], lesson))
+            story.extend(lesson)
             if section.questions:
                 # Only when something follows it. A subtopic the hour could not
                 # fit keeps its lesson but has had its practice moved to
@@ -2603,8 +2676,12 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # booklet explains the skill its homework asks for. Subtopics that
             # were taught in the session do not repeat their lesson.
             if not section.questions and section.teaching is not None:
-                story.extend(_lesson_flowables(styles, section.teaching,
-                                               data.year_level))
+                lesson = _lesson_flowables(styles, section.teaching,
+                                           data.year_level)
+                # Same measured break as Class Work gets: a lesson reprinted
+                # down here strands its headings in exactly the same way.
+                story.insert(mark, _lesson_cond_break(story[mark:], lesson))
+                story.extend(lesson)
             headings = story[mark:]
             del story[mark:]
 
