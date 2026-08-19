@@ -17,9 +17,11 @@ faults were measured on one twenty-one page fixture, and between them they left
   * A page that legitimately ends short. Homework will not start with less than
     7cm left and the Final Challenge will not start with less than 9cm, because
     a part that begins three lines before a page turn is worse than one that
-    begins on a fresh page. Those rules are right and stay. What was wrong was
-    leaving the room they create as blank paper, which reads as a fault rather
-    than as a decision.
+    begins on a fresh page. Those rules are right and stay, and the room they
+    give up is at present left as white paper rather than filled with anything.
+    All this file asserts about it is that the two constants have not been
+    weakened, which is the cheap way to make a whitespace measurement look
+    better without removing any dead space.
 
     PYTHONPATH=. python scripts/check_page_endings.py
 """
@@ -29,11 +31,9 @@ from pathlib import Path
 
 import pymupdf
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm
 
 from booklet_gen.formatter import (HOMEWORK_MIN_START_CM, PAGE_MARGIN,
-                                   _CHALLENGE_MIN_START_CM,
-                                   _CHECKPOINT_PROMPT, render_pdf)
+                                   _CHALLENGE_MIN_START_CM, render_pdf)
 from booklet_gen.schemas import (BookletData, Question, SubtopicOutput,
                                  SubtopicTeaching, ValidatedQuestion,
                                  WorkedExample)
@@ -246,13 +246,26 @@ check(not orphans,
       "them stacked with no answer beneath reads as a page that failed to "
       "print")
 
-print("\nA PAGE LEFT SHORT ON PURPOSE ENDS ON SOMETHING, NOT ON NOTHING")
+print("\nTHE RULES THAT LEAVE A PAGE SHORT ARE STILL IN FORCE")
 
-# The two rules that create the gap. They are deliberate and they stay: a part
-# that begins three lines before a page turn is worse than one that begins on
-# a fresh page. This check exists to make sure the whitespace was dealt with by
-# filling the hole and not by quietly deleting the rules that create it, which
-# would be the easy way to make the measurements look better.
+# Homework will not start with less than 7cm of page left and the Final
+# Challenge will not start with less than 9cm. Those rules are deliberate and
+# they stay: a part that begins three lines before a page turn is worse than one
+# that begins on a fresh page.
+#
+# What they leave behind is up to 7cm and 9cm of blank paper at a page foot, and
+# that space is at present ACCEPTED rather than filled. A self-assessment strip
+# ("How did that go? Got it / Nearly / Go over this again") used to sit in it,
+# and the assertions that pinned it to the page were here. The strip was removed
+# at the founder's direction: he did not want it in the booklet. So the
+# assertions are gone with it rather than softened into something that passes
+# whatever happens.
+#
+# This one stays, and it is the reason the section is still here. The cheap way
+# to make a whitespace measurement look better is to weaken the constants that
+# create the gap, which does not remove dead space, it moves it to the top of
+# the next page where it is a part starting three lines before a turn. If the
+# foot space is to be closed it has to be closed by the page packing tighter.
 check(HOMEWORK_MIN_START_CM >= 7.0 and _CHALLENGE_MIN_START_CM >= 9.0,
       f"Homework still refuses to start with under {HOMEWORK_MIN_START_CM}cm "
       f"left, and the Final Challenge under {_CHALLENGE_MIN_START_CM}cm",
@@ -260,80 +273,6 @@ check(HOMEWORK_MIN_START_CM >= 7.0 and _CHALLENGE_MIN_START_CM >= 9.0,
       f"{_CHALLENGE_MIN_START_CM}cm. That does not remove dead space, it moves "
       "it: a part that starts three lines before a page turn is worse than one "
       "that starts on a fresh page")
-
-strips = [i for i, t in enumerate(PAGES) if _CHECKPOINT_PROMPT in t]
-check(strips,
-      f"the checkpoint strip is printed on pages {[i + 1 for i in strips]}",
-      f"no page carries the checkpoint strip. {HOMEWORK_MIN_START_CM}cm and "
-      f"{_CHALLENGE_MIN_START_CM}cm of page foot are given up by the minimum "
-      "start rules and left as blank paper, which a reader cannot tell from a "
-      "page that failed to print")
-
-# It is a device for filling a hole, not a page furniture element. On every
-# page is a tic; nowhere near a hole is useless.
-check(len(strips) <= max(1, (KEY_START - 1) // 3),
-      f"it appears on {len(strips)} of the {KEY_START - 1} question pages, "
-      "which is where the holes are and nowhere else",
-      f"it appears on {len(strips)} of {KEY_START - 1} question pages. It is "
-      "there to fill a page foot given up on purpose, and printed on every "
-      "page it stops being a checkpoint and becomes wallpaper")
-
-check(all(i < KEY_START for i in strips),
-      "and never in the answer key, which nobody works through",
-      f"the checkpoint strip reached the answer key: pages "
-      f"{[i + 1 for i in strips if i >= KEY_START]}. It asks the child how the "
-      "work went, and the key is read by whoever is marking")
-
-# The Homework part band is the biggest of the holes, at up to seven
-# centimetres. The page before it is the one to look at.
-homework_page = page_of("Do these through the week")
-check(homework_page is not None and homework_page - 1 in strips,
-      f"the page Class Work ends on, the one before Homework starts on page "
-      f"{(homework_page or 0) + 1}, carries the strip, so the room Homework "
-      "gave up reads as designed",
-      f"Homework starts on page {(homework_page or 0) + 1} and the page before "
-      "it ends in blank paper. That is the HOMEWORK_MIN_START_CM hole, the "
-      "largest one in the booklet, and the one a parent is most likely to read "
-      "as a misprint")
-
-HEIGHT = doc[0].rect.height
-for i in strips:
-    page = doc[i]
-    boxes = [d["rect"] for d in page.get_drawings()
-             if d["rect"].width > 0.5 * (A4[0] - 2 * PAGE_MARGIN)
-             and 0.6 * cm < d["rect"].height < 2.0 * cm]
-    if not check(boxes,
-                 f"page {i + 1}: the strip is drawn as a box, not just words",
-                 f"page {i + 1} has the checkpoint text but no box round it. "
-                 "Three loose words at the foot of a page read as something "
-                 "left behind rather than as a designed element"):
-        continue
-    strip = max(boxes, key=lambda r: r.y1)
-    foot = HEIGHT - PAGE_MARGIN - strip.y1
-    check(abs(foot) < 0.6 * cm,
-          f"page {i + 1}: it sits on the bottom margin, {foot / cm:.2f}cm off",
-          f"page {i + 1}: the strip's bottom edge is {foot / cm:.1f}cm above "
-          "the bottom margin, so there is still a band of blank paper under "
-          "it. It is meant to be what the page ends on")
-
-if strips:
-    print("\nAND IT COSTS ALMOST NO INK")
-
-    # A booklet is printed at home, often more than once. The strip earns its
-    # place by being nearly free: one hairline box, four short words and three
-    # empty squares.
-    page = doc[strips[0]]
-    strip = max((d["rect"] for d in page.get_drawings()
-                 if d["rect"].width > 0.5 * (A4[0] - 2 * PAGE_MARGIN)
-                 and 0.6 * cm < d["rect"].height < 2.0 * cm),
-                key=lambda r: r.y1)
-    pix = page.get_pixmap(dpi=300, colorspace=pymupdf.csGRAY, clip=strip)
-    coverage = (255.0 - sum(pix.samples) / len(pix.samples)) / 255.0
-    check(coverage <= 0.05,
-          f"the strip covers {coverage:.1%} of its own area in ink",
-          f"the strip covers {coverage:.1%} of its area in ink. It is filling "
-          "a hole on a page a parent prints at home; it is not worth a "
-          "cartridge")
 
 doc.close()
 
