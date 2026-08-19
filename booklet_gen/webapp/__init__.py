@@ -231,13 +231,16 @@ def create_app() -> Flask:
     from .auth import bp as auth_bp
     from .payments import bp as payments_bp
     from .public import bp as public_bp
+    from .seo import bp as seo_bp, init_seo
     from .views import bp as views_bp
 
     app.jinja_env.globals["is_admin"] = is_admin
+    init_seo(app)
     app.register_blueprint(admin_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(payments_bp)
     app.register_blueprint(public_bp)
+    app.register_blueprint(seo_bp)
     app.register_blueprint(views_bp)
 
     @app.get("/healthz")

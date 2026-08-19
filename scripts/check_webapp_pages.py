@@ -199,6 +199,12 @@ print("-" * 62)
 # is also one more thing that can be slow or gone when a parent first visits.
 OFFSITE = re.compile(
     rb'(?:src|href)\s*=\s*["\'](?!/|\{\{|#|data:|mailto:)[a-zA-Z]+:', re.I)
+# The canonical link is a deliberate exception: it is required to be an
+# absolute, self-referencing URL (booklet_gen/webapp/seo.py, base.html), and
+# it is metadata about this page's own address, not a resource fetched from
+# anywhere. Nothing else on the page is allowed to be absolute, so only this
+# one tag is stripped before the offsite scan runs.
+CANONICAL_LINK = re.compile(rb'<link rel="canonical"[^>]*>')
 pages = [
     "/", "/library", "/account", "/login", "/signup", "/pricing",
     "/support", "/privacy", "/terms", "/forgot-password",
@@ -206,7 +212,7 @@ pages = [
 ]
 for path in pages:
     data = client.get(path, follow_redirects=True).data
-    hits = OFFSITE.findall(data)
+    hits = OFFSITE.findall(CANONICAL_LINK.sub(b"", data))
     check(not hits, f"{path} loads nothing from another host", str(hits[:2]))
 
 check("@import" not in css and "url(http" not in css,
