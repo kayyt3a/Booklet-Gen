@@ -67,14 +67,39 @@ CHROME_MARGIN = 1.6 * cm
 # them apart.
 #
 # The Final Challenge is bronze, not another red. It reads as the trophy at the
-# end, it ties to the brand's orange rather than introducing a new hue, and it
-# is the one choice here that also separates from Homework in GREYSCALE
-# (relative luminance 0.15 against maroon's 0.07), which matters because most
-# of these are printed on a home mono printer.
-PART_RECAP = "#6b7280"
-PART_CLASSWORK = "#1F3A5F"
-PART_HOMEWORK = "#8B1E3F"
-PART_CHALLENGE = "#9A5B0E"
+# end and it ties to the brand's orange rather than introducing a new hue.
+#
+# Hue alone was not enough, and measurement said so. Converted to greyscale at
+# 300dpi, which is what a mono home printer does to them, the four used to come
+# out at 56, 74, 107 and 113 out of 255: Class Work and Homework eighteen apart,
+# the Warm-up and the Final Challenge six apart. Eighteen points out of 255 is
+# nothing once printer dot gain has closed it, and six is not even a difference.
+# So on a home mono printer the booklet had two tones and not four, and the
+# collapsed pair was the one a student navigates between every session.
+#
+# Two changes, because either alone is a half measure.
+#
+# The luminances are now spread deliberately across the range white text can sit
+# on: each band is at least _PART_GREY_FLOOR apart from every other in
+# greyscale, and each still carries white type at AA contrast or better. There
+# is not much room to work in, because white text needs a dark ground, so the
+# spread comes out at about 27 points per step and no more.
+#
+# And the meaning stopped being carried by tone at all. Every band now prints a
+# reversed-out notch marker at its left, one notch for the Warm-up through four
+# for the Final Challenge, and its position in words at its right. Notches
+# survive any conversion whatever, because they are the absence of ink, and they
+# are readable at the distance a parent flips a printed stack from, which is
+# further away than eight point type works at.
+PART_RECAP = "#6D7583"
+PART_CLASSWORK = "#122136"
+PART_HOMEWORK = "#721933"
+PART_CHALLENGE = "#804C0C"
+
+# The least any two part bands may differ by once the page is converted to
+# greyscale, out of 255. The pair this replaced were eighteen apart, and the
+# other pair six.
+_PART_GREY_FLOOR = 24
 
 log = logging.getLogger(__name__)
 
@@ -185,6 +210,15 @@ def _make_styles():
         "part_band": ParagraphStyle(
             "part_band", parent=base["Heading1"], fontName=FONT_DISPLAY,
             fontSize=18, leading=22, textColor=colors.white, alignment=TA_CENTER,
+        ),
+        # Where in the booklet this part is, set at the right of its band. The
+        # notch marker at the other end says the same thing in a form that
+        # survives being looked at from across a table; this says it in words
+        # for whoever has stopped to read.
+        "part_band_locator": ParagraphStyle(
+            "part_band_locator", parent=base["Normal"], fontName=FONT_BOLD,
+            fontSize=8, leading=11, alignment=TA_RIGHT,
+            textColor=colors.HexColor("#F4F7FB"),
         ),
         "part_band_sub": ParagraphStyle(
             "part_band_sub", parent=base["Normal"], fontName=FONT_REGULAR,
@@ -1471,20 +1505,81 @@ def _topic_opener(styles, topic: str, index: int, total: int,
     return tbl
 
 
-def _part_band(styles, text: str, bg_hex: str, subtitle: str = ""):
-    """A full-width coloured divider for a major part (Recap / Class Work /
-    Homework), so the two halves of the booklet read as distinct sections."""
+# The part notches: the device that tells the four parts apart when the colour
+# does not. One bar for the Warm-up through four for the Final Challenge,
+# knocked out of the band in the paper's own white, which means they survive
+# any conversion whatever and cost less ink than the band would without them.
+_NOTCH_W = 3.4
+_NOTCH_GAP = 3.6
+_NOTCH_H = 0.52 * cm
+# Room set aside at each end of a band. Equal on both sides, so the part's name
+# stays centred on the page rather than shifting to make room for the marker.
+_BAND_MARGIN = 2.45 * cm
+
+
+class PartNotches(Flowable):
+    """`count` reversed-out bars, centred in the cell they are given."""
+
+    def __init__(self, count: int, height: float = _NOTCH_H):
+        super().__init__()
+        self.count = max(0, int(count))
+        self.height = height
+        self.width = self.count * _NOTCH_W + max(0, self.count - 1) * _NOTCH_GAP
+
+    def wrap(self, availWidth, availHeight):
+        return self.width, self.height
+
+    def draw(self):
+        c = self.canv
+        c.saveState()
+        c.setFillColor(colors.white)
+        for i in range(self.count):
+            c.rect(i * (_NOTCH_W + _NOTCH_GAP), 0, _NOTCH_W, self.height,
+                   stroke=0, fill=1)
+        c.restoreState()
+
+
+def _part_band(styles, text: str, bg_hex: str, subtitle: str = "",
+               index: int = 0, of: int = 0):
+    """A full-width coloured divider for a major part.
+
+    `index` and `of` turn it into one of the four numbered parts: the notch
+    marker goes at the left and the part's position in words at the right. The
+    spelling and times-table bands pass neither, because they are their own
+    sections in their own colours rather than one of the four the student
+    navigates between.
+    """
+    width = A4[0] - 2 * PAGE_MARGIN
     cells = [Paragraph(text, styles["part_band"])]
     if subtitle:
         cells.append(Paragraph(subtitle, styles["part_band_sub"]))
-    tbl = Table([[cells]], colWidths=[A4[0] - 2 * PAGE_MARGIN])
-    tbl.setStyle(TableStyle([
+    style = [
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(bg_hex)),
         ("LEFTPADDING", (0, 0), (-1, -1), 12),
         ("RIGHTPADDING", (0, 0), (-1, -1), 12),
         ("TOPPADDING", (0, 0), (-1, -1), 9),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
-    ]))
+    ]
+    if not index:
+        tbl = Table([[cells]], colWidths=[width])
+        tbl.setStyle(TableStyle(style))
+        return tbl
+    row = [PartNotches(index), cells,
+           Paragraph(f"PART {index} OF {of}", styles["part_band_locator"])]
+    tbl = Table([row], colWidths=[_BAND_MARGIN, width - 2 * _BAND_MARGIN,
+                                  _BAND_MARGIN])
+    style += [
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (0, 0), "LEFT"),
+        ("LEFTPADDING", (1, 0), (1, 0), 4),
+        ("RIGHTPADDING", (1, 0), (1, 0), 4),
+        ("LEFTPADDING", (2, 0), (2, 0), 0),
+        # Enough for "PART 3 OF 4" on one line at 8pt. Wrapped, it reads as a
+        # stray "4" under the band.
+        ("RIGHTPADDING", (2, 0), (2, 0), 4),
+        ("RIGHTPADDING", (0, 0), (0, 0), 0),
+    ]
+    tbl.setStyle(TableStyle(style))
     return tbl
 
 
@@ -3005,6 +3100,19 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     nums = question_numbering(data)
     contents = topic_contents(data)
 
+    # The four parts, in printed order and only the ones this booklet has, so
+    # a booklet with no Warm-up does not print "Part 2 of 4" as its first band.
+    # The notch count is the part's position in this list, which is what makes
+    # it countable rather than a code the reader has to learn.
+    part_order = [name for name, present in (
+        ("Warm-up Recap", bool(data.recap_questions)),
+        ("Class Work", True),
+        ("Homework", any(s.homework_questions for s in data.sections)),
+        ("Final Challenge", bool(data.challenge_questions))) if present]
+
+    def part_place(name: str) -> tuple:
+        return part_order.index(name) + 1, len(part_order)
+
     def shown(n: int) -> int:
         return nums.get(n, n)
 
@@ -3145,7 +3253,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     if data.recap_questions:
         sub = f"Quick revision to warm up. About {times['recap_minutes']} min." \
             if times["recap_minutes"] else "Quick revision to warm up."
-        band = _part_band(styles, "Warm-up Recap", PART_RECAP, sub)
+        band = _part_band(styles, "Warm-up Recap", PART_RECAP, sub,
+                          *part_place("Warm-up Recap"))
         story.append(orphan_break([band]))
         story.append(band)
         story.append(Spacer(1, 0.3 * cm))
@@ -3154,7 +3263,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # ---- Class Work (lesson + guided + now-you-try) ----
     cw_sub = f"Do this in your lesson. About {times['classwork_minutes']} min." \
         if times["classwork_minutes"] else "Do this in your lesson."
-    band = _part_band(styles, "Class Work", PART_CLASSWORK, cw_sub)
+    band = _part_band(styles, "Class Work", PART_CLASSWORK, cw_sub,
+                      *part_place("Class Work"))
     story.append(orphan_break([band]))
     story.append(band)
     story.append(Spacer(1, 0.3 * cm))
@@ -3245,7 +3355,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         if data.challenge_questions and times["challenge_minutes"]:
             hw_sub += (" The Final Challenge at the end adds about "
                        f"{times['challenge_minutes']} min.")
-        hw_band = _part_band(styles, "Homework", PART_HOMEWORK, hw_sub)
+        hw_band = _part_band(styles, "Homework", PART_HOMEWORK, hw_sub,
+                             *part_place("Homework"))
 
         # Session boundaries are indices into the flat homework list, so a
         # session may start part way through a subtopic. When it starts on the
@@ -3430,7 +3541,8 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             story.append(_part_band(
                 styles, "Final Challenge", PART_CHALLENGE,
                 "You have done the hard part. These last questions mix "
-                f"everything together. Nothing new, just all at once.{ct}"))
+                f"everything together. Nothing new, just all at once.{ct}",
+                *part_place("Final Challenge")))
             story.append(Spacer(1, 0.3 * cm))
             render_questions(data.challenge_questions)
 
