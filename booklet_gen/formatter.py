@@ -1278,10 +1278,20 @@ _PART_MARKER_RE = re.compile(r"(?:^|\s)\(?([a-e])[\).]\s")
 # One question should never swallow a whole page.
 _MAX_WORKING_SPACE_CM = 8.0
 
-# Height of one ruled "Answer:" line, and the least working room a question may
-# be squeezed down to at the foot of a page.
+# Height of one ruled "Answer:" line.
 _ANSWER_LINE_CM = 0.75
-_MIN_WORKING_SPACE_CM = 0.9
+
+# How far a question's working area may be squeezed at the foot of a page,
+# as a fraction of the room the same question gets anywhere else.
+#
+# This used to be a flat 0.9cm floor, which meant a question tagged "hard" got
+# 3.2cm of room in the middle of a page and 0.9cm at the foot of one: the same
+# question type, a third of the space, decided by where it happened to land. An
+# inconsistent blank gap is forgivable because nobody can see what it was meant
+# to be. An inconsistent PANEL is not: the grid stops early and the page looks
+# misprinted. So the squeeze is capped at a quarter of the working area, and a
+# question that still does not fit moves to the next page instead.
+_WORKING_SHRINK_FLOOR = 0.75
 
 BODY_HEIGHT = A4[1] - 2 * PAGE_MARGIN
 
@@ -1418,13 +1428,73 @@ def _working_space_cm(question, floor_cm: float = 0.0) -> float:
     return min(base, _MAX_WORKING_SPACE_CM)
 
 
-class WorkingSpace(Flowable):
-    """The blank area under a question, with its ruled answer line(s).
+# ---------------------------------------------------------------------------
+# The working panel
+#
+# A practice question used to print as a number, a line of text, a gap, and a
+# hairline labelled "Answer:" at the bottom of it. Five of those to a page for
+# eight pages. The gap read as an accident rather than as an allocation, which
+# is the loudest thing in the booklet saying nobody designed this.
+#
+# The booklet already knew how to do better: an extended-response question gets
+# real ruled lines (`written_response_rules`), and those questions look like a
+# published workbook while the maths ones look like a leftover margin. So the
+# panel extends that pattern to every question rather than inventing a second
+# mechanism: maths gets the 5mm squared paper of a school exercise book,
+# writing gets ruled lines at the same pitch as the extended-response rules,
+# and the "Answer:" rule sits inside the panel's bottom edge.
+#
+# Feint on purpose. #E4E9F0 at 0.25pt is about a tenth of the weight of the
+# answer rule, so it shows the child where the working goes without competing
+# with the question text, and it survives a mono home printer: a light grey
+# rules better in greyscale than a colour tint does, because it is already
+# nothing but luminance.
+_PANEL_INK = "#E4E9F0"
+_PANEL_WEIGHT = 0.25
+# Squared paper, at the pitch every Australian primary exercise book uses.
+_PANEL_GRID_CM = 0.5
+# Writing lines, at the pitch the extended-response rules already use, so a
+# child writing three lines here and four lines there writes the same size.
+_PANEL_RULE_CM = _ANSWER_LINE_CM
 
-    Two jobs, and they are the same job. It draws the "Answer: _____" rule the
-    booklet had nowhere for, and it is the piece that gives when a page runs
-    out: it reports its full height when there is room and shrinks toward
-    `min_height` when there is not.
+# Below this there is no working area left to rule, only the answer line, and a
+# panel two squares tall reads as a rendering fault rather than as a design.
+_PANEL_MIN_CM = 1.0
+
+# Subjects whose working is arithmetic laid out down and across the page rather
+# than sentences along a line. Matched as substrings, so "Mathematics Methods"
+# and NAPLAN's combined "Numeracy and Literacy" both land on squared paper: a
+# grid can be written on, whereas ruled lines at 7.5mm are no use for a column
+# subtraction, so a mixed booklet fails towards the grid.
+_GRID_SUBJECTS = ("math", "numeracy", "quantitative", "reasoning")
+
+
+def working_panel(subject: str | None, question) -> str:
+    """Which working panel goes under this question: grid, rules or none.
+
+    "none" is for a question that asks for a drawing: ruling a space someone
+    has to sketch in is worse than leaving it blank, which is the same reason
+    `written_response_rules` returns 0 for them.
+    """
+    text = getattr(question, "question", "") or ""
+    if _DRAWN_RESPONSE_RE.search(text):
+        return "none"
+    # A question that already earns full ruled lines has its panel: they are
+    # drawn across the whole allocation and there is no "Answer:" rule under
+    # them. This is the pattern the rest of this is extending.
+    if written_response_rules(question):
+        return "rules"
+    s = (subject or "").strip().lower()
+    return "grid" if any(k in s for k in _GRID_SUBJECTS) else "rules"
+
+
+class WorkingSpace(Flowable):
+    """The working panel under a question, with its ruled answer line(s).
+
+    Two jobs, and they are the same job. It draws the panel and the
+    "Answer: _____" rule the booklet had nowhere for, and it is the piece that
+    gives when a page runs out: it reports its full height when there is room
+    and shrinks toward `min_height` when there is not.
 
     Why it has to shrink: the question used to be a KeepTogether wrapping a
     fixed Spacer, so a question whose blank space did not fit was moved whole to
@@ -1436,7 +1506,7 @@ class WorkingSpace(Flowable):
     """
 
     def __init__(self, height: float, labels=(), min_height: float | None = None,
-                 rules: int = 0):
+                 rules: int = 0, panel: str = "none"):
         super().__init__()
         self.labels = list(labels)
         # Unlabelled ruled lines for a prose answer. Unlike the working space
@@ -1444,9 +1514,12 @@ class WorkingSpace(Flowable):
         # sentences has to still offer two sentences of ruling at the foot of a
         # page, or the child meets the same question with half the room.
         self.rules = max(0, int(rules))
+        self.panel = panel
         self.answers_height = _ANSWER_LINE_CM * cm * len(self.labels)
         self.height = height + self.answers_height
-        floor = _MIN_WORKING_SPACE_CM * cm + self.answers_height
+        # Only the working area gives; the answer rule under it is a fixed
+        # strip and cannot be shrunk into.
+        floor = self.answers_height + _WORKING_SHRINK_FLOOR * height
         if self.rules:
             floor = self.height
         self.min_height = min(self.height, min_height if min_height is not None else floor)
@@ -1464,22 +1537,62 @@ class WorkingSpace(Flowable):
         self._h = h
         return availWidth, h
 
+    def _draw_panel(self, c):
+        """The feint working area: squared paper for maths, lines for writing.
+
+        Drawn from the top of the answer strip upwards, so the panel's bottom
+        edge is the answer rule and the child can see the whole allocation as
+        one block rather than as a gap that happens to end in a hairline.
+        """
+        top = self._h
+        band = self.answers_height
+        if top - band < _PANEL_MIN_CM * cm:
+            return
+        c.saveState()
+        c.setStrokeColor(colors.HexColor(_PANEL_INK))
+        c.setLineWidth(_PANEL_WEIGHT)
+        # The outline is what turns the ruling into an allocation: it says the
+        # room stops here, which is the thing a bare gap could never say.
+        c.rect(0, 0, self.width, top, stroke=1, fill=0)
+        if self.panel == "grid":
+            pitch = _PANEL_GRID_CM * cm
+            y = band + pitch
+            while y < top - 1:
+                c.line(0, y, self.width, y)
+                y += pitch
+            x = pitch
+            while x < self.width - 1:
+                c.line(x, band, x, top)
+                x += pitch
+        else:
+            pitch = _PANEL_RULE_CM * cm
+            y = top - pitch
+            while y > band + 1:
+                c.line(0, y, self.width, y)
+                y -= pitch
+        c.restoreState()
+
     def draw(self):
         if not self.labels and not self.rules:
             return
         c = self.canv
+        if self.labels and self.panel in ("grid", "rules"):
+            self._draw_panel(c)
         c.saveState()
         c.setFont(FONT_REGULAR, 9.5)
         c.setFillColor(colors.HexColor("#333333"))
         c.setStrokeColor(colors.HexColor("#9AA6B8"))
         c.setLineWidth(0.6)
         line_h = _ANSWER_LINE_CM * cm
+        # Inset from the panel's edges, so the label and its rule sit inside
+        # the working area rather than crossing its outline.
+        pad = 5 if self.panel in ("grid", "rules") else 0
         for i, label in enumerate(reversed(self.labels)):
             # Offset so the rule does not sit tight against the next question.
             y = i * line_h + 0.42 * cm
-            c.drawString(0, y, label)
-            x0 = c.stringWidth(label, FONT_REGULAR, 9.5) + 6
-            c.line(x0, y - 2.5, self.width, y - 2.5)
+            c.drawString(pad, y, label)
+            x0 = pad + c.stringWidth(label, FONT_REGULAR, 9.5) + 6
+            c.line(x0, y - 2.5, self.width - pad, y - 2.5)
         # Full-width rules for a written answer, drawn from the top of the
         # block down, so the child starts writing where the question ends
         # rather than at the bottom of a gap.
@@ -1564,7 +1677,8 @@ def question_numbering(data: BookletData) -> dict:
 def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
                         page_map: dict | None = None,
                         space_floor_cm: float = 0.0,
-                        display_num: int | None = None) -> list:
+                        display_num: int | None = None,
+                        subject: str | None = None) -> list:
     """The flowables of one numbered question, before they are bound together.
 
     Returned as a flat list rather than a KeepTogether because a passage binds
@@ -1611,16 +1725,19 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
         _working_space_cm(vq.question, space_floor_cm) * cm,
         answer_line_labels(vq.question),
         rules=written_response_rules(vq.question),
+        panel=working_panel(subject, vq.question),
     ))
     return block
 
 
 def _question_block(styles, q_num: int, vq: ValidatedQuestion,
                     page_map: dict | None = None, space_floor_cm: float = 0.0,
-                    display_num: int | None = None):
+                    display_num: int | None = None,
+                    subject: str | None = None):
     """One numbered question and its working space, kept on one page."""
     return KeepTogether(_question_flowables(styles, q_num, vq, page_map,
-                                            space_floor_cm, display_num))
+                                            space_floor_cm, display_num,
+                                            subject))
 
 
 def _passage_question_block(styles, passage, q_flowables: list):
@@ -2218,12 +2335,15 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     Q_GAP = 0.3 * cm
 
     def render_questions(qs, space_floor_cm: float = 0.0):
+        # The Warm-up and the Final Challenge belong to the booklet rather than
+        # to a subtopic, so the booklet's own subject decides their panel.
         for i, vq in enumerate(qs):
             counter["n"] += 1
             if i:
                 story.append(Spacer(1, Q_GAP))
             story.append(_question_block(styles, counter["n"], vq, page_map,
-                                         space_floor_cm, shown(counter["n"])))
+                                         space_floor_cm, shown(counter["n"]),
+                                         data.subject))
 
     def render_passage_questions(section, qs, space_floor_cm: float = 0.0):
         """Questions grouped under their reading, passage first.
@@ -2232,6 +2352,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         KeepTogether, so "Referring to the passage above" can never point at a
         passage on the following page.
         """
+        subject = section.subject or data.subject
         first = True
         for passage, group in passage_groups(qs, section_passages(section)):
             for i, vq in enumerate(group):
@@ -2247,11 +2368,11 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                         styles, passage,
                         _question_flowables(styles, counter["n"], vq, page_map,
                                             space_floor_cm,
-                                            shown(counter["n"])))
+                                            shown(counter["n"]), subject))
                 else:
                     block = _question_block(styles, counter["n"], vq, page_map,
                                             space_floor_cm,
-                                            shown(counter["n"]))
+                                            shown(counter["n"]), subject)
                 story.append(block)
 
     def subject_topic_headers(section, state):
@@ -2424,11 +2545,13 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                             styles, passage,
                             _question_flowables(styles, counter["n"], vq,
                                                 page_map, 0.0,
-                                                shown(counter["n"])))
+                                                shown(counter["n"]),
+                                                section.subject or data.subject))
                     else:
                         block = _question_block(styles, counter["n"], vq,
                                                 page_map, 0.0,
-                                                shown(counter["n"]))
+                                                shown(counter["n"]),
+                                                section.subject or data.subject)
                     story.append(block)
                     flat += 1
                     j += 1

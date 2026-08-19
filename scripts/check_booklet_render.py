@@ -35,6 +35,7 @@ from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pymupdf                                                  # noqa: E402
 import pypdf                                                    # noqa: E402
 from pydantic import BaseModel, Field                           # noqa: E402
 from reportlab.lib import colors                                # noqa: E402
@@ -44,6 +45,7 @@ from reportlab.lib.units import cm                              # noqa: E402
 from booklet_gen import schemas as S                            # noqa: E402
 from booklet_gen.formatter import (                             # noqa: E402
     CHROME_MARGIN, HOMEWORK_MIN_START_CM, MULTIPLY, PAGE_MARGIN,
+    _CHALLENGE_MIN_START_CM,
     SPELLING_TEST_SPACES,
     _escape, _lesson_html, _make_styles, _prettify_fractions, _register_fonts,
     answer_line_labels, answer_unit, written_response_rules,
@@ -600,8 +602,38 @@ BODY_TOP = A4[1] - PAGE_MARGIN
 BODY_BOTTOM = PAGE_MARGIN
 
 
+def ink_lows(path) -> list:
+    """The lowest mark on each page, drawn or typed, in ReportLab coordinates.
+
+    Text alone stopped being a fair measure of how far down the page a booklet
+    reaches the moment every question got a drawn working panel. A question
+    with four ruled writing lines puts its last WORDS three centimetres above
+    the foot of the room it was actually given, and a squared panel is ink with
+    no text in it at all, so a text-only tail calls a page abandoned when the
+    child has in fact been handed space right down to the margin.
+
+    Read with pymupdf rather than pypdf because the drawn paths are what is
+    being measured here, and pypdf gives no geometry for those.
+    """
+    doc = pymupdf.open(str(path))
+    out = []
+    for page in doc:
+        h = page.rect.height
+        ys = []
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    ys.append(h - span["bbox"][3])
+        for drawing in page.get_drawings():
+            ys.append(h - drawing["rect"].y1)
+        ys = [y for y in ys if BODY_BOTTOM < y < BODY_TOP]
+        out.append(min(ys) if ys else BODY_TOP)
+    doc.close()
+    return out
+
+
 def read(path):
-    """(page texts, lowest body y per page, (text, y) runs, bold runs, rules)."""
+    """(page texts, lowest body mark per page, (text, y) runs, bold runs, rules)."""
     reader = pypdf.PdfReader(str(path))
     texts, lows, runs, bolds, rules = [], [], [], [], []
 
@@ -628,7 +660,7 @@ def read(path):
             data_ = b""
         # Every horizontal rule the tables draw is a "moveto lineto stroke".
         rules.append(len(re.findall(rb"\bl\s+S\b", data_)))
-    return texts, lows, runs, bolds, rules
+    return texts, ink_lows(path), runs, bolds, rules
 
 
 def key_page(pages) -> int:
@@ -1060,26 +1092,51 @@ def _exempt_pages(pages_, stop: int) -> set[int]:
     return out
 
 
+# Both part breaks are preceded by a small spacer in the story, which is part
+# of the hole the break leaves and is not covered by the threshold itself.
+_PART_BREAK_SLACK_CM = 0.6
+
+
 def page_fill(pages_, lows_, label):
-    """Worst tail of blank space on the question pages, ignoring part breaks."""
+    """Worst tail of blank space on the question pages, ignoring part breaks.
+
+    Two parts are allowed to start on a fresh page rather than squeeze into
+    the foot of the one before: Homework and the Final Challenge. Each has its
+    own threshold in formatter.py, and each is measured against its own. The
+    Final Challenge used to be missing from this list, so the one break that
+    may legally throw away nine centimetres was judged as if it were an
+    ordinary page, and it passed only for as long as pagination happened to
+    keep it off a boundary.
+    """
     stop = key_page(pages_)
     tails = [(low - BODY_BOTTOM) / cm for low in lows_[:stop]]
-    boundary = {i for i in range(stop - 1)
-                if "Homework" in "\n".join(pages_[i + 1].splitlines()[:4])}
+
+    def break_limit(i):
+        """The threshold this page's tail is allowed, or None if it is not a
+        part boundary."""
+        head = "\n".join(pages_[i + 1].splitlines()[:4]) if i + 1 < stop else ""
+        if "Homework" in head:
+            return HOMEWORK_MIN_START_CM + _PART_BREAK_SLACK_CM
+        if "Final Challenge" in head:
+            return _CHALLENGE_MIN_START_CM + _PART_BREAK_SLACK_CM
+        return None
+
     exempt = _exempt_pages(pages_, stop)
-    worst_b, worst_p = (0, 0.0), (0, 0.0)
+    worst_p = (0, 0.0)
+    over = []
     measured = [(i, t) for i, t in enumerate(tails) if i not in exempt]
     for i, tail in measured:
-        if i in boundary:
-            worst_b = max(worst_b, (i + 1, tail), key=lambda t: t[1])
-        else:
+        limit = break_limit(i)
+        if limit is None:
             worst_p = max(worst_p, (i + 1, tail), key=lambda t: t[1])
+        elif tail > limit:
+            over.append((i + 1, round(tail, 1), limit))
     mean = sum(t for _, t in measured) / max(1, len(measured))
     check(worst_p[1] < 6.0, f"no {label} page abandoned more than 6cm early",
           f"worst is page {worst_p[0]} at {worst_p[1]:.1f}cm")
-    check(worst_b[1] <= HOMEWORK_MIN_START_CM,
+    check(not over,
           f"a {label} part break never throws away more than its threshold",
-          f"worst is page {worst_b[0]} at {worst_b[1]:.1f}cm")
+          str(over))
     check(mean < 4.0, f"{label} pages are worked down the page on average",
           f"mean tail {mean:.1f}cm")
 
