@@ -471,6 +471,137 @@ check(give >= 0.4 * cm,
       "measuring nothing. Either the shrink floor moved or the question used "
       "here stopped having a panel that shrinks")
 
+print("\nTHE WHITE AT THE FOOT OF THE PAGES ADDS UP TO NO MORE THAN IT DID")
+
+# One number for the whole booklet, because every rule in this file trades a
+# gap in one place for a gap in another and only the total says whether the
+# trade was worth making. Four separate improvements to the look of a page each
+# passed their own check and between them took this booklet from 104cm of foot
+# white to 140cm, and nothing failed, because nothing was measuring the total.
+#
+# Measured off the PDF's own objects, text and drawings alike, from the lowest
+# ink on each page of the student half down to the bottom margin. The running
+# head and the page number are chrome and sit outside it.
+#
+# A different fixture from the one above, and a wordier one: questions of mixed
+# length, some short enough to set two to a row, some that want four ruled lines
+# for an explanation, six subtopics across four topics. Page boundaries fall in
+# the middle of things in this one rather than politely between them, which is
+# the condition every rule here is negotiating.
+#
+# WHAT THE NUMBER IS MADE OF, at the time it was recorded. If it rises, this is
+# the list to work down, and the ceiling is not to be raised without saying
+# which of these grew and why:
+#
+#   41cm  five page feet where the next mini-lesson would not fit. Its heading,
+#         intro, key points and worked example have to arrive together and that
+#         run is 10 to 13cm here, against 7 to 10cm left on the page. The first
+#         check in this file is the reason, and it is worth the paper.
+#   25cm  the sheet that says it is intentionally blank, so the answer key does
+#         not print on the back of a page the child wrote on.
+#   12cm  page 2, where the Warm-up ends and the Class Work band, topic opener
+#         and mini-lesson will not fit in what is left. The band travels with
+#         the lesson now: printing the band here and sending the lesson overleaf
+#         is the defect this round was opened for.
+#   10cm  the foot of the last Class Work page, where the Homework band, its
+#         session band, a topic opener, a subtopic heading and the first row of
+#         questions want 11cm.
+#    7cm  the finish page, centred on its sheet on purpose.
+#    6cm  one page where a topic opener, a subtopic heading and the first row of
+#         questions want more than is left.
+#   the rest is spread over fourteen pages at 0.2 to 3.9cm, which is ordinary.
+
+SHORT = ["What is {} x 7?", "What is {} + 68?", "What is 480 - {}?",
+         "Round {} to the nearest hundred.", "What is {} divided by 4?",
+         "Write {} in words.", "What is half of {}?", "Double {}."]
+LONG = ("A bus holds {} passengers. Seven buses leave the depot full, and at "
+        "the first stop 38 people get off. How many passengers are still on "
+        "the buses altogether?")
+
+
+def mixed_questions(seed, n):
+    """Questions of the lengths a real booklet holds, in a repeatable order."""
+    out = []
+    for j in range(n):
+        k = seed * 7 + j
+        if j and j % 5 == 0:
+            out.append(vq(LONG.format(40 + k), answer=str(280 + k),
+                          difficulty="hard"))
+        elif j % 4 == 3:
+            # Extended response: four ruled lines that do not shrink.
+            out.append(vq(f"Explain how you know {300 + k} is larger than "
+                          f"{290 + k}.", answer="It has more hundreds."))
+        else:
+            out.append(vq(SHORT[k % len(SHORT)].format(24 + k * 3),
+                          answer=str(7 * (24 + k * 3)), difficulty="easy"))
+    return out
+
+
+def spread_booklet():
+    sections = []
+    for i, (topic, subtopic, marker, steps, guided) in enumerate(SUBTOPICS):
+        sections.append(SubtopicOutput(
+            topic=topic, subtopic=subtopic,
+            teaching=teaching(marker, steps, guided),
+            questions=mixed_questions(i, 7),
+            homework_questions=mixed_questions(i + 10, 6),
+            estimated_minutes=10))
+    return BookletData(
+        subject="Mathematics", year_level="Year 5", student_name="Lleyton",
+        program_label="Academic Accelerate", sections=sections,
+        recap_questions=mixed_questions(99, 4),
+        challenge_questions=mixed_questions(50, 3),
+        recap_minutes=6, classwork_minutes=60, homework_minutes=105,
+        challenge_minutes=18, total_minutes=170)
+
+
+# 124.0cm across 21 pages, measured on the day this was written, against 131.1cm
+# for the same booklet before the two fixes above. The ceiling is two
+# centimetres over it: room for a font metric to move under the booklet, not
+# room for another rule to take a page foot.
+FOOT_WHITE_CM = 126.0
+
+
+def foot_white(document, key_start):
+    """The white under the last ink on each page of the student half."""
+    out = []
+    for i in range(1, key_start):
+        page = document[i]
+        bottom = page.rect.height - PAGE_MARGIN
+        low = PAGE_MARGIN
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                if "".join(s["text"] for s in line["spans"]).strip() \
+                        and line["bbox"][3] < bottom + 6:
+                    low = max(low, line["bbox"][3])
+        for d in page.get_drawings():
+            if d["rect"].y1 < bottom + 6:
+                low = max(low, d["rect"].y1)
+        out.append((i + 1, (bottom - low) / cm))
+    return out
+
+
+spread_path = out.parent / "spread.pdf"
+render_pdf(spread_booklet(), spread_path)
+spread = pymupdf.open(spread_path)
+feet = foot_white(spread, next(i for i, p in enumerate(spread)
+                               if "Worked Solutions" in p.get_text()))
+spread.close()
+gaps = [g for _, g in feet]
+print(f"  {len(feet)} pages, total {sum(gaps):.1f}cm, worst {max(gaps):.1f}cm, "
+      f"{sum(1 for g in gaps if g > 3)} pages over 3cm")
+print("  " + "  ".join(f"p{n}:{g:.1f}" for n, g in feet))
+
+check(sum(gaps) <= FOOT_WHITE_CM,
+      f"the foot white across the booklet totals {sum(gaps):.1f}cm, inside the "
+      f"{FOOT_WHITE_CM}cm this booklet is allowed",
+      f"the foot white totals {sum(gaps):.1f}cm against a ceiling of "
+      f"{FOOT_WHITE_CM}cm. Something now leaves a page short that did not "
+      "before. Work down the list above and find which of them grew; the "
+      "ceiling is not the thing to change first, and raising it without "
+      "naming what got emptier is how this booklet reached 140cm the last "
+      "time")
+
 print("\nTHE RULES THAT LEAVE A PAGE SHORT ARE STILL IN FORCE")
 
 # Homework will not start with less than 7cm of page left and the Final
