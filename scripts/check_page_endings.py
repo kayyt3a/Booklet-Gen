@@ -192,6 +192,58 @@ check(not stranded,
       "the headings and the bullets above about five centimetres of white. "
       "The child reads an introduction to an example that is not there")
 
+print("\nNO HEADING IS LEFT AT THE FOOT OF A PAGE WITH NOTHING UNDER IT")
+
+# Every heading in the booklet is set in the display serif: topics, subtopics,
+# the coloured part bands and the key's own headings. "Now you try:" is a sans
+# label but makes the same promise, so it is named here rather than inferred.
+# A heading being the lowest thing in its column is the whole defect: there is
+# nothing under it, and the reader turns the page to find out what it named.
+PROMISES = {"Now you try:"}
+GUTTER = (A4[0] / 2 - 10, A4[0] / 2 + 10)
+
+
+def lowest_lines(index):
+    """The bottom text line of each column on this page.
+
+    The body runs in one column, the answer key in two, so the key is split at
+    the gutter: a heading at the foot of the left column with the answers
+    continuing at the top of the right is the same orphan as one at the foot
+    of a full-width page, and only shows up if the columns are measured apart.
+    """
+    page = doc[index]
+    height = page.rect.height
+    columns = {}
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            text = "".join(s["text"] for s in line["spans"]).strip()
+            if not text:
+                continue
+            x0, y0, _, y1 = line["bbox"]
+            if y0 < PAGE_MARGIN - 6 or y1 > height - PAGE_MARGIN + 6:
+                continue
+            key = ("right" if x0 > GUTTER[1] else "left") \
+                if index >= KEY_START else "page"
+            if key not in columns or y1 > columns[key][0]:
+                columns[key] = (y1, line["spans"][0]["font"], text)
+    return columns
+
+
+orphans = []
+for i in range(1, len(PAGES)):
+    for column, (_, font, text) in lowest_lines(i).items():
+        if "Serif" in font or text in PROMISES:
+            orphans.append((f"page {i + 1}", column, text[:44]))
+
+check(not orphans,
+      f"no heading is the last thing in its column, across all "
+      f"{len(PAGES) - 1} printed pages",
+      f"these headings are the last thing in their column, with nothing "
+      f"under them: {orphans}. A heading is a promise about what follows it; "
+      "at the foot of a page it is a broken one, and on a key page three of "
+      "them stacked with no answer beneath reads as a page that failed to "
+      "print")
+
 doc.close()
 
 if _failed:

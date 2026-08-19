@@ -1447,6 +1447,35 @@ def _lesson_opening(flowables: list) -> list:
     return flowables
 
 
+# What has to fit under a heading for the heading to be worth printing here.
+# Enough for the first line or two of whatever follows: an answer and its
+# working in the key, a question and the top of its working panel in the body.
+# Not enough for the whole block, deliberately. A heading is a promise about
+# what comes next, and one line of it kept is enough to keep the promise; a
+# rule that demanded the whole block would move a heading to a fresh page every
+# time a question happened to be tall.
+_ORPHAN_MIN_CM = 2.5
+
+
+def orphan_break(headings: list, width: float = BODY_WIDTH,
+                 follow_cm: float = _ORPHAN_MIN_CM) -> CondPageBreak:
+    """A break that stops this run of headings printing with nothing under it.
+
+    Sized for the headings themselves, measured, plus room for the start of
+    what they introduce. One break in front of a whole run rather than one per
+    heading: two breaks in a row can strand the heading between them, when the
+    first finds room for a topic heading and the second then moves the subtopic
+    heading underneath it to the next page.
+
+    `width` is the measure the headings will be set in, which is a key column
+    rather than the page for anything in the answer key. Used inside a column
+    frame, a CondPageBreak moves to the next column and only then to the next
+    page, which is the behaviour wanted in both places.
+    """
+    return CondPageBreak(min(stack_height(headings, width) + follow_cm * cm,
+                             _MAX_COND_BREAK))
+
+
 def _lesson_cond_break(headings: list, lesson: list) -> CondPageBreak:
     """The break that stops a heading being stranded above its worked example.
 
@@ -2539,20 +2568,24 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                                             shown(counter["n"]), subject)
                 story.append(block)
 
-    def subject_topic_headers(section, state, key: bool = False):
+    def subject_topic_headers(section, state, key: bool = False,
+                              out: list | None = None):
         """The subject band and topic heading, when either has just changed.
 
         `key` picks the answer key's smaller pair: the key is set in two
         columns, and the body's 19pt topic wraps to three lines in an 8cm
-        measure.
+        measure. `out` lets the key collect its headings somewhere other than
+        the story, so they can be held back until there is something to print
+        under them.
         """
+        dest = story if out is None else out
         if multi_subject and section.subject and section.subject != state["subject"]:
-            story.append(Paragraph(_escape(section.subject), styles["subject_band"]))
+            dest.append(Paragraph(_escape(section.subject), styles["subject_band"]))
             state["subject"] = section.subject
             state["topic"] = None
         if section.topic != state["topic"]:
-            story.append(Paragraph(_escape(section.topic),
-                                   styles["key_topic" if key else "topic"]))
+            dest.append(Paragraph(_escape(section.topic),
+                                  styles["key_topic" if key else "topic"]))
             state["topic"] = section.topic
 
     # ---- Spelling Test (dictation on last week's list, before anything else) ----
@@ -2570,14 +2603,18 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     if data.recap_questions:
         sub = f"Quick revision to warm up. About {times['recap_minutes']} min." \
             if times["recap_minutes"] else "Quick revision to warm up."
-        story.append(_part_band(styles, "Warm-up Recap", PART_RECAP, sub))
+        band = _part_band(styles, "Warm-up Recap", PART_RECAP, sub)
+        story.append(orphan_break([band]))
+        story.append(band)
         story.append(Spacer(1, 0.3 * cm))
         render_questions(data.recap_questions, _RECAP_MIN_SPACE_CM)
 
     # ---- Class Work (lesson + guided + now-you-try) ----
     cw_sub = f"Do this in your lesson. About {times['classwork_minutes']} min." \
         if times["classwork_minutes"] else "Do this in your lesson."
-    story.append(_part_band(styles, "Class Work", PART_CLASSWORK, cw_sub))
+    band = _part_band(styles, "Class Work", PART_CLASSWORK, cw_sub)
+    story.append(orphan_break([band]))
+    story.append(band)
     story.append(Spacer(1, 0.3 * cm))
     state = {"subject": None, "topic": None}
     for si, section in enumerate(data.sections):
@@ -2612,7 +2649,16 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                 # Homework, and "Now you try:" over an empty space, immediately
                 # under the next heading, is what that used to print.
                 story.append(Spacer(1, 0.35 * cm))
-                story.append(Paragraph("Now you try:", styles["practice_label"]))
+                label = Paragraph("Now you try:", styles["practice_label"])
+                # "Now you try:" as the last thing on a page, with question 1
+                # overleaf, is an instruction pointing at blank paper.
+                story.append(orphan_break([label]))
+                story.append(label)
+        else:
+            # No lesson to measure, so nothing has asked for room under these
+            # headings yet. A subtopic name at the foot of a page with its
+            # first question on the next is the same defect in miniature.
+            story.insert(mark, orphan_break(story[mark:]))
 
         render_passage_questions(section, section.questions)
 
@@ -2671,19 +2717,27 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             mark = len(story)
             subject_topic_headers(section, state)
             story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+            head_only = story[mark:]
             # A subtopic that did not fit the session brings its mini-lesson
             # down here, so the teaching is not lost: nothing else in the
             # booklet explains the skill its homework asks for. Subtopics that
             # were taught in the session do not repeat their lesson.
+            lesson = []
             if not section.questions and section.teaching is not None:
                 lesson = _lesson_flowables(styles, section.teaching,
                                            data.year_level)
-                # Same measured break as Class Work gets: a lesson reprinted
-                # down here strands its headings in exactly the same way.
-                story.insert(mark, _lesson_cond_break(story[mark:], lesson))
                 story.extend(lesson)
             headings = story[mark:]
             del story[mark:]
+            # How much has to be left on the page for these headings to be
+            # worth printing here: the headings themselves, and either the
+            # worked-example box they introduce or the first line or two of the
+            # first question. The break itself is placed further down, once it
+            # is known whether a session band goes above them, because two
+            # breaks in a row would strand whatever sits between them.
+            headings_need = stack_height(head_only) + (
+                stack_height(_lesson_opening(lesson)) if lesson
+                else _ORPHAN_MIN_CM * cm)
 
             j = 0
             for passage, group in passage_groups(section.homework_questions,
@@ -2693,24 +2747,39 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                         story.append(Spacer(1, Q_GAP))
                     band = session_band_for(flat)
                     if band is not None:
+                        # The session starts part way through this subtopic, so
+                        # the heading was printed pages back under an earlier
+                        # session. Without this the child sits down on
+                        # Wednesday to "Session 2 of 2" followed by "2. Write
+                        # 0.305 in words", with no sign of what the work is
+                        # about or where question one went.
+                        cont = Paragraph(
+                            _escape(f"{section.subtopic} (continued)"),
+                            styles["subtopic"]) if j else None
                         if flat:
-                            # Do not leave a session band stranded at the foot of
-                            # a page with its first question overleaf.
+                            # Do not leave a session band stranded at the foot
+                            # of a page with its first question overleaf, and
+                            # do not strand the heading that goes under it
+                            # either. One break covers the band, the heading
+                            # and the start of what follows.
+                            need = stack_height([band]) + 0.25 * cm + (
+                                stack_height([cont]) + _ORPHAN_MIN_CM * cm
+                                if cont is not None else headings_need)
                             story.append(Spacer(1, 0.3 * cm))
-                            story.append(CondPageBreak(3.5 * cm))
+                            story.append(CondPageBreak(
+                                min(max(need, 3.5 * cm), _MAX_COND_BREAK)))
+                        # The first band of all needs no break of its own: the
+                        # Homework part band is directly above it and has
+                        # already guaranteed HOMEWORK_MIN_START_CM of room. A
+                        # second break here would break the page between that
+                        # band and this one, which is the worse strand.
                         story.append(band)
                         story.append(Spacer(1, 0.25 * cm))
-                        if j:
-                            # The session starts part way through this
-                            # subtopic, so the heading was printed pages back
-                            # under an earlier session. Without this the child
-                            # sits down on Wednesday to "Session 2 of 2"
-                            # followed by "2. Write 0.305 in words", with no
-                            # sign of what the work is about or where question
-                            # one went.
-                            story.append(Paragraph(
-                                _escape(f"{section.subtopic} (continued)"),
-                                styles["subtopic"]))
+                        if cont is not None:
+                            story.append(cont)
+                    elif j == 0:
+                        story.append(CondPageBreak(
+                            min(headings_need, _MAX_COND_BREAK)))
                     if j == 0:
                         story.extend(headings)
                     counter["n"] += 1
@@ -2816,8 +2885,26 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     story.extend(_tables_key_block(styles, getattr(data, "tables_test", None)))
     acount = {"n": 0}
 
+    # Headings in the key are held back until there is something to put under
+    # them, then laid down as one run behind a single break. A key page ended
+    # with "Class Work", "Number and Place Value" and "Four-digit numbers and
+    # ordering" stacked at the foot of a column with no answer under any of
+    # them, which reads to whoever is marking as a page that failed to print.
+    # Holding them back also means one break covers the whole stack: a break
+    # per heading can strand the heading above it.
+    pending: list = []
+
+    def lay_headings():
+        """Put the waiting headings down, with room under them or overleaf."""
+        if not pending:
+            return
+        story.append(orphan_break(pending, KEY_COLUMN_WIDTH))
+        story.extend(pending)
+        pending.clear()
+
     def render_answers(qs):
         for vq in qs:
+            lay_headings()
             acount["n"] += 1
             page = (page_refs or {}).get(acount["n"])
             # Numbered as the body numbered it. The running index still drives
@@ -2838,15 +2925,15 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         for passage, qs in groups:
             if passage is not None and len(groups) > 1:
                 title = getattr(passage, "title", None)
-                story.append(Paragraph(
+                pending.append(Paragraph(
                     _escape(f"Questions on '{title}'" if title
                             else "Questions on the next reading"),
                     styles["passage_label"]))
             render_answers(qs)
 
     if data.recap_questions:
-        story.append(_key_part_heading(styles, "Warm-up Recap", PART_RECAP,
-                                       KEY_COLUMN_WIDTH))
+        pending.append(_key_part_heading(styles, "Warm-up Recap", PART_RECAP,
+                                         KEY_COLUMN_WIDTH))
         render_answers(data.recap_questions)
 
     # The gaps in "let's try one together" are the only thing in the booklet a
@@ -2856,20 +2943,28 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     guided = [(s, ge) for s in data.sections
               for ge in ((s.teaching.guided_examples if s.teaching else []) or [])]
     if guided:
-        story.append(_key_part_heading(styles, "Let's try one together",
-                                       PART_CLASSWORK, KEY_COLUMN_WIDTH))
+        pending.append(_key_part_heading(styles, "Let's try one together",
+                                         PART_CLASSWORK, KEY_COLUMN_WIDTH))
         state = {"subject": None, "topic": None}
         for section, ge in guided:
-            subject_topic_headers(section, state, key=True)
-            story.append(Paragraph(_escape(section.subtopic),
-                                   styles["key_subtopic"]))
-            story.append(_worked_example_flowable(
+            subject_topic_headers(section, state, key=True, out=pending)
+            pending.append(Paragraph(_escape(section.subtopic),
+                                     styles["key_subtopic"]))
+            # The completed box is the content these headings introduce, so it
+            # decides where they can go: measured, because a box with five
+            # steps in it is centimetres taller than one with two.
+            box = _worked_example_flowable(
                 styles, ge, "Completed", guided=True, reveal=True,
-                width=KEY_COLUMN_WIDTH))
+                width=KEY_COLUMN_WIDTH)
+            story.append(orphan_break(pending + [box], KEY_COLUMN_WIDTH,
+                                      follow_cm=0.0))
+            story.extend(pending)
+            pending.clear()
+            story.append(box)
             story.append(Spacer(1, 0.2 * cm))
 
-    story.append(_key_part_heading(styles, "Class Work", PART_CLASSWORK,
-                                   KEY_COLUMN_WIDTH))
+    pending.append(_key_part_heading(styles, "Class Work", PART_CLASSWORK,
+                                     KEY_COLUMN_WIDTH))
     state = {"subject": None, "topic": None}
     for section in data.sections:
         # A subtopic the hour cap moved out has no class work, and its answers
@@ -2879,30 +2974,33 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # equivalent guard.
         if not section.questions:
             continue
-        subject_topic_headers(section, state, key=True)
-        story.append(Paragraph(_escape(section.subtopic), styles["key_subtopic"]))
+        subject_topic_headers(section, state, key=True, out=pending)
+        pending.append(Paragraph(_escape(section.subtopic), styles["key_subtopic"]))
         # Grouping questions under their passage changes the printed order, so
         # the key has to be walked in the same order or every number after the
         # first passage points at the wrong question.
         render_section_answers(section, section.questions)
 
     if has_homework:
-        story.append(_key_part_heading(styles, "Homework", PART_HOMEWORK,
-                                       KEY_COLUMN_WIDTH))
+        pending.append(_key_part_heading(styles, "Homework", PART_HOMEWORK,
+                                         KEY_COLUMN_WIDTH))
         state = {"subject": None, "topic": None}
         for section in data.sections:
             if not section.homework_questions:
                 continue
-            subject_topic_headers(section, state, key=True)
-            story.append(Paragraph(_escape(section.subtopic),
-                                   styles["key_subtopic"]))
+            subject_topic_headers(section, state, key=True, out=pending)
+            pending.append(Paragraph(_escape(section.subtopic),
+                                     styles["key_subtopic"]))
             render_section_answers(section, section.homework_questions)
 
     if data.challenge_questions:
-        story.append(_key_part_heading(styles, "Final Challenge", PART_CHALLENGE,
-                                       KEY_COLUMN_WIDTH))
+        pending.append(_key_part_heading(styles, "Final Challenge",
+                                         PART_CHALLENGE, KEY_COLUMN_WIDTH))
         render_answers(data.challenge_questions)
 
+    # A part with no answers under it still names itself: a key that silently
+    # omits "Final Challenge" reads as a key with a section missing.
+    lay_headings()
     story.extend(_image_credits_block(styles, data))
     return story
 
