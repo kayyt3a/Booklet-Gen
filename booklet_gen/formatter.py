@@ -1476,16 +1476,21 @@ def orphan_break(headings: list, width: float = BODY_WIDTH,
                              _MAX_COND_BREAK))
 
 
-def _lesson_cond_break(headings: list, lesson: list) -> CondPageBreak:
+def _lesson_cond_break(headings: list, lesson: list) -> list:
     """The break that stops a heading being stranded above its worked example.
 
     The worked-example box is one Table and cannot split, so when it does not
     fit it moves whole to the next page and leaves the topic heading, the
     subtopic heading, the intro paragraph and the key points sitting above four
     or five centimetres of white. Measured, not guessed: see stack_height.
+
+    Returned with a checkpoint strip in front of it, because the room this
+    break frees at the foot of the previous page is real: the subtopic that
+    just finished ends short so the next one can arrive whole.
     """
-    needed = stack_height(headings) + stack_height(_lesson_opening(lesson))
-    return CondPageBreak(min(needed, _MAX_COND_BREAK))
+    needed = min(stack_height(headings) + stack_height(_lesson_opening(lesson)),
+                 _MAX_COND_BREAK)
+    return [Checkpoint(needed), CondPageBreak(needed)]
 
 
 # Room needed at the foot of a page for the Homework part to start there rather
@@ -1792,6 +1797,83 @@ class WorkingSpace(Flowable):
         for i in range(self.rules):
             y = self._h - 0.42 * cm - i * line_h
             c.line(0, y, self.width, y)
+        c.restoreState()
+
+
+# ---------------------------------------------------------------------------
+# The checkpoint strip
+#
+# HOMEWORK_MIN_START_CM and _CHALLENGE_MIN_START_CM exist because a part that
+# begins three lines before a page turn is worse than one that begins on a
+# fresh page. They are right, and they stay. What was wrong is that they leave
+# up to seven and nine centimetres of unexplained white at a page foot, and a
+# reader cannot tell a deliberate short page from a rendering fault: both look
+# like the printer gave up.
+#
+# So the room gets used. One feint box, a question, three tick boxes: about a
+# thousandth of a page in ink, an educational-publisher convention old enough
+# that nobody reads it as filler, and a talking point for whoever is sitting
+# with the child. It is variable height, which is the point: it takes whatever
+# the page has left, so a ragged foot ends on a designed element rather than on
+# nothing.
+_CHECKPOINT_H = 1.15 * cm
+# Under this there is no gap worth filling: a couple of centimetres at a page
+# foot reads as ordinary space between one part and the next, and a box in it
+# would be the thing that looked wrong.
+_CHECKPOINT_MIN_CM = 2.4
+_CHECKPOINT_INK = "#B7C3D4"
+_CHECKPOINT_OPTIONS = ("Got it", "Nearly", "Go over this again")
+_CHECKPOINT_PROMPT = "How did that go?"
+
+
+class Checkpoint(Flowable):
+    """A self-assessment strip that fills a page foot left short on purpose.
+
+    Draws nothing at all unless the room left is worth filling: between
+    `_CHECKPOINT_MIN_CM` and `max_gap`. Above `max_gap` the part that follows
+    is going to start on this page after all, so there is no gap and the strip
+    would be an interruption; below the floor the space reads as ordinary
+    leading. Reporting a height of zero in both cases is what keeps this from
+    appearing on every page, and it is decided at layout time by the only thing
+    that knows how much room is left, which is the flowable itself.
+    """
+
+    def __init__(self, max_gap: float, width: float = BODY_WIDTH):
+        super().__init__()
+        self.max_gap = max_gap
+        self.width = width
+        self._h = 0.0
+
+    def wrap(self, availWidth, availHeight):
+        self.width = availWidth
+        fits = _CHECKPOINT_MIN_CM * cm <= availHeight <= self.max_gap
+        # availHeight above the frame's own height means this is being measured
+        # rather than placed, and a measurement must not commit to filling a
+        # page that has not been reached yet.
+        self._h = availHeight if fits and availHeight <= BODY_HEIGHT else 0.0
+        return availWidth, self._h
+
+    def draw(self):
+        if not self._h:
+            return
+        c = self.canv
+        c.saveState()
+        c.setStrokeColor(colors.HexColor(_CHECKPOINT_INK))
+        c.setLineWidth(0.5)
+        # Drawn at the foot of the space taken, so the page ends on the strip
+        # and the room above it reads as margin rather than as an accident.
+        c.roundRect(0, 0, self.width, _CHECKPOINT_H, 4, stroke=1, fill=0)
+        baseline = _CHECKPOINT_H / 2 - 3
+        c.setFillColor(colors.HexColor("#3A4A63"))
+        c.setFont(FONT_BOLD, 9.5)
+        c.drawString(10, baseline, _CHECKPOINT_PROMPT)
+        x = 10 + c.stringWidth(_CHECKPOINT_PROMPT, FONT_BOLD, 9.5) + 16
+        c.setFont(FONT_REGULAR, 9)
+        c.setFillColor(colors.HexColor("#444444"))
+        for option in _CHECKPOINT_OPTIONS:
+            c.rect(x, baseline - 1.5, 9, 9, stroke=1, fill=0)
+            c.drawString(x + 14, baseline, option)
+            x += 14 + c.stringWidth(option, FONT_REGULAR, 9) + 20
         c.restoreState()
 
 
@@ -2641,7 +2723,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         t = section.teaching
         if t is not None:
             lesson = _lesson_flowables(styles, t, data.year_level)
-            story.insert(mark, _lesson_cond_break(story[mark:], lesson))
+            story[mark:mark] = _lesson_cond_break(story[mark:], lesson)
             story.extend(lesson)
             if section.questions:
                 # Only when something follows it. A subtopic the hour could not
@@ -2670,6 +2752,11 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # section two questions into a page and left the other two thirds
         # blank. The coloured band is divider enough, so only break when there
         # is too little room left to be worth starting Homework here.
+        # Homework will not begin with less than HOMEWORK_MIN_START_CM left,
+        # so up to seven centimetres of the page Class Work finished on is
+        # given up. The strip fills it when there is a gap and draws nothing
+        # when there is not.
+        story.append(Checkpoint(HOMEWORK_MIN_START_CM * cm))
         story.append(CondPageBreak(HOMEWORK_MIN_START_CM * cm))
         sessions = homework_session_plan(data)
         # The number on this band has to be the number the page underneath it
@@ -2817,6 +2904,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # foot of the page it had been working down. It gets the same band
             # every other part gets, and a page of its own to arrive on.
             story.append(Spacer(1, 0.4 * cm))
+            story.append(Checkpoint(_CHALLENGE_MIN_START_CM * cm))
             story.append(CondPageBreak(_CHALLENGE_MIN_START_CM * cm))
             ct = (f" About {times['challenge_minutes']} min."
                   if times["challenge_minutes"] else "")
