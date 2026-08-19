@@ -1734,6 +1734,29 @@ def _lesson_cond_break(headings: list, lesson: list) -> list:
     return [CondPageBreak(needed)]
 
 
+def part_opening_break(opening: list, floor_cm: float = 0.0) -> CondPageBreak:
+    """The one break in front of a part band, sized for the run it opens.
+
+    A part band is laid down before anything under it can ask for a break of
+    its own, because a break below the band leaves the band itself at the foot
+    of a page: a part announces itself across the full measure and then the
+    page stops. So this single break has to cover the whole opening run, and
+    the band travels with what it opens or neither of them moves. That run is
+    the band, the session band where there is one, the topic opener, the
+    subtopic heading and the first block underneath, which is a worked-example
+    box when a mini-lesson follows and the first row of questions otherwise.
+
+    Measured rather than guessed: the run varies by several centimetres with
+    the number of steps in the worked example, how many subtopics the topic
+    opener lists, and whether the first row holds one question or two.
+
+    `floor_cm` is the part's own minimum start where it has one. It is a floor
+    and not the whole answer.
+    """
+    return CondPageBreak(min(max(floor_cm * cm, stack_height(opening)),
+                             _MAX_COND_BREAK))
+
+
 # Room needed at the foot of a page for the Homework part to start there rather
 # than on a fresh page: the band, a heading and a question or two. Raise this to
 # BODY_HEIGHT / cm to go back to Homework always starting on its own page.
@@ -3168,6 +3191,19 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             return question_row(cells, rows[0])
         return None
 
+    def first_loose_row(qs, space_floor_cm: float = 0.0):
+        """The first block a booklet-level run of questions will print.
+
+        The Warm-up and the Final Challenge hang off the booklet rather than a
+        subtopic, so they have no passages to group by. Built to be measured
+        and nothing else: nothing draws it, so the PageMarker inside it never
+        fires and the page map is untouched.
+        """
+        if not qs:
+            return None
+        cells, rows = plan(qs, data.subject, space_floor_cm, counter["n"])
+        return question_row(cells, rows[0])
+
     def render_questions(qs, space_floor_cm: float = 0.0):
         # The Warm-up and the Final Challenge belong to the booklet rather than
         # to a subtopic, so the booklet's own subject decides their panel.
@@ -3255,7 +3291,14 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             if times["recap_minutes"] else "Quick revision to warm up."
         band = _part_band(styles, "Warm-up Recap", PART_RECAP, sub,
                           *part_place("Warm-up Recap"))
-        story.append(orphan_break([band]))
+        # Measured against the first row of questions, not a flat allowance.
+        # A question is a KeepTogether and cannot split, so reserving a couple
+        # of centimetres under the band and hoping the first line of question
+        # one lands in them does not work: the whole row moves and the band is
+        # left at the foot of the page on its own.
+        first = first_loose_row(data.recap_questions, _RECAP_MIN_SPACE_CM)
+        story.append(part_opening_break(
+            [band, Spacer(1, 0.3 * cm)] + _unwrap([first] if first else [])))
         story.append(band)
         story.append(Spacer(1, 0.3 * cm))
         render_questions(data.recap_questions, _RECAP_MIN_SPACE_CM)
@@ -3265,9 +3308,15 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         if times["classwork_minutes"] else "Do this in your lesson."
     band = _part_band(styles, "Class Work", PART_CLASSWORK, cw_sub,
                       *part_place("Class Work"))
-    story.append(orphan_break([band]))
+    # The break in front of the band is inserted below, once the run the band
+    # opens has been built and can be measured. It cannot be asked for here:
+    # the first mini-lesson under the band asks for a break of its own so it
+    # arrives with its worked example, and that break used to leave the band
+    # behind on the old page with nine centimetres of white under it.
+    cw_mark = len(story)
     story.append(band)
     story.append(Spacer(1, 0.3 * cm))
+    opened = False
     state = {"subject": None, "topic": None}
     for si, section in enumerate(data.sections):
         # A subtopic the hour could not fit has had its practice moved to
@@ -3293,7 +3342,14 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         t = section.teaching
         if t is not None:
             lesson = _lesson_flowables(styles, t, data.year_level)
-            story[mark:mark] = _lesson_cond_break(story[mark:], lesson)
+            if opened:
+                story[mark:mark] = _lesson_cond_break(story[mark:], lesson)
+            else:
+                # The first run of the part. Its break goes in front of the
+                # band rather than in front of the headings, and covers both,
+                # so the band arrives on the page its own lesson starts.
+                story.insert(cw_mark, part_opening_break(
+                    story[cw_mark:] + _lesson_opening(lesson)))
             story.extend(lesson)
             if section.questions:
                 # Only when something follows it. A subtopic the hour could not
@@ -3313,10 +3369,18 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # headings yet. A subtopic name at the foot of a page with its
             # first question on the next is the same defect in miniature.
             first = first_practice_row(section, section.questions)
-            story.insert(mark, orphan_break(
-                story[mark:], follow=[first] if first is not None else None))
+            at = mark if opened else cw_mark
+            story.insert(at, orphan_break(
+                story[at:], follow=[first] if first is not None else None))
 
+        opened = True
         render_passage_questions(section, section.questions)
+
+    if not opened:
+        # Every subtopic had its practice moved to Homework, so the band opens
+        # nothing. It still gets the break it always had, so it is not printed
+        # three lines from the foot of a page.
+        story.insert(cw_mark, orphan_break([band]))
 
     # ---- Homework (repetition through the week) + Final Challenge ----
     has_homework = any(s.homework_questions for s in data.sections)
@@ -3385,9 +3449,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                                    styles["subtopic"]))
             row = first_practice_row(first_hw, first_hw.homework_questions)
             opening += probe + (_unwrap([row]) if row is not None else [])
-        story.append(CondPageBreak(min(
-            max(HOMEWORK_MIN_START_CM * cm, stack_height(opening)),
-            _MAX_COND_BREAK)))
+        story.append(part_opening_break(opening, HOMEWORK_MIN_START_CM))
         story.append(hw_band)
         story.append(Spacer(1, 0.3 * cm))
 
@@ -3535,14 +3597,24 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # foot of the page it had been working down. It gets the same band
             # every other part gets, and a page of its own to arrive on.
             story.append(Spacer(1, 0.4 * cm))
-            story.append(CondPageBreak(_CHALLENGE_MIN_START_CM * cm))
             ct = (f" About {times['challenge_minutes']} min."
                   if times["challenge_minutes"] else "")
-            story.append(_part_band(
+            ch_band = _part_band(
                 styles, "Final Challenge", PART_CHALLENGE,
                 "You have done the hard part. These last questions mix "
                 f"everything together. Nothing new, just all at once.{ct}",
-                *part_place("Final Challenge")))
+                *part_place("Final Challenge"))
+            # Nine centimetres is the floor, not the whole answer. The
+            # challenge band carries three lines of blurb and its first
+            # question is the hardest in the booklet, so it gets the tallest
+            # working panel: the two together can want more than nine, and
+            # what is left over is the band alone at the foot of a page.
+            first = first_loose_row(data.challenge_questions)
+            story.append(part_opening_break(
+                [ch_band, Spacer(1, 0.3 * cm)] + _unwrap([first] if first
+                                                         else []),
+                _CHALLENGE_MIN_START_CM))
+            story.append(ch_band)
             story.append(Spacer(1, 0.3 * cm))
             render_questions(data.challenge_questions)
 

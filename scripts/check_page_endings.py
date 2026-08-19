@@ -14,6 +14,12 @@ faults were measured on one twenty-one page fixture, and between them they left
     with no answer beneath any of them, and "Now you try:" as the last thing on
     a page with question 1 overleaf. A heading is a promise about what follows;
     at the foot of a page it is a broken one.
+  * A part band with nothing under it. The full-width reversed "Class Work"
+    band, its subtitle, and then nine and a half centimetres of blank paper: a
+    part announces itself across the whole measure and the page stops. The band
+    is laid down before the mini-lesson under it asks for a page of its own, so
+    the lesson left and the band stayed. A band and the run it opens are
+    measured and moved as one.
   * A page that legitimately ends short. Homework will not start with less than
     7cm left and the Final Challenge will not start with less than 9cm, because
     a part that begins three lines before a page turn is worse than one that
@@ -31,8 +37,11 @@ from pathlib import Path
 
 import pymupdf
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
 
 from booklet_gen.formatter import (HOMEWORK_MIN_START_CM, PAGE_MARGIN,
+                                   PART_CHALLENGE, PART_CLASSWORK,
+                                   PART_HOMEWORK, PART_RECAP,
                                    _CHALLENGE_MIN_START_CM, render_pdf)
 from booklet_gen.schemas import (BookletData, Question, SubtopicOutput,
                                  SubtopicTeaching, ValidatedQuestion,
@@ -312,6 +321,98 @@ check(not boundary,
       "break in front of the Homework band has to cover everything down to the "
       "first question, because nothing below the band can ask for a break "
       "without stranding the band itself")
+
+print("\nNO PART BAND IS THE LAST THING ON ITS PAGE")
+
+# The worst-looking page in the booklet was page 2 of a Year 5 maths fixture:
+# the Warm-up finished, the full-width reversed "Class Work" band printed with
+# its subtitle, and then nine and a half centimetres of blank paper. A part
+# announced itself across the whole measure and the page stopped.
+#
+# The band is a heading like any other, but the strand check above cannot see
+# it: the lowest line of a band is its sans subtitle, not the serif title, so
+# the band reads as ordinary text at the foot of a page. It is found here by
+# the ink it is drawn in instead, which is also the only thing that knows where
+# the band ENDS.
+#
+# The cause was two rules colliding. The band was laid down first, and the
+# mini-lesson underneath it then asked for a page of its own so it would arrive
+# with its worked example. The lesson went and the band stayed. So the break in
+# front of a band has to cover the run the band opens: the band, the session
+# band where there is one, the topic opener, the subtopic heading and the first
+# block of content, measured as one.
+
+PART_INKS = {"Warm-up Recap": PART_RECAP, "Class Work": PART_CLASSWORK,
+             "Homework": PART_HOMEWORK, "Final Challenge": PART_CHALLENGE}
+MEASURE = A4[0] - 2 * PAGE_MARGIN
+
+
+def part_bands(document):
+    """Every part band drawn in the booklet: (page index, rect, part name)."""
+    inks = {name: tuple(int(c[i:i + 2], 16) / 255 for i in (1, 3, 5))
+            for name, c in PART_INKS.items()}
+    found = []
+    for i, page in enumerate(document):
+        for d in page.get_drawings():
+            fill = d.get("fill")
+            if not fill or d["rect"].width < 0.9 * MEASURE \
+                    or d["rect"].height < 1.5 * cm:
+                continue
+            for name, ink in inks.items():
+                if max(abs(a - b) for a, b in zip(fill, ink)) < 0.01:
+                    found.append((i, d["rect"], name))
+    return found
+
+
+def stranded_bands(document):
+    """Every part band with nothing printed under it on its own page."""
+    out = []
+    for i, rect, name in part_bands(document):
+        page = document[i]
+        floor = page.rect.height - PAGE_MARGIN + 6
+        under = [line for block in page.get_text("dict")["blocks"]
+                 for line in block.get("lines", [])
+                 if "".join(s["text"] for s in line["spans"]).strip()
+                 and line["bbox"][1] > rect.y1 - 1 and line["bbox"][3] < floor]
+        if not under:
+            gap = (page.rect.height - PAGE_MARGIN - rect.y1) / cm
+            out.append((f"page {i + 1}", name, f"{gap:.1f}cm blank under it"))
+    return out
+
+
+bands = [(0,) + b for b in stranded_bands(doc)]
+for n in (2, 3, 5):
+    other = pymupdf.open(out.parent / f"homework-boundary-{n}.pdf")
+    bands += [(n,) + b for b in stranded_bands(other)]
+    other.close()
+
+# The Warm-up is what pushes the Class Work band down the page, so its length is
+# what is varied here, the same way the class-work count is varied above for the
+# Homework boundary. Six recap questions is the count that reproduces the
+# founder's page in this fixture: the recap fills two thirds of page 2, the
+# mini-lesson under the Class Work band needs more than the third that is left,
+# and with the band placed before the lesson's break the lesson goes to page 3
+# and leaves the band above 9.9cm of nothing.
+for n in (2, 4, 6):
+    data = booklet()
+    data.recap_questions = [
+        vq(f"Calculate {12 + j} x 4 + {j}.", answer=str(48 + 5 * j),
+           difficulty="easy") for j in range(n)]
+    path = out.parent / f"recap-{n}.pdf"
+    render_pdf(data, path)
+    other = pymupdf.open(path)
+    bands += [(f"recap {n}",) + b for b in stranded_bands(other)]
+    other.close()
+
+check(not bands,
+      "no part band is the last thing on its page, across seven booklets whose "
+      "parts begin at different points down the page",
+      f"these part bands printed with nothing under them: {bands} (fixture, "
+      "page, part, blank). A part that announces itself across the full "
+      "measure and then leaves the rest of the sheet empty is the most "
+      "unfinished-looking page in the booklet. The break in front of a band "
+      "has to cover the whole run the band opens, or the run moves to a fresh "
+      "page and the band stays behind")
 
 print("\nTHE RULES THAT LEAVE A PAGE SHORT ARE STILL IN FORCE")
 
