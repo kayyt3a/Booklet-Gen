@@ -68,6 +68,13 @@ ok("every band carries white text at AA contrast or better")
 # Most of these are printed on a home mono printer, where a band is only its
 # luminance. Two parts that differ in hue but not in lightness are still one
 # block of grey on paper.
+#
+# This pair is checked here because it is the pair this file was written about.
+# It is not the standard: 0.04 of relative luminance turned out to be about
+# eighteen points out of 255 on the printed page, which measurement showed was
+# not enough. All four bands are held to a floor measured off the rendered PDF
+# in check_part_greyscale.py, and that is the check to change if the floor is
+# ever in question.
 lum = {n: _luminance(c) for n, c in PARTS.items()}
 gap = abs(lum["Homework"] - lum["Final Challenge"])
 assert gap >= 0.04, (
