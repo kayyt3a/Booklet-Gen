@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_motifs.html" import book, check %}
+{% from "_motifs.html" import check %}
 {% block title %}Pricing - FolioAI{% endblock %}
 {% block description %}Buy FolioAI booklet credits. Start with one free personalised practice booklet, then pay only when you need another.{% endblock %}
 {% block extra_head %}
@@ -33,7 +33,10 @@
   <img class="paulioIntro" src="{{ url_for('static', filename='img/paulio/paulio-billing.png') }}"
        alt="Paulio holding a receipt and a checked-off booklet">
   <div class="paulioBubble">Let&rsquo;s find the right plan for you.</div>
-  <span class="motifRow ink-navy">{{ book(28) }}</span>
+  {# No icon between the bubble and the heading. The book glyph that sat here
+     already means "NAPLAN Practice" in the product menu and serves as
+     empty-state wallpaper elsewhere, so a third, unlabelled appearance above
+     the price list taught a visitor that it means nothing. #}
   <h1>Simple, pay-as-you-go pricing</h1>
   <p class="sub">Create an account and your first booklet is included. After
     that, buy only what you need. There is no subscription.</p>

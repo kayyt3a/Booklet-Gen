@@ -511,6 +511,13 @@ with sync_playwright() as pw:
             drift = max(t["y"] for t in titles) - min(t["y"] for t in titles)
             check(drift <= 1, "both tier titles sit on the same line",
                   f"{drift:.0f}px apart")
+        # One glyph, one meaning. The book icon means "NAPLAN Practice" in the
+        # product menu and is empty-state wallpaper elsewhere; a third,
+        # unlabelled appearance floating between the speech bubble and the H1
+        # taught a visitor that it means nothing at all.
+        check(not boxes(page, ".pricingIntro svg.motif"),
+              f"{width}px: no unlabelled icon floats above the price list",
+              f"{len(boxes(page, '.pricingIntro svg.motif'))} found")
         currency = boxes(page, ".price span")
         amounts = boxes(page, ".price")
         # Sharing a baseline shows up as sharing a bottom edge, give or take
