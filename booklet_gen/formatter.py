@@ -1109,6 +1109,41 @@ PAULIO_ICON_SIZE = 1.1 * cm
 PAULIO_ICON_GAP = 0.15 * cm
 PAULIO_LOCKUP_PAD = 0.2 * cm
 
+# The two teaching boxes are functionally opposite and used to be identical.
+# "Paulio shows you first" is finished work the child reads. "Now let's try one
+# together" has gaps in it and the child writes in it. Same tint, same border,
+# same width, stacked two millimetres apart, so they read as one slab and
+# nothing on the page says which one is theirs.
+#
+# The worked example keeps the tint: a filled panel is what "read this" looks
+# like. The guided box is turned inside out instead of merely retinted, because
+# a second tint is a colour difference and this has to survive a mono printer:
+# white paper inside, a dashed rule around it (the fill-in-the-blank convention
+# every worksheet uses) and a heavy solid rule down the left edge. Dashes are
+# geometry, not colour, and the left rule is dark enough to rank against the
+# other box's hairline in grey. The reading box is a panel; the writing box is
+# a sheet with a spine.
+WE_FILL = "#F4F7FB"
+WE_BORDER = "#B7C3D4"
+GUIDED_BORDER = "#5A7BA6"
+GUIDED_BORDER_WEIGHT = 0.9
+GUIDED_DASH = (3, 2)
+GUIDED_EDGE = "#1F3A5F"
+GUIDED_EDGE_WEIGHT = 3
+# And they stop touching. Two millimetres between two same-width boxes is a
+# rule, not a gap: at that distance the pair reads as one block with a line
+# across it.
+TEACHING_BOX_GAP = 0.5 * cm
+# The pencil in the guided label. Printed only when the Unicode text face
+# registered: under the Helvetica fallback the glyph is not in the font and
+# would print as a blank or a box, which is worse than no cue at all.
+PENCIL_GLYPH = "✎"
+
+
+def pencil_prefix() -> str:
+    """The pencil that opens the guided label, or "" if the font lacks it."""
+    return f"{PENCIL_GLYPH} " if _UNICODE_FONT else ""
+
 
 def paulio_teaches(year_level: str | None) -> bool:
     """Whether Paulio narrates the worked examples at this year level.
@@ -1152,7 +1187,7 @@ def _lesson_flowables(styles, t, year_level: str | None = None) -> list:
         styles, t.worked_example,
         _WE_LABEL_PAULIO if paulio else _WE_LABEL, paulio=paulio))
     for ge in t.guided_examples:
-        out.append(Spacer(1, 0.2 * cm))
+        out.append(Spacer(1, TEACHING_BOX_GAP))
         out.append(_worked_example_flowable(
             styles, ge, _GE_LABEL_PAULIO if paulio else _GE_LABEL, paulio=paulio,
             guided=True))
@@ -1242,6 +1277,10 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
     # width of a key column, because the key is set in two.
     box_w = (width if width is not None else A4[0] - 2 * PAGE_MARGIN) - 0.4 * cm
     inner_w = box_w - 20
+    # The pencil goes on the box that is asking for writing, not on the key's
+    # completed copy of it, where there is nothing left to write.
+    if guided and not reveal:
+        label = pencil_prefix() + label
     label_para = Paragraph(label, styles["we_label"])
     icon_path = _PAULIO_GUIDED_ICON_PATH if guided else _PAULIO_ICON_PATH
     icon = _make_image(str(icon_path), max_w=PAULIO_ICON_SIZE,
@@ -1323,9 +1362,22 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
     inner.append(Paragraph(f"Answer: {answer_html}", style_of("we_answer")))
 
     tbl = Table([[inner]], colWidths=[box_w])
-    tbl.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#B7C3D4")),
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F4F7FB")),
+    if guided:
+        # The box the child writes in. See _GUIDED_* above for why it does not
+        # look like the box above it.
+        skin = [
+            ("BOX", (0, 0), (-1, -1), GUIDED_BORDER_WEIGHT,
+             colors.HexColor(GUIDED_BORDER), None, GUIDED_DASH),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+            ("LINEBEFORE", (0, 0), (0, -1), GUIDED_EDGE_WEIGHT,
+             colors.HexColor(GUIDED_EDGE)),
+        ]
+    else:
+        skin = [
+            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor(WE_BORDER)),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(WE_FILL)),
+        ]
+    tbl.setStyle(TableStyle(skin + [
         ("LEFTPADDING", (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
         ("TOPPADDING", (0, 0), (-1, -1), 8),
