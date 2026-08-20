@@ -845,7 +845,12 @@ main.wrap:has(> .card.narrow){
   margin:var(--s4) 0;color:var(--navy);
 }
 .balanceCallout strong{font-size:var(--t-h2);margin-right:var(--s1)}
-.policyPage{font-size:var(--t-body);line-height:1.7;max-width:64ch}
+/* Centred in the wrap. The card is capped at a reading measure, which is
+ * right, but it had no side margins, so on a laptop Support, Privacy and
+ * Terms each rendered as a card in the left two thirds of the page with a
+ * 313px void down the right. Those are the three pages a cautious parent
+ * opens before paying. */
+.policyPage{font-size:var(--t-body);line-height:1.7;max-width:64ch;margin-inline:auto}
 .policyPage > p,.policyPage > h2{max-width:720px}
 .policyPage h2{margin-top:var(--s5)}
 .supportGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--s3);margin-top:var(--s5)}

@@ -528,6 +528,27 @@ with sync_playwright() as pw:
                          "above it", f"{gap:.0f}px above the amount's bottom")
         ctx.close()
 
+    # -----------------------------------------------------------------------
+    print("\nThe pages a cautious parent reads before paying are centred")
+    print("-" * 62)
+    # Support, Privacy and Terms each capped their card at a reading measure
+    # and then gave it no side margins, so at 1440 the card ran x=297 to 828
+    # inside a wrap running 298 to 1141: a 313px void down the right of all
+    # three.
+    for path in ("/support", "/privacy", "/terms"):
+        for width in (390, 1440):
+            ctx, page = open_page(width)
+            page.goto(BASE + path)
+            page.wait_for_load_state("networkidle")
+            card = box(page, ".policyPage")
+            wrap = box(page, "main.wrap")
+            left = card["x"] - wrap["x"]
+            right = wrap["right"] - card["right"]
+            check(abs(left - right) <= 2,
+                  f"{path} at {width}: the card is centred in the page",
+                  f"{left:.0f}px left, {right:.0f}px right")
+            ctx.close()
+
     browser.close()
 
 # ---------------------------------------------------------------------------
