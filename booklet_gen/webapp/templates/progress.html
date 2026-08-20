@@ -32,7 +32,10 @@
     <img class="paulioIntro" src="{{ url_for('static', filename='img/paulio/paulio-success.png') }}"
          alt="Paulio celebrating with a checked-off booklet">
     <div class="paulioBubble">All done! Nice work.</div>
-    <div class="doneMark ink-green">{{ check(30) }}</div>
+    {# The tick used to stand on its own, left-aligned under a centred bear and
+       a centred bubble, with nothing beside it to say what had succeeded. A
+       mark means something or it is a doodle. #}
+    <p class="doneMark">{{ check(24) }}<span>Your booklet is ready to download.</span></p>
     <div class="btnRow">
       <a class="btn" id="dl" href="#">Download</a>
       <a class="btn secondary" href="{{ url_for('views.index') }}">Make another</a>

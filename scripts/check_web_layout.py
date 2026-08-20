@@ -174,17 +174,33 @@ def overlap(a: dict, b: dict) -> float:
 with sync_playwright() as pw:
     browser = _launch(pw)
 
+    # One real login per account, kept as a cookie and reused. Logging in
+    # again for every measurement trips the app's own login rate limiter part
+    # way through the run, and the pages after it are then measured signed
+    # out, which is a check quietly measuring the wrong thing.
+    signed_in_state: dict[str, dict] = {}
+
     def open_page(width: int, height: int = 844, signed_in: bool = False,
                   email: str = EMAIL):
-        ctx = browser.new_context(viewport={"width": width, "height": height})
-        page = ctx.new_page()
+        state = None
         if signed_in:
-            page.goto(BASE + "/login")
-            page.fill("#email", email)
-            page.fill("#password", PASSWORD)
-            page.click("button[type=submit]")
-            page.wait_for_load_state("networkidle")
-        return ctx, page
+            if email not in signed_in_state:
+                ctx = browser.new_context(viewport={"width": width,
+                                                    "height": height})
+                page = ctx.new_page()
+                page.goto(BASE + "/login")
+                page.fill("#email", email)
+                page.fill("#password", PASSWORD)
+                page.click("button[type=submit]")
+                page.wait_for_load_state("networkidle")
+                assert "/login" not in page.url, (
+                    f"the fixture account {email} could not sign in")
+                signed_in_state[email] = ctx.storage_state()
+                ctx.close()
+            state = signed_in_state[email]
+        ctx = browser.new_context(viewport={"width": width, "height": height},
+                                  storage_state=state)
+        return ctx, ctx.new_page()
 
     # -----------------------------------------------------------------------
     print("\nNothing decorative sits on the words that sell the product")
@@ -396,6 +412,37 @@ with sync_playwright() as pw:
                   f"{path} at {width}: every dropdown is the same width",
                   f"{len(picks)} dropdowns, widths {widths}")
             ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe success moment says what succeeded")
+    print("-" * 62)
+    # The done state showed a green circled tick with nothing beside it,
+    # left-aligned under a centred mascot and a centred speech bubble. This is
+    # the moment the customer's money turned into a booklet.
+    for width in (390, 1440):
+        ctx, page = open_page(width, signed_in=True)
+        page.goto(BASE + "/progress/layout-0")
+        page.wait_for_selector("#done", state="visible", timeout=8000)
+        # The union of what the mark's row actually draws, not the row's own
+        # box: a block div spans the card whatever sits inside it, so its box
+        # measured perfectly centred while the tick sat at the left edge.
+        mark = page.eval_on_selector(".doneMark", """e => {
+            const rs = [...e.children].map(c => c.getBoundingClientRect())
+                                      .filter(r => r.width > 0);
+            return {x: Math.min(...rs.map(r => r.x)),
+                    right: Math.max(...rs.map(r => r.right))};
+        }""")
+        words = text_boxes(page, ".doneMark span")
+        bubble = box(page, "#done .paulioBubble")
+        check(bool(words) and words[0]["w"] > 40,
+              f"{width}px: the tick has a sentence beside it",
+              words[0]["text"] if words else "nothing beside it")
+        drift = abs((mark["x"] + mark["right"]) / 2
+                    - (bubble["x"] + bubble["right"]) / 2)
+        check(drift <= 8,
+              f"{width}px: and it is centred like the bubble above it",
+              f"{drift:.0f}px off centre")
+        ctx.close()
 
     browser.close()
 

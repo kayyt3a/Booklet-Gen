@@ -941,7 +941,15 @@ main.wrap:has(> .card.narrow){
 .flight{display:flex;align-items:center;gap:0;margin-bottom:var(--s4)}
 .flight .motif:last-child{transform:translate(-8px,-7px)}
 .ink-green{color:var(--green)}
-.doneMark{margin-bottom:var(--s1)}
+/* The success line. Centred, because the mascot and his bubble directly above
+ * it are centred, and a lone left-aligned tick under two centred things reads
+ * as a leftover rather than as the moment the thing worked. */
+.doneMark{
+  display:flex;align-items:center;justify-content:center;gap:var(--s2);
+  margin:var(--s4) 0 var(--s1);color:var(--green-ink);
+  font-weight:600;font-size:var(--t-body);
+}
+.doneMark .motif{color:var(--green);flex:none}
 
 .bar{height:7px;border-radius:99px;background:#e8edf5;overflow:hidden}
 .bar span{
