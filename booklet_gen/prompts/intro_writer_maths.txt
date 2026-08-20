@@ -51,6 +51,8 @@ CONTENT RULES
 VISUAL FIELDS
 Always include `diagram_spec`, `scene_spec` and `image_query` on the worked example and every guided example, using null where a field does not apply. Use at most one non-null field per example. A later batch visual planner makes the final choice. Technical representations use `diagram_spec`. Original contextual illustrations use a semantic Folio-owned `scene_spec`. `image_query` is only an editorial hint and is normally null in maths.
 
+The picture in a guided example is part of the fill-in task. Keep it unsolved: use `show_answer`:false for written algorithms, omit `mark_at` and `label_at` when the child must place a value on a number line, and keep any scene unknown null with symbol `x` or `?`. Only the fully worked example may show a completed visual. Never let a guided picture reveal a value hidden by [[double square brackets]] in its steps or answer.
+
 DIAGRAMS (optional)
 Where the concept can be pictured at all, picture it: populate `worked_example.diagram_spec` with one of the supported types below or use a supported `scene_spec`. A figure the tutor can point at teaches more than another sentence of prose, and it is what stops the booklet reading as a wall of text. Leave both null only when neither representation fits the concept.
 

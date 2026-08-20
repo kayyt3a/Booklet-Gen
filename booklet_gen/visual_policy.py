@@ -7,8 +7,8 @@ coverage is measured from render results rather than optimistic JSON specs.
 """
 from __future__ import annotations
 
-import re
 import math
+import re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -54,6 +54,19 @@ _STRONGLY_HELPED = re.compile(
 _STUDENT_ALGORITHMS = frozenset({
     "column_arithmetic", "long_multiplication", "short_division",
 })
+
+_CALCULATION = re.compile(
+    r"\b(?:calculate|work\s+out|evaluate)\s+"
+    r"([0-9][0-9,]*)\s*([+\-*x×÷/])\s*([0-9][0-9,]*)\b",
+    re.IGNORECASE,
+)
+_NUMBER_LINE_BUILD = re.compile(
+    r"\b(?:mark|place|plot|show|locate)\b.{0,100}\bnumber\s+line\b"
+    r"|\bnumber\s+line\b.{0,100}\b(?:mark|place|plot)\b"
+    r"|\bwhere\s+is\b.{0,80}\blocated\b",
+    re.IGNORECASE,
+)
+_SIMPLE_FRACTION = re.compile(r"\b(\d{1,2})\s*[/⁄]\s*(\d{1,2})\b")
 
 
 @dataclass(frozen=True)
@@ -107,6 +120,52 @@ def stronger_priority(planned: str | None, floor: str) -> str:
     planned = planned if planned in rank else "text-only"
     floor = floor if floor in rank else "text-only"
     return planned if rank[planned] >= rank[floor] else floor
+
+
+def deterministic_diagram_spec(question_text: str, subject: str = "",
+                               subtopic: str = "") -> dict | None:
+    """Build safe formal diagrams for question forms with one exact parse.
+
+    This fallback reads only the printed question. It never sees the answer or
+    working, and it handles only layouts whose operands or fraction are stated
+    explicitly. Ambiguous word problems remain the visual planner's job.
+    """
+    text = question_text or ""
+    maths = (subject or "").strip().lower() in {
+        "mathematics", "maths", "math", "",
+    }
+    if not maths:
+        return None
+    match = _CALCULATION.search(text)
+    if match:
+        top = int(match.group(1).replace(",", ""))
+        bottom = int(match.group(3).replace(",", ""))
+        operation = match.group(2).lower()
+        if operation in {"+", "-"} and max(top, bottom) >= 10:
+            return {
+                "type": "column_arithmetic", "top": top, "bottom": bottom,
+                "operation": operation, "show_answer": False,
+            }
+        if operation in {"÷", "/"} and top >= 10 and 2 <= bottom <= 12:
+            return {
+                "type": "short_division", "dividend": top,
+                "divisor": bottom, "show_answer": False,
+            }
+        if operation in {"*", "x", "×"} and top >= 10 and 1 <= bottom <= 99:
+            return {
+                "type": "long_multiplication", "top": top,
+                "bottom": bottom, "show_answer": False,
+            }
+
+    fraction = _SIMPLE_FRACTION.search(text)
+    if "number line" in text.lower() and fraction and _NUMBER_LINE_BUILD.search(text):
+        denominator = int(fraction.group(2))
+        if 2 <= denominator <= 20:
+            return {
+                "type": "number_line", "from": 0, "to": 1,
+                "divisions": denominator, "mark_at": [], "label_at": [],
+            }
+    return None
 
 
 def student_safe_spec(spec: dict | None, mode: str = "student") -> dict | None:

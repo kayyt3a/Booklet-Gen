@@ -1433,15 +1433,27 @@ class BookletPipeline:
         if planner is not None:
             plans = planner.plan(subject, year_level, topic, subtopic, questions)
             apply_visual_plan(questions, plans)
-            return
         # Deterministic fixtures and older embedded callers may not install a
-        # planner. Required visual families still receive their policy floor.
-        from .visual_policy import deterministic_priority, stronger_priority
+        # planner. Required visual families still receive their policy floor,
+        # and exact arithmetic forms receive a formal diagram even if a model
+        # omitted one.
+        from .visual_policy import (deterministic_diagram_spec,
+                                    deterministic_priority, stronger_priority)
         for q in questions:
             q.visual_priority = stronger_priority(
                 q.visual_priority,
                 deterministic_priority(q.question, subject, subtopic),
             )
+            fallback = deterministic_diagram_spec(
+                q.question, subject, subtopic,
+            )
+            if fallback and not q.diagram_spec and not q.scene_spec:
+                q.diagram_spec = fallback
+                q.image_query = None
+                q.visual_priority = "required"
+                q.visual_reason = q.visual_reason or (
+                    "the assessed method is a formal visual layout"
+                )
 
     @staticmethod
     def _norm_q(text: str) -> str:
@@ -1542,7 +1554,10 @@ class BookletPipeline:
         # examples without expanding the public planner schema.
         teaching_pairs = []
         if teaching is not None:
-            for example in [teaching.worked_example, *teaching.guided_examples]:
+            examples = [(teaching.worked_example, "teaching")]
+            examples.extend((example, "guided")
+                            for example in teaching.guided_examples)
+            for example, visual_mode in examples:
                 proxy = Question(
                     question=example.question,
                     answer="",
@@ -1551,23 +1566,41 @@ class BookletPipeline:
                     scene_spec=example.scene_spec,
                     image_query=example.image_query,
                 )
-                teaching_pairs.append((example, proxy))
+                teaching_pairs.append((example, proxy, visual_mode))
         final_questions = selected
-        planning_items = [proxy for _, proxy in teaching_pairs] + final_questions
+        planning_items = [proxy for _, proxy, _ in teaching_pairs] + final_questions
         self._plan_question_visuals(
             subject, year_level, topic_name, subtopic.name, planning_items,
         )
-        for example, proxy in teaching_pairs:
+        for example, proxy, visual_mode in teaching_pairs:
             example.diagram_spec = proxy.diagram_spec
             example.scene_spec = proxy.scene_spec
             example.image_query = proxy.image_query
+            example.answer_image_path = None
+            if visual_mode == "guided" and example.diagram_spec:
+                answer_example = example.model_copy(deep=True)
+                if answer_example.diagram_spec.get("type") in {
+                    "column_arithmetic", "long_multiplication", "short_division",
+                }:
+                    answer_example.diagram_spec["show_answer"] = True
+                try:
+                    answer_path, _ = self._resolve_visual(
+                        answer_example, mode="teaching",
+                    )
+                except Exception as exc:
+                    log.warning("pipeline.example_answer_visual_failed",
+                                extra={"error": str(exc)[:200]})
+                    answer_path = None
+                example.answer_image_path = str(answer_path) if answer_path else None
             if example.diagram_spec and example.diagram_spec.get("type") in {
                 "column_arithmetic", "long_multiplication", "short_division",
             }:
                 example.diagram_spec = dict(example.diagram_spec)
-                example.diagram_spec["show_answer"] = True
+                example.diagram_spec["show_answer"] = visual_mode == "teaching"
             try:
-                path, attribution = self._resolve_visual(example, mode="teaching")
+                path, attribution = self._resolve_visual(
+                    example, mode=visual_mode,
+                )
             except Exception as exc:
                 log.warning("pipeline.example_visual_failed",
                             extra={"error": str(exc)[:200]})
@@ -1820,17 +1853,21 @@ class BookletPipeline:
         algorithm diagrams always have answers suppressed. Teaching examples
         may show their completed method.
         """
+        safety_mode = "student" if mode in {"student", "guided"} else "teaching"
+        render_profile = "teaching" if mode in {"teaching", "guided"} else "student"
         if q.diagram_spec:
             from .visuals import render_diagram
             from .agents.consistency import reconcile_diagram_spec
             from .visual_policy import student_safe_spec
-            safe = student_safe_spec(q.diagram_spec, mode=mode)
+            safe = student_safe_spec(q.diagram_spec, mode=safety_mode)
             if safe != q.diagram_spec:
                 q.diagram_spec = safe
             # Models often emit a scaled-down spec so the shape draws nicely
             # and forget the labels are what the student reads, producing a
             # 4cm x 2cm x 1cm drawing beside a 40cm x 20cm x 10cm question.
-            spec, fixed = reconcile_diagram_spec(q.diagram_spec, q.question)
+            spec, fixed = reconcile_diagram_spec(
+                q.diagram_spec, q.question, mode=safety_mode,
+            )
             if fixed:
                 log.info("pipeline.diagram_corrected",
                          extra={"type": spec.get("type")})
@@ -1857,7 +1894,7 @@ class BookletPipeline:
             from .visuals import render_scene
             from .agents.consistency import reconcile_scene_spec
             scene_spec, fixed = reconcile_scene_spec(
-                scene_spec, q.question, mode=mode,
+                scene_spec, q.question, mode=safety_mode,
             )
             if scene_spec is None:
                 log.warning("pipeline.scene_rejected",
@@ -1869,7 +1906,7 @@ class BookletPipeline:
                     log.info("pipeline.scene_corrected",
                              extra={"template": scene_spec.get("template")})
                 try:
-                    path = render_scene(scene_spec, profile=mode)
+                    path = render_scene(scene_spec, profile=render_profile)
                 except TypeError:
                     # Backward compatibility for a one-argument fixture.
                     path = render_scene(scene_spec)

@@ -383,6 +383,27 @@ _CAPTIONED_TYPES = {
     "shape_3d": _ASKS_TO_NAME_SHAPE,
 }
 
+_NUMBER_LINE_DRAW_TASK = re.compile(
+    r"\b(?:mark|place|plot|show|locate)\b.{0,100}\b(?:on|along)\s+"
+    r"(?:a|the|this)\s+number\s+line\b"
+    r"|\bnumber\s+line\b.{0,100}\b(?:mark|place|plot)\b"
+    r"|\bwhere\s+is\b.{0,80}\blocated\b",
+    re.IGNORECASE,
+)
+
+
+def _hide_number_line_answer(spec: dict, question_text: str,
+                             mode: str) -> tuple[dict, bool]:
+    """Remove a pre-drawn mark when placing it is the student's task."""
+    if mode != "student" or not _NUMBER_LINE_DRAW_TASK.search(question_text or ""):
+        return spec, False
+    if not spec.get("mark_at") and not spec.get("label_at"):
+        return spec, False
+    out = dict(spec)
+    out["mark_at"] = []
+    out["label_at"] = []
+    return out, True
+
 
 def _hide_caption(spec: dict, kind: str, question_text: str) -> tuple[dict, bool]:
     """Turn off a figure's caption when the caption answers the question."""
@@ -413,7 +434,8 @@ def _hide_the_answer(spec: dict, kind: str, question_text: str) -> tuple[dict, b
     return out, True
 
 
-def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
+def reconcile_diagram_spec(spec: dict, question_text: str,
+                           mode: str = "student") -> tuple[dict, bool]:
     """Correct a diagram spec so its labels match the question.
 
     Returns (spec, changed). Two repairs, in order:
@@ -432,6 +454,8 @@ def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
         return spec, False
 
     kind = str(spec.get("type", "")).lower()
+    if kind == "number_line":
+        return _hide_number_line_answer(spec, question_text, mode)
     if kind == "similar_triangles":
         hidden = _similar_triangle_unknowns(spec, question_text)
         if hidden and hidden != sorted(_unknown_keys(spec)):

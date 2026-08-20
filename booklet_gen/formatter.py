@@ -998,9 +998,12 @@ def _lesson_flowables(styles, t, year_level: str | None = None) -> list:
         out.append(Paragraph(f"Remember: {_lesson_html(t.mnemonic)}",
                              styles["mnemonic"]))
     if t.key_points:
-        out.append(Spacer(1, 0.15 * cm))
-        for kp in t.key_points:
-            out.append(Paragraph(f"• {_lesson_html(kp)}", styles["key_point"]))
+        points = [Spacer(1, 0.15 * cm)]
+        points.extend(
+            Paragraph(f"• {_lesson_html(kp)}", styles["key_point"])
+            for kp in t.key_points
+        )
+        out.append(KeepTogether(points))
     out.append(Spacer(1, 0.3 * cm))
     paulio = paulio_teaches(year_level)
     out.append(_worked_example_flowable(
@@ -1101,11 +1104,13 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
             spec_html = strip_markers(spec_html)
         inner.append(Paragraph(f'"{spec_html}"', styles["we_specimen"]))
         inner.append(Spacer(1, 0.2 * cm))
+    visual_path = we.answer_image_path if reveal and we.answer_image_path \
+        else we.image_path
     if getattr(we, "scene_spec", None):
-        img = _make_image(we.image_path, max_w=WE_SCENE_IMG_WIDTH,
+        img = _make_image(visual_path, max_w=WE_SCENE_IMG_WIDTH,
                           max_h=WE_SCENE_IMG_HEIGHT)
     else:
-        img = _make_image(we.image_path, max_w=WE_IMG_WIDTH,
+        img = _make_image(visual_path, max_w=WE_IMG_WIDTH,
                           max_h=WE_IMG_HEIGHT)
     if img is not None:
         inner.append(Spacer(1, 0.15 * cm))
@@ -1324,7 +1329,9 @@ def part_labels(text: str) -> list[str]:
 # explanation onto a single line, so they do not get one.
 _EXTENDED_RESPONSE_RE = re.compile(
     r"\b(explain|describe|justify|discuss|prove|show that|show why|show your working|"
-    r"draw|sketch|shade|colour|color|plot|label|construct|write (?:a|an|one|two|"
+    r"draw|sketch|shade|colour|color|"
+    r"plot(?=\s+(?:the|a|an|these|those|it|them|\(|-?\d|x\b|y\b))|"
+    r"label|construct|write (?:a|an|one|two|"
     r"three|four|five|\d+) (?:short |more )?"
     r"(?:paragraphs?|sentences?|lines?|stor(?:y|ies))|in your own words)\b",
     re.IGNORECASE)
@@ -1334,7 +1341,8 @@ _EXTENDED_RESPONSE_RE = re.compile(
 # working" belongs here too, because working is laid out down the page rather
 # than along a line.
 _DRAWN_RESPONSE_RE = re.compile(
-    r"\b(draw|sketch|shade|colour|color|plot|label|construct|show your working)\b",
+    r"\b(draw|sketch|shade|colour|color|label|construct|show your working)\b"
+    r"|\bplot(?=\s+(?:the|a|an|these|those|it|them|\(|-?\d|x\b|y\b))",
     re.IGNORECASE)
 
 # "Write two sentences", "write a short paragraph": the question says how much
@@ -2359,8 +2367,9 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         if data.challenge_questions and times["challenge_minutes"]:
             hw_sub += (" The Final Challenge at the end adds about "
                        f"{times['challenge_minutes']} min.")
-        story.append(_part_band(styles, "Homework", PART_HOMEWORK, hw_sub))
-        story.append(Spacer(1, 0.3 * cm))
+        if has_homework:
+            story.append(_part_band(styles, "Homework", PART_HOMEWORK, hw_sub))
+            story.append(Spacer(1, 0.3 * cm))
 
         # Session boundaries are indices into the flat homework list, so a
         # session may start part way through a subtopic. When it starts on the
