@@ -808,13 +808,26 @@ main.wrap:has(> .card.narrow){
 /* The band occupies real height, so without a matching spacer the unbadged
  * tier starts higher and every row across the two cards is thrown out of line:
  * exactly the misalignment the shared description height was added to fix. */
+/* The spacer has to contain a line of text, not merely reserve padding: an
+ * empty block generates no line box, so it stood 20px shorter than the band
+ * it was compensating for and the two cards' titles sat 20px apart. A
+ * non-breaking space in the band's own font gives it exactly the band's
+ * height, by the same measurement rather than by a number copied by hand. */
 .priceCard:not(.featured)::before{
-  content:"";display:block;
+  content:"\00a0";display:block;visibility:hidden;
   margin:calc(-1 * var(--s5)) calc(-1 * var(--s5)) var(--s5);
-  padding:var(--s2);font-size:var(--t-micro);line-height:1.2;
+  padding:var(--s2);font-size:var(--t-micro);font-weight:700;letter-spacing:.4px;
 }
+/* Both tiers carry the same border weight, so the featured one's heavier
+ * outline does not shift its contents down by a pixel relative to its
+ * neighbour. */
+.priceCard{border-width:2px}
 .price{font-family:var(--display);color:var(--navy);font-size:var(--t-figure);font-weight:700;margin:var(--s1) 0 var(--s2);letter-spacing:-.5px}
-.price span{font-size:var(--t-lead);vertical-align:top;line-height:2.1;margin-right:var(--s1)}
+/* On the baseline, not raised to cap height. Superscripted, "A$" read as a
+ * footnote marker hung off the price, which on a page taking money is the one
+ * typographic accident to avoid: it looks like there is small print about the
+ * number. It is the same amount, said in one line. */
+.price span{font-size:var(--t-h2);vertical-align:baseline;line-height:1;margin-right:3px}
 .priceFeatures{list-style:none;padding:0;margin:var(--s4) 0 var(--s1);flex:1}
 .priceFeatures li{display:flex;align-items:flex-start;gap:var(--s2);margin:var(--s2) 0;font-size:var(--t-small)}
 .priceFeatures .motif{color:var(--green);flex:none;margin-top:var(--s1)}

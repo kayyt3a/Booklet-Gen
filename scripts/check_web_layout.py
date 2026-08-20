@@ -494,6 +494,33 @@ with sync_playwright() as pw:
               f"{overlap(bubble, motif):.0f} sq px shared")
         ctx.close()
 
+    # -----------------------------------------------------------------------
+    print("\nThe two price tiers start on the same line")
+    print("-" * 62)
+    # The "Best value" band occupies real height, and the spacer meant to
+    # compensate for it on the other card was an empty block, which generates
+    # no line box: the two tiers' titles sat 20px apart, and every row below
+    # them followed. "A$" was raised to cap height as well, which on a page
+    # taking money makes the currency read as a footnote marker on the price.
+    for width in (390, 1440):
+        ctx, page = open_page(width)
+        page.goto(BASE + "/pricing")
+        page.wait_for_load_state("networkidle")
+        titles = boxes(page, ".priceCard h2")
+        if width >= 700:
+            drift = max(t["y"] for t in titles) - min(t["y"] for t in titles)
+            check(drift <= 1, "both tier titles sit on the same line",
+                  f"{drift:.0f}px apart")
+        currency = boxes(page, ".price span")
+        amounts = boxes(page, ".price")
+        # Sharing a baseline shows up as sharing a bottom edge, give or take
+        # the descender space of the larger size.
+        gap = max(abs(c["bottom"] - a["bottom"])
+                  for c, a in zip(currency, amounts))
+        check(gap <= 14, f"{width}px: A$ sits on the price's baseline, not "
+                         "above it", f"{gap:.0f}px above the amount's bottom")
+        ctx.close()
+
     browser.close()
 
 # ---------------------------------------------------------------------------
