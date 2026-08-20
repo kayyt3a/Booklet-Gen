@@ -186,7 +186,7 @@ select{
 input:focus,select:focus,textarea:focus{
   outline:none;border-color:var(--navy-l);box-shadow:0 0 0 3px rgba(45,81,131,.13);
 }
-.row{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.row{display:grid;grid-template-columns:repeat(2,minmax(0,18rem));gap:var(--s3)}
 @media (max-width:560px){ .row{grid-template-columns:1fr} }
 
 button,.btn{
@@ -310,9 +310,19 @@ a.link{color:var(--navy);font-weight:600}
  * A control as wide as the card tells the user nothing about what belongs in
  * it, and an 848px box for a first name is the clearest sign a form was
  * generated rather than designed. Width is a label. */
+/* One measure, and every dropdown on the site is set to it. A select was
+ * previously sized by whatever was around it: "Booklet type" ran the full
+ * 800px card, "Year level" was 288px because its row had collapsed to one
+ * column, and "Student name" was 288px because it had been given a width on
+ * purpose. Three widths in one card, in the order wide, narrow, wide, is a
+ * staircase, and it reads as three unrelated controls rather than as one
+ * form. A dropdown's content is a fixed list, so nothing about its content
+ * justifies a different width from the dropdown above it. */
+select{max-width:18rem}
 .fieldName{max-width:18rem}
 .fieldWide{max-width:32rem}
-.formSection .row{max-width:32rem}
+/* The two-up row carries the same measure per column (see .row above), so a
+ * field is the same width whether it stands alone or is paired. */
 /* When the subject select is hidden for a program that has no subject choice,
  * the grid used to leave a half-width hole where it had been. */
 .row:has(> [hidden]){grid-template-columns:minmax(0,18rem)}

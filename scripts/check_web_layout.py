@@ -362,6 +362,41 @@ with sync_playwright() as pw:
               f"tightest is {clear:.1f}px")
         ctx.close()
 
+    # -----------------------------------------------------------------------
+    print("\nForm fields are one width, not a staircase")
+    print("-" * 62)
+    # On Study plans the three fields ran 288px, then the full 800px card,
+    # then 288px again, because nothing set a select's width and each one took
+    # whatever its container gave it. A dropdown's content is a fixed list, so
+    # there is nothing about it that justifies a different width from the
+    # dropdown above it.
+    for path in ("/plans", "/"):
+        for width in (390, 1440):
+            ctx, page = open_page(width, signed_in=True)
+            page.goto(BASE + path)
+            page.wait_for_load_state("networkidle")
+            # The create form hides the subject dropdown until a product that
+            # has subjects is chosen, and a form with one dropdown in it
+            # cannot be inconsistent with itself.
+            # Set through the DOM rather than clicked: the radio itself is
+            # visually hidden behind its label card, so a real click would
+            # wait for an element that is never going to be visible.
+            page.evaluate("""() => {
+                const r = document.querySelector('#program_accelerate');
+                if (r) { r.checked = true;
+                         r.dispatchEvent(new Event('change', {bubbles:true})); }
+            }""")
+            page.wait_for_timeout(120)
+            # .planGenerate's week picker is deliberately inline, beside its
+            # own button, and is not one of the form's stacked fields.
+            picks = [b for b in boxes(page, "form:not(.planGenerate) select")
+                     if b["w"] > 0]
+            widths = sorted({round(b["w"]) for b in picks})
+            check(len(picks) >= 2 and len(widths) == 1,
+                  f"{path} at {width}: every dropdown is the same width",
+                  f"{len(picks)} dropdowns, widths {widths}")
+            ctx.close()
+
     browser.close()
 
 # ---------------------------------------------------------------------------
