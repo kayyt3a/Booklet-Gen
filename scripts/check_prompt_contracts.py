@@ -275,6 +275,12 @@ for name in ("accelerate_practice.txt", "naplan_practice.txt"):
     check("semantic facts only" in body and "rights approval" in body,
           f"{name} pins scene and image rights safety")
 
+intro_maths = (PROMPT_DIR / "intro_writer_maths.txt").read_text(encoding="utf-8")
+check("The picture in a guided example is part of the fill-in task" in intro_maths,
+      "guided maths visuals are explicitly unsolved")
+check("omit `mark_at` and `label_at`" in intro_maths,
+      "guided number lines cannot print the point the child must place")
+
 
 print("\nWord problems are set in something a child cares about")
 print("-" * 62)

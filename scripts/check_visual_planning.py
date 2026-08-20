@@ -6,7 +6,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-from booklet_gen.agents.consistency import reconcile_scene_spec
+from booklet_gen.agents.consistency import (
+    reconcile_diagram_spec,
+    reconcile_scene_spec,
+)
 from booklet_gen.agents.visual_planner import (
     VisualPlanItem,
     VisualPlannerAgent,
@@ -20,7 +23,8 @@ from booklet_gen.schemas import (
     ValidatedQuestion,
     WorkedExample,
 )
-from booklet_gen.visual_policy import (deterministic_priority,
+from booklet_gen.visual_policy import (deterministic_diagram_spec,
+                                       deterministic_priority,
                                        rendered_visual_coverage,
                                        student_safe_spec,
                                        visual_coverage_policy)
@@ -112,6 +116,27 @@ assert deterministic_priority("Find the area of the shape shown below.") == "req
 assert deterministic_priority("What value is shown in the graph?") == "required"
 ok("ordinary English uses of shown stay text-only while real figures are required")
 
+print("\nEXACT QUESTION FORMS GET A FORMAL VISUAL FALLBACK")
+assert deterministic_diagram_spec(
+    "Calculate 694 ÷ 5.", "Mathematics", "Division with remainders",
+) == {
+    "type": "short_division", "dividend": 694, "divisor": 5,
+    "show_answer": False,
+}
+assert deterministic_diagram_spec(
+    "Calculate 582 - 246.", "Mathematics", "Three-digit subtraction",
+)["type"] == "column_arithmetic"
+line = deterministic_diagram_spec(
+    "Mark the position of 1/4 on a number line from 0 to 1.",
+    "Mathematics", "Unit fractions on a number line",
+)
+assert line and line["divisions"] == 4 and line["mark_at"] == []
+assert deterministic_diagram_spec(
+    "Identify the fraction marked on the number line.",
+    "Mathematics", "Unit fractions on a number line",
+) is None
+ok("arithmetic and construct-a-number-line tasks no longer depend on model compliance")
+
 print("\nSTUDENT ALGORITHMS NEVER PRINT THEIR ANSWERS")
 for kind in ("column_arithmetic", "long_multiplication", "short_division"):
     source = {"type": kind, "show_answer": True}
@@ -121,6 +146,20 @@ for kind in ("column_arithmetic", "long_multiplication", "short_division"):
     assert teaching["show_answer"] is True
     assert source["show_answer"] is True, "resolver mutated the caller's dict"
 ok("resolver mode suppresses student answers and permits teaching answers")
+
+line_spec = {
+    "type": "number_line", "from": 0, "to": 1, "divisions": 3,
+    "mark_at": [1 / 3], "label_at": ["0.33"],
+}
+student_line, changed = reconcile_diagram_spec(
+    line_spec, "Mark the position of 1/3 on a number line.", mode="student",
+)
+teacher_line, _ = reconcile_diagram_spec(
+    line_spec, "Mark the position of 1/3 on a number line.", mode="teaching",
+)
+assert changed and student_line["mark_at"] == [] and student_line["label_at"] == []
+assert teacher_line["mark_at"] == [1 / 3]
+ok("guided number lines hide the pre-drawn point while worked examples may show it")
 
 print("\nSCENES CARRY ONLY STATED FACTS AND HIDE THE UNKNOWN")
 scene = questions[0].scene_spec
@@ -240,6 +279,14 @@ lesson = SubtopicTeaching(
     worked_example=WorkedExample(
         question="What is 1 + 1?", steps=["Count on one."], answer="2",
     ),
+    guided_examples=[WorkedExample(
+        question="Mark 1/3 on the number line.",
+        steps=["Split the interval into three equal parts."], answer="1/3",
+        diagram_spec={
+            "type": "number_line", "start": 0, "end": 1,
+            "intervals": 3, "mark_at": 1 / 3, "label_at": "1/3",
+        },
+    )],
 )
 pipe = BookletPipeline.__new__(BookletPipeline)
 pipe._generator = PlainQuestionGenerator()
@@ -248,9 +295,14 @@ pipe._n_classwork = 1
 pipe._validate_many = lambda *a, **k: [ValidationResult(True, "ok")]
 pipe._reasoning_reject = lambda *a: False
 resolved = []
-pipe._resolve_visual = lambda item, mode="student": (
-    resolved.append((item, mode)) and None, None
-)
+
+
+def fake_resolve(item, mode="student"):
+    resolved.append((item, mode))
+    return Path(f"{mode}.png"), None
+
+
+pipe._resolve_visual = fake_resolve
 pipe._orphan_figure = lambda *a: None
 pipe._self_answering = lambda *a: None
 pipe._absurd_quantity = lambda *a: None
@@ -262,10 +314,16 @@ out = BookletPipeline._generate_and_validate(
 assert len(out) == 1
 assert len(pipe._visual_planner.calls) == 1
 planned = pipe._visual_planner.calls[0]
-assert [q.question for q in planned] == ["What is 1 + 1?", "What is 2 + 2?"]
+assert [q.question for q in planned] == [
+    "What is 1 + 1?", "Mark 1/3 on the number line.", "What is 2 + 2?",
+]
 assert planned[0].answer == "" and planned[0].working == ""
 assert any(item is lesson.worked_example and mode == "teaching"
            for item, mode in resolved)
+assert any(item is lesson.guided_examples[0] and mode == "guided"
+           for item, mode in resolved)
+assert lesson.guided_examples[0].answer_image_path == "teaching.png"
+assert lesson.guided_examples[0].image_path == "guided.png"
 ok("worked examples and final questions use one answer-free planner call")
 
 print(f"\nALL {_passed} VISUAL-PLANNING CHECKS PASSED")

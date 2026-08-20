@@ -147,6 +147,7 @@ class WorkedExample(BaseModel):
     image_query: Optional[str] = None
     # Resolved after rendering.
     image_path: Optional[str] = None
+    answer_image_path: Optional[str] = None
     image_attribution: Optional[str] = None
 
 
