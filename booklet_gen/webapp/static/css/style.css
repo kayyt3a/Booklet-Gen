@@ -945,6 +945,10 @@ main.wrap:has(> .card.narrow){
   .programOption label{min-height:0}
   .heroCta .btn{width:100%}
   .pricingGrid,.supportGrid{grid-template-columns:1fr}
+  /* The tiers are stacked here, so there is no row across them to line up
+   * and the spacer that reserves the "Best value" band's height is just a
+   * blank strip above a heading. */
+  .priceCard:not(.featured)::before{display:none}
   .adminCreditForm{grid-template-columns:1fr}
   .centerCard .btn{width:100%;margin-right:0}
 }
