@@ -1091,11 +1091,23 @@ _GE_LABEL_PAULIO = "Now let's try one together"
 # that name belongs to a character at all. This is his one appearance per
 # taught box, reusing the same asset the website already ships rather than a
 # second copy of the artwork living in two places.
-_PAULIO_ICON_PATH = (
-    Path(__file__).resolve().parent / "webapp" / "static" / "img" / "paulio"
-    / "paulio-guide-right.png"
-)
+_PAULIO_DIR = (Path(__file__).resolve().parent / "webapp" / "static" / "img"
+               / "paulio")
+_PAULIO_ICON_PATH = _PAULIO_DIR / "paulio-guide-right.png"
+# The guided box is the one the child writes in, so Paulio is drawn doing the
+# writing rather than presenting. One pose per ROLE, not a pose per box: the
+# same figure in the same corner ten times a booklet reads as a sticker, and
+# rotating poses at random would make him decoration. Two poses that each mean
+# something ("watch me" / "your turn") halve the repetition and earn their
+# place. Both are artwork the product already ships.
+_PAULIO_GUIDED_ICON_PATH = _PAULIO_DIR / "paulio-working-right.png"
 PAULIO_ICON_SIZE = 1.1 * cm
+# The gap between the mascot and the label he introduces, and the pad under the
+# lockup. Without the pad his feet cleared the cap-height of the line below by
+# 0.9mm, which prints as touching, and the whole lockup read as a sticker
+# dropped on a text box.
+PAULIO_ICON_GAP = 0.15 * cm
+PAULIO_LOCKUP_PAD = 0.2 * cm
 
 
 def paulio_teaches(year_level: str | None) -> bool:
@@ -1173,6 +1185,43 @@ def split_instruction_and_specimen(text: str) -> tuple[str, str | None]:
     return instruction, specimen
 
 
+def _indented_style(style: ParagraphStyle, indent: float) -> ParagraphStyle:
+    """`style` shifted right by `indent`, keeping its own relative indent.
+
+    A numbered step already sits 12pt in from its neighbours; that relationship
+    is part of the step list and survives the shift.
+    """
+    if not indent:
+        return style
+    return ParagraphStyle(f"{style.name}_indented", parent=style,
+                          leftIndent=style.leftIndent + indent)
+
+
+def _indented_flowable(flowable, indent: float, width: float):
+    """`flowable` shifted right by `indent`, so a figure keeps the text's edge.
+
+    A diagram left-aligned to the box padding while every line of type around
+    it starts a centimetre further in is the same stepping the mascot lockup
+    was fixed for, one element lower down.
+    """
+    if not indent:
+        return flowable
+    room = width - indent
+    draw_w = getattr(flowable, "drawWidth", 0) or 0
+    if draw_w > room and draw_w > 0:
+        scale = room / draw_w
+        flowable.drawWidth = draw_w * scale
+        flowable.drawHeight = getattr(flowable, "drawHeight", 0) * scale
+    tbl = Table([[flowable]], colWidths=[width])
+    tbl.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), indent),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return tbl
+
+
 def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked example",
                              paulio: bool = False, guided: bool = False,
                              reveal: bool = False, width: float | None = None):
@@ -1194,10 +1243,17 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
     box_w = (width if width is not None else A4[0] - 2 * PAGE_MARGIN) - 0.4 * cm
     inner_w = box_w - 20
     label_para = Paragraph(label, styles["we_label"])
-    icon = _make_image(str(_PAULIO_ICON_PATH), max_w=PAULIO_ICON_SIZE,
+    icon_path = _PAULIO_GUIDED_ICON_PATH if guided else _PAULIO_ICON_PATH
+    icon = _make_image(str(icon_path), max_w=PAULIO_ICON_SIZE,
                        max_h=PAULIO_ICON_SIZE) if paulio else None
     if icon is not None:
-        icon_col = PAULIO_ICON_SIZE + 0.15 * cm
+        # The mascot and his label are one lockup: a two-cell row, centred on
+        # each other, with a real pad under it so his feet are not sitting on
+        # the line below. Everything else in the box then starts at the LABEL's
+        # left edge, not the box's. The box used to step left three times, at
+        # the mascot, at the label and back at the question, and that stepping
+        # is what made him look dropped on rather than set in.
+        icon_col = PAULIO_ICON_SIZE + PAULIO_ICON_GAP
         header = Table([[icon, label_para]],
                        colWidths=[icon_col, inner_w - icon_col])
         header.setStyle(TableStyle([
@@ -1205,16 +1261,22 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
             ("LEFTPADDING", (0, 0), (-1, -1), 0),
             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
             ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), PAULIO_LOCKUP_PAD),
         ]))
         inner = [header]
+        indent = icon_col
     else:
         inner = [label_para]
+        indent = 0.0
+
+    def style_of(name):
+        return _indented_style(styles[name], indent)
+
     # The question states the task, so a [[ ]] the model put here would blank
     # out part of what is being asked. Strip the markers and keep the words.
     inner.append(Paragraph(
         _BLANK_RE.sub(r"\1", apply_bold_markup(_escape(instruction))),
-        styles["we_question"]))
+        style_of("we_question")))
     if specimen:
         # Set apart, indented and quoted, so the task and the thing the task is
         # about are not one run-on paragraph.
@@ -1230,12 +1292,12 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
             spec_html = blank_out(spec_html)
         else:
             spec_html = strip_markers(spec_html)
-        inner.append(Paragraph(f'"{spec_html}"', styles["we_specimen"]))
+        inner.append(Paragraph(f'"{spec_html}"', style_of("we_specimen")))
         inner.append(Spacer(1, 0.2 * cm))
     img = _make_image(we.image_path, max_w=WE_IMG_WIDTH, max_h=WE_IMG_HEIGHT)
     if img is not None:
         inner.append(Spacer(1, 0.15 * cm))
-        inner.append(img)
+        inner.append(_indented_flowable(img, indent, inner_w))
         inner.append(Spacer(1, 0.15 * cm))
     # A guided example the model returned with no [[ ]] at all would print as a
     # second demonstration, which is the thing this section stopped being. The
@@ -1253,12 +1315,12 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
 
     for i, step in enumerate(we.steps, 1):
         inner.append(Paragraph(f"<b>{i}.</b> {render(_strip_step_prefix(step))}",
-                               styles["we_step"]))
+                               style_of("we_step")))
     if gaps and not marked:
         answer_html = f"<u>{'&nbsp;' * _BLANK_MAX_CHARS}</u>"
     else:
         answer_html = render(we.answer)
-    inner.append(Paragraph(f"Answer: {answer_html}", styles["we_answer"]))
+    inner.append(Paragraph(f"Answer: {answer_html}", style_of("we_answer")))
 
     tbl = Table([[inner]], colWidths=[box_w])
     tbl.setStyle(TableStyle([
