@@ -402,9 +402,13 @@ a.link{color:var(--navy);font-weight:600}
   .heroWaves svg{height:22%}
 }
 @media (max-width:700px){
-  /* On a phone the panel is narrow enough that the scatter crowds the words. */
-  .scatter .s6,.scatter .s7,.scatter .s8,.scatter .s2{display:none}
-  .scatter .s{opacity:.38}
+  /* Wallpaper only works where there is wall. The motifs are 130px line-art
+   * glyphs and the panel is about 340px wide on a phone, so both the sentence
+   * and the "Create your first booklet" button printed straight over the open
+   * book: the first thing a new account sees was its own copy tangled in a
+   * drawing. Thinning the set out was tried and is not enough, because there
+   * is no corner left that the text does not reach. */
+  .scatter{display:none}
 }
 
 /* ---- paulio ----

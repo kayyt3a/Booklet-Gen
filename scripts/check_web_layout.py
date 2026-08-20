@@ -49,6 +49,8 @@ from booklet_gen.webapp import db                                # noqa: E402
 PORT = int(os.environ.get("FOLIO_LAYOUT_PORT", "5177"))
 BASE = f"http://127.0.0.1:{PORT}"
 EMAIL, PASSWORD = "layout@test.com", "correct-horse-battery"
+# A second account with nothing in it, because the empty states are pages too.
+NEW_EMAIL = "layout-new@test.com"
 
 # iOS asks for 44pt, Android for 48dp. 44 is the floor used here.
 TAP_MIN = 44
@@ -86,6 +88,7 @@ def _launch(pw):
 app = create_app()
 with app.app_context():
     uid = db.create_user(EMAIL, PASSWORD)
+    db.create_user(NEW_EMAIL, PASSWORD)
     db.grant_credits(uid, 4, "fixture", "layout-check")
     for i, label in enumerate((
             "Academic Accelerate - Year 5 - Mathematics - Ella",
@@ -111,6 +114,33 @@ def boxes(page, selector: str) -> list[dict]:
     })""")
 
 
+def ink_boxes(page, selector: str) -> list[dict]:
+    """Where an element actually puts ink.
+
+    A block paragraph's own box runs the full width of its container even when
+    its text is centred and 300px wide, so measuring element boxes reports an
+    overlap that nobody can see. For anything without a background of its own,
+    this measures the text run instead, via a Range over the element's
+    contents. Elements that paint a background (a button) keep their own box,
+    because there the whole slab is visible.
+    """
+    return page.eval_on_selector_all(selector, """els => els.map(e => {
+        const bg = getComputedStyle(e).backgroundColor;
+        const painted = bg && bg !== 'transparent' &&
+                        !/rgba\\(0,\\s*0,\\s*0,\\s*0\\)/.test(bg);
+        let r = e.getBoundingClientRect();
+        if (!painted) {
+            const range = document.createRange();
+            range.selectNodeContents(e);
+            const rr = range.getBoundingClientRect();
+            if (rr.width > 0) { r = rr; }
+        }
+        return {x: r.x, y: r.y, w: r.width, h: r.height,
+                right: r.right, bottom: r.bottom,
+                text: (e.textContent || '').trim().slice(0, 24)};
+    })""")
+
+
 def box(page, selector: str) -> dict | None:
     got = boxes(page, selector)
     return got[0] if got else None
@@ -126,12 +156,13 @@ def overlap(a: dict, b: dict) -> float:
 with sync_playwright() as pw:
     browser = _launch(pw)
 
-    def open_page(width: int, height: int = 844, signed_in: bool = False):
+    def open_page(width: int, height: int = 844, signed_in: bool = False,
+                  email: str = EMAIL):
         ctx = browser.new_context(viewport={"width": width, "height": height})
         page = ctx.new_page()
         if signed_in:
             page.goto(BASE + "/login")
-            page.fill("#email", EMAIL)
+            page.fill("#email", email)
             page.fill("#password", PASSWORD)
             page.click("button[type=submit]")
             page.wait_for_load_state("networkidle")
@@ -193,6 +224,26 @@ with sync_playwright() as pw:
             check(below >= 8,
                   f"{path}: the Sign up pill sits in the bar, not on its edge",
                   f"{below:.0f}px of bar below it")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nAn empty library reads as words, not as words on a drawing")
+    print("-" * 62)
+    # The ghosted book and pencil are 130px line art in a panel about 340px
+    # wide on a phone, so the sentence and the button printed straight over
+    # them. A new account's first screen was its own copy tangled in wallpaper.
+    for width in (390, 1440):
+        ctx, page = open_page(width, signed_in=True, email=NEW_EMAIL)
+        page.goto(BASE + "/library")
+        page.wait_for_load_state("networkidle")
+        motifs = [m for m in boxes(page, ".scatter .s") if m["w"] > 0]
+        words = [w for w in ink_boxes(page, ".empty p, .empty .btn") if w["w"] > 0]
+        check(bool(words), f"{width}px: the empty state still says something",
+              f"{len(words)} text elements")
+        worst = max((overlap(m, w) for m in motifs for w in words), default=0.0)
+        check(worst == 0,
+              f"{width}px: nothing readable sits on the ghosted motifs",
+              f"{len(motifs)} motifs, {worst:.0f} sq px shared")
         ctx.close()
 
     browser.close()
