@@ -98,6 +98,12 @@ with app.app_context():
         db.create_job(job, uid, label, units=1)
         db.finish_job(job, path=str(_tmp / "output" / f"{job}.pdf"))
         db.save_job_file(job, uid, "folio.pdf", "application/pdf", b"%PDF x")
+    # A plan is always ten weeks (programs.TERM_PLAN_WEEKS), so every plan
+    # ends on a two-digit week chip. The ladder is written out here rather
+    # than planned, because planning it would need a live model.
+    db.create_plan(uid, "Ella", "accelerate", "Mathematics", "Year 5", 10,
+                   [{"week": n, "focus": f"Week {n} focus topic"}
+                    for n in range(1, 11)])
 
 threading.Thread(
     target=lambda: app.run(port=PORT, threaded=True, use_reloader=False),
@@ -135,6 +141,18 @@ def ink_boxes(page, selector: str) -> list[dict]:
             const rr = range.getBoundingClientRect();
             if (rr.width > 0) { r = rr; }
         }
+        return {x: r.x, y: r.y, w: r.width, h: r.height,
+                right: r.right, bottom: r.bottom,
+                text: (e.textContent || '').trim().slice(0, 24)};
+    })""")
+
+
+def text_boxes(page, selector: str) -> list[dict]:
+    """The rectangle the characters occupy, whatever the element paints."""
+    return page.eval_on_selector_all(selector, """els => els.map(e => {
+        const range = document.createRange();
+        range.selectNodeContents(e);
+        const r = range.getBoundingClientRect();
         return {x: r.x, y: r.y, w: r.width, h: r.height,
                 right: r.right, bottom: r.bottom,
                 text: (e.textContent || '').trim().slice(0, 24)};
@@ -321,6 +339,28 @@ with sync_playwright() as pw:
     check(control["y"] < 844, "the create form's first choice is on the first "
                               "screen", f"y={control['y']:.0f} in an 844px viewport")
     ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe last row of a ten-week plan looks like the other nine")
+    print("-" * 62)
+    for width in (390, 1440):
+        ctx, page = open_page(width, signed_in=True)
+        page.goto(BASE + "/plans")
+        page.wait_for_load_state("networkidle")
+        chips = boxes(page, ".weekNo")
+        ink = text_boxes(page, ".weekNo")
+        check(len(chips) == 10, f"{width}px: the plan lists ten weeks",
+              f"{len(chips)} chips")
+        widths = {round(c["w"], 1) for c in chips}
+        check(len(widths) == 1, f"{width}px: every week chip is the same size",
+              str(sorted(widths)))
+        clear = min(min(i["x"] - c["x"], c["right"] - i["right"])
+                    for c, i in zip(chips, ink))
+        # The chip has to be visible around its own number. At 1.7em week 10
+        # had 3.5px, so the numeral covered the chip.
+        check(clear >= 5, f"{width}px: the number sits inside its chip",
+              f"tightest is {clear:.1f}px")
+        ctx.close()
 
     browser.close()
 

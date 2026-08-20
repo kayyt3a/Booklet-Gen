@@ -1033,9 +1033,16 @@ main.wrap:has(> .card.narrow){
   display:flex;gap:var(--s3);align-items:baseline;
   font-size:var(--t-small);color:#4a5568;padding:3px 0;
 }
+/* Sized for two digits, because every plan is ten weeks long and so every
+ * plan ends on a two-digit chip. At 1.7em the numeral 10 was 13.4px of ink in
+ * a 20.4px circle, 3.5px clear on each side, which at this size means the
+ * chip vanishes behind its own number: the last row of every plan looked like
+ * a rendering fault. Tabular figures so the chips are also identical to each
+ * other rather than merely the same size. */
 .weekNo{
-  flex:none;width:1.7em;height:1.7em;border-radius:50%;background:#eef3fc;
+  flex:none;width:2.1em;height:2.1em;border-radius:50%;background:#eef3fc;
   color:var(--navy);font-weight:700;font-size:var(--t-micro);
+  font-variant-numeric:tabular-nums;
   display:inline-flex;align-items:center;justify-content:center;
 }
 .weekFocus{flex:1 1 auto;min-width:0}
