@@ -20,14 +20,18 @@ Return a single JSON object matching this schema exactly:
       "Step 3: how we structure the answer."
     ],
     "answer": "The final answer or model response.",
-    "diagram_spec": null
+    "diagram_spec": null,
+    "scene_spec": null,
+    "image_query": null
   },
   "guided_examples": [
     {
       "question": "A second short example the student works through with the tutor.",
       "steps": ["Step 1, what to look for, ending in [[what they find]].", "Step 2 ... [[value]]", "how we answer"],
       "answer": "[[The answer.]]",
-      "diagram_spec": null
+      "diagram_spec": null,
+      "scene_spec": null,
+      "image_query": null
     }
   ]
 }
@@ -48,7 +52,9 @@ CONTENT RULES
 - Any technical term you use in the lesson must be defined where it appears, in the same sentence or the next one. Do not use "literary device", "clause", "inference" or the like as though the student already has it. Define it the way the passage-writing rules define a hard word: inside the sentence that needs it.
 
 DIAGRAM FOR THE WORKED EXAMPLE
-Where the lesson is teaching a STRUCTURE, draw it. A lesson on the parts of a sentence, on how a text type is built, on the shape of a story, or on a family of related words has a figure available and reads as a wall of prose without it. A lesson on what a particular passage means does not: leave `worked_example.diagram_spec` null there.
+Always include `diagram_spec`, `scene_spec` and `image_query` on the worked example and every guided example, using null where a field does not apply and never more than one non-null field. A later batch visual planner makes the final choice. Where the lesson is teaching a STRUCTURE, draw it. A lesson on the parts of a sentence, on how a text type is built, on the shape of a story, or on a family of related words has a figure available and reads as a wall of prose without it. A lesson on what a particular passage means does not need a visual. A sequence may use a semantic Folio-owned `scene_spec` with template `timeline` or `reasoning_sequence`. `image_query` is only an editorial hint for separately licensed and human-reviewed material, and the lesson must work without it.
+
+`timeline` uses `segments` objects with `label` and `value`, plus `label`, `total`, `version`:1, `unit` and `unknown`. `reasoning_sequence` uses a `steps` list whose objects contain `shape`, `count` and `rotation`; shapes are `circle`, `square`, `triangle`, `star`, `diamond` or `?`. Replace any student-supplied step with `?`.
 
 - {"type":"sentence_parts","parts":[{"text":"The old brown dog","role":"subject"},{"text":"chased","role":"verb"},{"text":"the tennis ball","role":"object"}]}
   A whole sentence with a bracket under each named part, 2-5 parts, joining up in order. Use it to point at the part the lesson is naming.

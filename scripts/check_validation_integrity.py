@@ -117,11 +117,32 @@ assert turn.index("She stayed") < turn.index("[Question 0]"), \
     "the reading printed after the questions that depend on it"
 ok("the reading comes before the questions")
 
-print("\nA REPLACEMENT IS NEVER EASIER THAN WHAT IT REPLACED")
+client.calls.clear()
+visual = q("Use the labelled triangles to find EF.", "12")
+visual.diagram_spec = {
+    "type": "similar_triangles", "sides": [6, 5, 4], "scale": 2,
+    "unknown": ["d"],
+}
+judge.validate_batch("Mathematics", "Year 9", [visual])
+assert '"type": "similar_triangles"' in client.calls[-1]
+assert '"unknown": ["d"]' in client.calls[-1]
+ok("the existing batched judge receives diagram semantics")
+
+client.calls.clear()
+scene = q("A tree casts a 4 m shadow.", "6 m")
+scene.scene_spec = {
+    "template": "shadow_similarity", "version": 1, "unit": "m",
+    "objects": [{"id": "tree", "kind": "tree", "height": 6, "shadow": 4}],
+}
+judge.validate_batch("Mathematics", "Year 9", [scene])
+assert '"template": "shadow_similarity"' in client.calls[-1]
+ok("the same batched judge receives scene semantics")
+
+print("\nA SUBTOPIC HAS ONE VALIDATION BATCH")
 
 
 class ScriptedGenerator:
-    """Returns sets sorted easiest to hardest, as the real prompt requires."""
+    """Returns one final set, including one item the judge withholds."""
 
     def __init__(self):
         self.calls = 0
@@ -130,13 +151,8 @@ class ScriptedGenerator:
                  reference_chunks=None, teaching=None, classwork_count=None,
                  passage_quota=2, **kw):
         self.calls += 1
-        if self.calls == 1:
-            # Slot 3 is the hard one, and it is the one that fails below.
-            return QuestionSet(questions=[
-                q("easy 1"), q("medium 2"), q("hard 3"), q("hardest 4")])
         return QuestionSet(questions=[
-            q("fresh easy 1"), q("fresh medium 2"),
-            q("fresh hard 3"), q("fresh hardest 4")])
+            q("easy 1"), q("medium 2"), q("hard 3"), q("hardest 4")])
 
 
 def build_pipeline(generator):
@@ -163,17 +179,16 @@ pipe._judge = None
 pipe._retriever = None
 
 
+validation_calls = []
+
+
 def fake_validate_many(subject, year_level, questions, reference_chunks=None,
                        passages=None):
+    validation_calls.append(list(questions))
     return [ValidationResult(qq.question != "hard 3", "") for qq in questions]
 
 
-def fake_validate(subject, year_level, qq, reference_chunks=None, passages=None):
-    return ValidationResult(True, "")
-
-
 pipe._validate_many = fake_validate_many
-pipe._validate = fake_validate
 pipe._reasoning_reject = lambda subject, qq: False
 pipe._resolve_visual = lambda qq: (None, None)
 pipe._orphan_figure = lambda text, path: None
@@ -191,14 +206,14 @@ out = BookletPipeline._generate_and_validate(
     [], seen=seen,
 )
 texts = [vq.question.question for vq in out]
-assert "fresh easy 1" not in texts, (
-    "a failed hard question was replaced by the easiest question of a fresh "
-    f"set: {texts}")
-ok("a failed question is not replaced by the easiest question of a fresh set")
+assert pipe._generator.calls == 1, "a verdict triggered question regeneration"
+assert len(validation_calls) == 1 and len(validation_calls[0]) == 4, (
+    "a subtopic used more than one validation batch")
+ok("the final subtopic is generated once and validated once")
 
-assert any(t.startswith("fresh") for t in texts), \
-    f"nothing was regenerated at all, so the check proves nothing: {texts}"
-ok("the failed question really was replaced (the check is live)")
+hard = next(vq for vq in out if vq.question.question == "hard 3")
+assert hard.verified is False
+ok("an unverified item is retained without an unearned verification mark")
 
 print("\nVALIDATION STAYS BATCHED")
 
@@ -211,6 +226,24 @@ assert "self._validate(" not in src, (
     "the Final Challenge validates one question per call, which is the "
     "per-question pattern the project notes forbid")
 ok("the Final Challenge grades its whole set in one call, not one per question")
+
+generation_src = inspect.getsource(BookletPipeline._generate_and_validate)
+assert "self._validate(" not in generation_src, (
+    "subtopic regeneration contains a per-question validation call")
+assert generation_src.count("self._plan_question_visuals(") == 1, (
+    "a subtopic must plan visuals exactly once, after its final question set "
+    "is selected")
+planner_src = inspect.getsource(BookletPipeline._plan_question_visuals)
+assert planner_src.count("planner.plan(") == 1, (
+    "the shared visual-planning helper must make one batched planner call")
+assert generation_src.count("_validate_many(") == 1, (
+    "a subtopic must have exactly one validation call")
+ok("subtopics validate once and visual planning happens once")
+
+many_src = inspect.getsource(BookletPipeline._validate_many)
+assert "self._judge.validate(" not in many_src, (
+    "a failed validation batch expands into one judge call per question")
+ok("a failed judge batch fails closed instead of multiplying calls")
 
 print(f"\nALL {_passed} VALIDATION INTEGRITY CHECKS PASSED")
 sys.exit(0)

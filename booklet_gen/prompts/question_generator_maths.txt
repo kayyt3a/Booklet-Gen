@@ -9,7 +9,10 @@ Output rules:
         "question": string,   // the problem statement, plain text
         "answer": string,     // the final answer only (e.g. "x = 3", "7/12", "12.5")
         "working": string,    // brief step-by-step working, one step per line
-        "difficulty": "easy" | "medium" | "hard"
+        "difficulty": "easy" | "medium" | "hard",
+        "diagram_spec": object | null,
+        "scene_spec": object | null,
+        "image_query": string | null
       }
     ]
   }
@@ -36,10 +39,13 @@ Vary the questions within the set:
 - A question whose own text contains its answer is not the easy one, it is not a question at all. "A solid object is made by stacking 4 cubes in a single column, how many cubes are in the stack?" must be cut, not used to open the set.
 - Question 1 is the plainest, most direct form of the subtopic, the one a teacher would model on the board first.
 
-VISUAL DIAGRAMS (optional per question)
-Any question may include an OPTIONAL `diagram_spec` field. Pages of unbroken symbols are a wall a child bounces off, and a booklet with no figures at all reads as a word processor document rather than a maths book.
+VISUAL FIELDS
+Always include `diagram_spec`, `scene_spec` and `image_query`, using null where a field does not apply. A later batch visual planner makes the final visual choice, so write only a safe initial suggestion. Use at most one of the three fields on an item. `diagram_spec` is for exact mathematical representations. `scene_spec` is for a Folio-owned contextual illustration whose labels carry the stated givens. `image_query` is normally null in maths and is only an editorial search hint, never a promise that an external image will appear.
 
-REQUIRED COVERAGE: if the subtopic can be pictured at all, AT LEAST ONE THIRD of the questions in the set must carry a diagram_spec, and never fewer than two. These subtopics can always be pictured, so a set with no figures is wrong:
+VISUAL DIAGRAMS (optional per question)
+Any question may include an OPTIONAL `diagram_spec` or `scene_spec` field. Pages of unbroken symbols are a wall a child bounces off, and a booklet with no figures at all reads as a word processor document rather than a maths book.
+
+REQUIRED COVERAGE: if the subtopic can be pictured at all, AT LEAST HALF of its visualisable questions must carry a diagram_spec or scene_spec, and the set must have at least two meaningful visuals when it is long enough. These subtopics can always be pictured, so a set with no figures is wrong:
 
 Number and place value
 - column addition or subtraction, the vertical algorithm, carrying, borrowing, regrouping -> column_arithmetic. MANDATORY for every question in such a set, not one third: the layout IS the content of this subtopic, and "Calculate 3,425 + 2,163." printed as a bare line of text does not show the student the thing they are being taught. Set "show_answer":false on a question so the columns stand empty for them to fill in.
@@ -307,10 +313,20 @@ COMPARISON QUESTIONS, hard rules:
 Rules:
 - A diagram may show ONLY what the question states. Never label a value the student is being asked to find, or a value derived from it. A box question that asks how many layers high the box is must not be drawn with "2 blocks" up its side, and a question asking for the depth AFTER a change must not be drawn at the new depth.
 - Every dimension key of `cuboid`, `cylinder` and `rectangle` renders as a visible label, so a question whose unknown IS one of those dimensions cannot be illustrated without giving the answer away. Emit no diagram_spec for those.
-- If the question text refers to a figure at all ("this object", "the diagram below", "the shape shown"), a diagram_spec is MANDATORY. If you cannot build one from the types above, rewrite the question so it stands alone in words.
+- If the question text refers to a figure at all ("this object", "the diagram below", "the shape shown"), a matching diagram_spec or scene_spec is MANDATORY. If you cannot build one from the supported types, rewrite the question so it stands alone in words.
 - Label the diagram with the same numbers and units the question states. Never rescale: a tank stated as 40 cm long is labelled 40 cm, not 4 dm.
 - When the diagram carries the givens, phrase the question in terms of what it shows ("The figure below shows...", "What fraction is shaded?") rather than repeating every dimension in words.
 - Only use the exact type names and keys listed above. Any other structure is ignored and the question will render text-only.
+
+CONTEXTUAL SCENES
+Use `scene_spec` instead of a diagram when recognisable objects make the mathematical relationship clearer. Supported templates are `shadow_similarity`, `ladder_wall`, `shelves`, `ribbon_measure`, `race_progress`, `shopping`, `equal_groups_scene`, `scoreboard` and `garden`.
+
+A scene spec contains `template`, `version` and semantic facts only. It must never contain drawing coordinates, pixels, colours, fonts, style instructions or arbitrary SVG. Renderers decide presentation. For example:
+{"template":"shadow_similarity","version":1,"unit":"m","objects":[{"id":"reference","kind":"tree","height":6,"shadow":4},{"id":"target","kind":"tree","height":null,"shadow":10}],"unknown":{"object_id":"target","measure":"height","symbol":"x"}}
+
+Use these exact fact keys for other templates: `ladder_wall` has `height`, `base`, `ladder`, `angle`; `shelves` has a `shelves` list of objects with `label` and `count` or `value`; `ribbon_measure` and `race_progress` have `segments` objects with `label` and `value`, plus `total`; `shopping` has an `items` list with `label`, `price` and optional `count`; `equal_groups_scene` has numeric `groups`, numeric `each` and `kind`; `scoreboard` has a `teams` list with `label` and `value`; `garden` has `kind`, `length`, `width` and optional `path`. Every spec also has `version`:1, `unit` and `unknown`.
+
+Copy only values and units stated in the question. Unknown values stay null and their visible symbol must be `x` or `?`. Never include a calculated value, answer or working step. Use `similar_triangles` for a bare technical triangle pair and `shadow_similarity` when real objects and shadows are central to the context.
 - Every diagram-backed question must still have a numeric or symbolic `answer` that a student would write.
 
 AUSTRALIAN CONTEXT (NAPLAN)

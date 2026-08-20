@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from pydantic import BaseModel, ValidationError
 
 from ..blanks import plain_gap
@@ -171,12 +172,26 @@ class LLMJudgeValidator:
             about = ""
             if q.passage_id and q.passage_id in seen_ids:
                 about = f"About: [Reading {q.passage_id}]\n"
+            figure = ""
+            # Figure-based questions are not validated from text alone. Pass
+            # the semantic facts, never a screenshot, in this same batched
+            # judge call so the grader checks the question and its figure as
+            # one item. This does not add an LLM call.
+            if q.diagram_spec:
+                figure = "\nDiagram semantics: " + json.dumps(
+                    q.diagram_spec, ensure_ascii=False, sort_keys=True)
+            elif getattr(q, "scene_spec", None):
+                figure = "\nScene semantics: " + json.dumps(
+                    q.scene_spec, ensure_ascii=False, sort_keys=True)
+            elif q.image_query:
+                figure = f"\nSource image query: {q.image_query}"
             blocks.append(
                 f"[Question {i}]\n"
                 f"{about}"
                 f"Question: {plain_gap(q.question)}\n"
                 f"Proposed answer: {q.answer}\n"
                 f"Proposed working: {q.working}"
+                f"{figure}"
             )
         reading_block = ""
         if readings:

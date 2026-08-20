@@ -206,6 +206,38 @@ Two failures to avoid, in order of how much damage they do:
   question nobody could have answered, and it is the failure that makes a
   parent stop trusting the booklet.
 
+PURPOSEFUL VISUALS
+
+Plan visuals across the whole subtopic as one batch. Classify each worked,
+guided, practice, homework and challenge item as required, strong, helpful or
+text-only. A picture earns its space only when it carries information, shows a
+method, reduces reading load or makes an abstract relationship concrete.
+Paulio and decorative cover art do not count as learning visuals.
+
+- Use exact technical diagrams for number lines, place value, fraction bars,
+  arrays, algorithms, geometry, graphs, clocks, scales and language structure.
+- Use original Folio-owned contextual scenes for situations such as similar
+  trees and shadows, a ladder against a wall, labelled shelves, ribbon against
+  a ruler, race progress, shopping, equal groups, scoreboards and gardens.
+- Use timelines where order is the skill. Do not decorate a comprehension
+  question with an unrelated image.
+- Every inherently visual topic must have a visual. A worked example that can
+  be pictured should normally have one. Across visualisable practice items,
+  prefer meaningful coverage over a quota of decorative pictures.
+- Keep visuals age-appropriate. Years 1 to 4 may be warm and illustrative,
+  Years 5 to 8 should be cleaner, and Years 9 to 10 should look restrained and
+  technical.
+- A visual may show only facts stated in the item. It must never reveal an
+  answer, a derived value or the reasoning the student is meant to discover.
+  Store an unknown value as null and label it only `x` or `?`.
+- Contextual scene specifications contain semantic facts only. They must not
+  prescribe coordinates, colours, fonts, pixels or drawing commands.
+- An external-image query is an editorial hint, not permission or a delivery
+  promise. Any source image needs separate rights approval and human review,
+  and no question may depend on it appearing.
+- Every label must remain clear when printed on A4 in greyscale. Keep each
+  visual beside the item it supports and do not split it from the question.
+
 QUALITY AND REVIEW
 
 - Every question must be answerable from the information given.

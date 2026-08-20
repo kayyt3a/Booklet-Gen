@@ -87,10 +87,19 @@ class Question(BaseModel):
     # leave this as None.
     marks: Optional[int] = None
     # Optional visual: only one of these is populated per question.
-    # Maths: diagram_spec triggers a matplotlib-rendered figure.
-    # English/Science: image_query triggers a Wikimedia Commons lookup.
+    # Maths: diagram_spec triggers a precise programmatic figure.
+    # Contextual maths and cross-curricular questions use scene_spec, which
+    # composes Folio-owned illustrated objects with exact labels.
+    # English/Science may use image_query for a rights-safe source image.
     diagram_spec: Optional[dict] = None
+    scene_spec: Optional[dict] = None
     image_query: Optional[str] = None
+    # Set by the visual planner after the final question set has been chosen.
+    # The pipeline enforces `required` only after a real render attempt, since
+    # a plausible JSON spec is not evidence that a printable figure exists.
+    visual_priority: Literal["required", "strong", "helpful", "text-only"] = \
+        "text-only"
+    visual_reason: Optional[str] = None
 
 
 class QuestionSet(BaseModel):
@@ -118,8 +127,11 @@ class WorkedExample(BaseModel):
     steps: List[str] = Field(default_factory=list)
     answer: str
     diagram_spec: Optional[dict] = None
+    scene_spec: Optional[dict] = None
+    image_query: Optional[str] = None
     # Resolved after rendering.
     image_path: Optional[str] = None
+    image_attribution: Optional[str] = None
 
 
 class SubtopicTeaching(BaseModel):

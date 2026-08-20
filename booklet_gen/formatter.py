@@ -891,6 +891,13 @@ MAX_IMG_WIDTH = 7.5 * cm
 MAX_IMG_HEIGHT = 4.8 * cm
 WE_IMG_WIDTH = 6 * cm
 WE_IMG_HEIGHT = 4 * cm
+# Context scenes carry several labelled relationships and need more horizontal
+# room than a single abstract shape. The renderer uses these exact print boxes
+# when sizing its type, so labels remain readable without looking oversized.
+SCENE_IMG_WIDTH = 12 * cm
+SCENE_IMG_HEIGHT = 6.2 * cm
+WE_SCENE_IMG_WIDTH = 9 * cm
+WE_SCENE_IMG_HEIGHT = 5 * cm
 
 
 def _image_reader(path: str | None):
@@ -1094,7 +1101,12 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
             spec_html = strip_markers(spec_html)
         inner.append(Paragraph(f'"{spec_html}"', styles["we_specimen"]))
         inner.append(Spacer(1, 0.2 * cm))
-    img = _make_image(we.image_path, max_w=WE_IMG_WIDTH, max_h=WE_IMG_HEIGHT)
+    if getattr(we, "scene_spec", None):
+        img = _make_image(we.image_path, max_w=WE_SCENE_IMG_WIDTH,
+                          max_h=WE_SCENE_IMG_HEIGHT)
+    else:
+        img = _make_image(we.image_path, max_w=WE_IMG_WIDTH,
+                          max_h=WE_IMG_HEIGHT)
     if img is not None:
         inner.append(Spacer(1, 0.15 * cm))
         inner.append(img)
@@ -1600,7 +1612,11 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
     if specimen:
         block.append(Paragraph(f'"{blank_out(_escape(specimen))}"',
                                styles["question_specimen"]))
-    img = _make_image(vq.image_path)
+    if getattr(vq.question, "scene_spec", None):
+        img = _make_image(vq.image_path, max_w=SCENE_IMG_WIDTH,
+                          max_h=SCENE_IMG_HEIGHT)
+    else:
+        img = _make_image(vq.image_path)
     if img is not None:
         block.append(Spacer(1, 0.3 * cm))
         block.append(img)
@@ -2605,9 +2621,20 @@ def image_credits(data: BookletData) -> list[str]:
     which a failed download leaves behind anyway.
     """
     seen, out = set(), []
-    for vq in all_questions(data):
-        credit = (getattr(vq, "image_attribution", None) or "").strip()
-        if not image_is_usable(vq.image_path) or not credit or credit in seen:
+    visual_items = list(data.recap_questions)
+    for section in data.sections:
+        if section.teaching is not None:
+            visual_items.extend([
+                section.teaching.worked_example,
+                *section.teaching.guided_examples,
+            ])
+        visual_items.extend(section.questions)
+    for section in data.sections:
+        visual_items.extend(section.homework_questions)
+    visual_items.extend(data.challenge_questions)
+    for item in visual_items:
+        credit = (getattr(item, "image_attribution", None) or "").strip()
+        if not image_is_usable(item.image_path) or not credit or credit in seen:
             continue
         seen.add(credit)
         out.append(credit)
@@ -2737,7 +2764,11 @@ def _exam_question_block(styles, q_num: int, vq: ValidatedQuestion, body_width: 
     ]))
     block = [row]
 
-    img = _make_image(vq.image_path)
+    if getattr(vq.question, "scene_spec", None):
+        img = _make_image(vq.image_path, max_w=SCENE_IMG_WIDTH,
+                          max_h=SCENE_IMG_HEIGHT)
+    else:
+        img = _make_image(vq.image_path)
     if img is not None:
         block.append(Spacer(1, 0.3 * cm))
         block.append(img)

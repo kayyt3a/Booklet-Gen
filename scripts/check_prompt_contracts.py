@@ -12,6 +12,7 @@ Run: python scripts/check_prompt_contracts.py
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -148,8 +149,14 @@ print("-" * 62)
 # photograph is worth.
 from booklet_gen.visuals.wikimedia import query_is_refused   # noqa: E402
 
-for name in [p for p in PROMPTS if "image_query" in
-             (PROMPT_DIR / p).read_text(encoding="utf-8")]:
+IMAGE_QUERY_AUTHORS = [
+    "question_generator_english.txt",
+    "question_generator_science.txt",
+    "challenge_generator_english.txt",
+    "challenge_generator_science.txt",
+    "visual_planner.txt",
+]
+for name in IMAGE_QUERY_AUTHORS:
     body = (PROMPT_DIR / name).read_text(encoding="utf-8")
     check(bool(re.search(r"OBJECT, ANIMAL|Never people", body)),
           f"{name} tells the model to name a thing, not a person")
@@ -164,6 +171,109 @@ for q in ALLOWED:
 for q in REFUSED:
     check(query_is_refused(q), f"{q!r} is refused before the search runs")
 check(not query_is_refused(""), "an empty query is handled without blowing up")
+
+
+print("\nPurposeful visuals are planned as a safe batch")
+print("-" * 62)
+planner = (PROMPT_DIR / "visual_planner.txt").read_text(encoding="utf-8")
+check("one complete batch" in planner and "never one call per question" in planner,
+      "the visual planner is one batched call")
+for level in ("required", "strong", "helpful", "text-only"):
+    check(level in planner, f"the visual planner defines {level!r}")
+for field in ("diagram_spec", "scene_spec", "image_query"):
+    check(field in planner, f"the visual planner returns {field}")
+check("must not contain `answer` or `working`" in planner,
+      "answers and working are never sent to the visual planner")
+check("Never infer, calculate, request, repeat or encode an answer" in planner,
+      "the visual planner cannot encode answers")
+check("semantic facts" in planner and "coordinates" in planner,
+      "scene specs contain semantic facts rather than drawing instructions")
+check(bool(re.search(r"Unknown values stay null|unknown value stays null", planner,
+                     re.IGNORECASE)),
+      "unknown scene values stay null")
+check("exactly `x` or `?`" in planner,
+      "unknown scene labels stay x or question mark")
+
+SCENE_TEMPLATES = [
+    "shadow_similarity", "ladder_wall", "shelves", "ribbon_measure",
+    "race_progress", "shopping", "equal_groups_scene", "scoreboard",
+    "garden", "timeline", "science_process", "force_scene", "circuit",
+    "particle_model", "life_cycle", "reasoning_sequence", "logic_grid",
+]
+for template in SCENE_TEMPLATES:
+    check(f"`{template}`" in planner,
+          f"the visual planner knows the {template} scene")
+
+from booklet_gen.visuals.scene_specs import normalise_scene_spec  # noqa: E402
+
+prefix = "{\"template\""
+scene_examples = [part for line in planner.splitlines()
+                  for part in line.split("`") if part.startswith(prefix)]
+validated_templates = []
+for example in scene_examples:
+    try:
+        validated_templates.append(normalise_scene_spec(json.loads(example))["template"])
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+check(len(validated_templates) == 16,
+      "every compact scene example passes the real scene validator",
+      f"{len(validated_templates)} of 16")
+check(all(t in validated_templates for t in SCENE_TEMPLATES
+          if t != "shadow_similarity"),
+      "the validated examples cover every non-shadow scene template")
+check('"template": "shadow_similarity"' in planner
+      and '"height": null' in planner and '"symbol": "x"' in planner,
+      "the shadow example preserves its unknown instead of solving it")
+
+check("similar_triangles" in planner and "column_arithmetic" in planner,
+      "the planner retains existing technical diagrams")
+check("source-rights approval and human review" in planner,
+      "external images require rights approval and human review")
+
+
+print("\nEvery content stage has the same visual schema")
+print("-" * 62)
+VISUAL_STAGE_PROMPTS = (
+    QUESTION_GENERATORS
+    + INTRO_WRITERS
+    + [p for p in PROMPTS if p.startswith("challenge_generator_")]
+    + ["exam_generator_methods.txt"]
+)
+for name in VISUAL_STAGE_PROMPTS:
+    body = (PROMPT_DIR / name).read_text(encoding="utf-8")
+    for field in ("diagram_spec", "scene_spec", "image_query"):
+        check(field in body, f"{name} carries {field}")
+    check(bool(re.search(r"Always include `diagram_spec`, `scene_spec` and `image_query`",
+                         body)),
+          f"{name} makes all visual fields explicit")
+
+
+print("\nClean-room imagery stays honest")
+print("-" * 62)
+guidance_dir = Path(__file__).resolve().parent.parent / "booklet_gen" / "guidance"
+visual_contract_files = [PROMPT_DIR / p for p in PROMPTS]
+visual_contract_files += [
+    guidance_dir / "accelerate_practice.txt",
+    guidance_dir / "naplan_practice.txt",
+]
+dead_promises = []
+for path in visual_contract_files:
+    body = path.read_text(encoding="utf-8")
+    for phrase in ("We search Wikimedia", "look these up on Wikimedia",
+                   "print the top free-licensed"):
+        if phrase.lower() in body.lower():
+            dead_promises.append(f"{path.name}: {phrase}")
+check(not dead_promises,
+      "no prompt promises that Wikimedia will supply production imagery",
+      str(dead_promises[:3]))
+for name in ("accelerate_practice.txt", "naplan_practice.txt"):
+    body = (guidance_dir / name).read_text(encoding="utf-8")
+    check("PURPOSEFUL VISUALS" in body,
+          f"{name} has curriculum-wide visual guidance")
+    check("required, strong, helpful or" in body,
+          f"{name} carries visual priority classes")
+    check("semantic facts only" in body and "rights approval" in body,
+          f"{name} pins scene and image rights safety")
 
 
 print("\nWord problems are set in something a child cares about")

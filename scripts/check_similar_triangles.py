@@ -14,16 +14,16 @@ scale factor, and there is no way to ask for anything else.
     PYTHONPATH=. python scripts/check_similar_triangles.py
 """
 import math
-import shutil
 import sys
+import tempfile
+from pathlib import Path
 
 from booklet_gen.visuals import diagrams
 
-# Diagrams are cached on a hash of their spec, so a spec that rendered once
-# keeps returning that file even after the renderer changes. Without this the
-# refusal checks below pass on a stale image from an earlier run, which is
-# exactly how a broken renderer would slip through unnoticed.
-shutil.rmtree(diagrams.CACHE_DIR, ignore_errors=True)
+# Use an isolated system-temporary cache so this check never clears the
+# production cache inside the OneDrive workspace.
+_cache = tempfile.TemporaryDirectory(prefix="folio-similar-triangles-")
+diagrams.CACHE_DIR = Path(_cache.name)
 
 _passed = 0
 
@@ -107,9 +107,32 @@ assert _dim_label(s, "d", 12.0, " cm") == "12 cm", (
     "a known side lost its measurement")
 ok("the asked-for side prints as unknown and the rest keep their numbers")
 
-print("\nTHE PROMPTS CAN ACTUALLY ASK FOR IT")
+print("\nTHE PIPELINE HIDES A NAMED UNKNOWN EVEN IF THE MODEL FORGETS")
 
-from pathlib import Path  # noqa: E402
+from booklet_gen.agents.consistency import reconcile_diagram_spec  # noqa: E402
+
+fixed, changed = reconcile_diagram_spec(
+    spec(unknown=[]),
+    "Triangles ABC and DEF are similar. Find the length of EF.",
+)
+assert changed and fixed.get("unknown") == ["d"], fixed
+ok("find EF deterministically hides renderer side d")
+
+fixed, changed = reconcile_diagram_spec(
+    spec(unknown=[]),
+    "Triangles ABC and DEF are similar. Calculate side AC.",
+)
+assert changed and fixed.get("unknown") == ["b"], fixed
+ok("find AC deterministically hides renderer side b")
+
+fixed, changed = reconcile_diagram_spec(
+    spec(unknown=[]),
+    "Triangles ABC and DEF are similar. AB is 4 cm and DE is 8 cm. Find EF.",
+)
+assert changed and fixed.get("unknown") == ["d"], fixed
+ok("asking for EF hides only EF and leaves the stated AB and DE visible")
+
+print("\nTHE PROMPTS CAN ACTUALLY ASK FOR IT")
 
 prompt = Path("booklet_gen/prompts/question_generator_maths.txt").read_text()
 assert "similar_triangles" in prompt, (

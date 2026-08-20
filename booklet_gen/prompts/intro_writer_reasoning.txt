@@ -20,14 +20,18 @@ Return a single JSON object matching this schema exactly:
       "Step 3: how to work through it once you've spotted the trick."
     ],
     "answer": "The final answer.",
-    "diagram_spec": null
+    "diagram_spec": null,
+    "scene_spec": null,
+    "image_query": null
   },
   "guided_examples": [
     {
       "question": "A second short example, a different trick of the same type.",
       "steps": ["Step 1 ... [[what they work out]]", "Step 2 spot the pattern: [[the pattern]]", "reach the answer"],
       "answer": "[[The answer.]]",
-      "diagram_spec": null
+      "diagram_spec": null,
+      "scene_spec": null,
+      "image_query": null
     }
   ]
 }
@@ -49,6 +53,8 @@ CONTENT RULES
 CRITICAL: clean final steps only:
 The `steps` are a polished teaching explanation, not your scratch work. NEVER include self-correction, second-guessing, or phrases like "wait", "let me re-read", "that contradicts", "actually", or "on second thought". If while solving you realise the example is flawed or you made an error, FIX the example and write clean steps for the corrected version. The student must see a confident, correct, linear explanation, never your reasoning stumbles.
 
-`worked_example.diagram_spec` should stay null for Verbal Reasoning. For Quantitative Reasoning it may occasionally use a simple `number_line` spec if it genuinely clarifies a pattern, otherwise leave null.
+Always include `diagram_spec`, `scene_spec` and `image_query` on the worked example and every guided example, using null where a field does not apply and never more than one non-null field. A later batch visual planner makes the final choice. Verbal Reasoning is usually text-only. Quantitative Reasoning may use an exact number-line diagram. Spatial and logic teaching may use semantic Folio-owned scene templates `reasoning_sequence` or `logic_grid`. Never encode the hidden rule or answer. `image_query` is only an editorial hint and is normally null.
+
+`reasoning_sequence` uses `steps` objects containing `shape`, `count` and `rotation`; shapes are `circle`, `square`, `triangle`, `star`, `diamond` or `?`. `logic_grid` uses string lists `rows` and `columns`, plus a `marks` list whose objects contain logical `row`, `column` and `mark` values. Every spec also has `template`, `version`:1, `unit` and `unknown`. Include clue marks only, never the solved grid. Replace a student-supplied sequence step with `?`.
 
 Return ONLY the JSON. No prose, no markdown fences.
