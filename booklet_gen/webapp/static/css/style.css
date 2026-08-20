@@ -818,6 +818,13 @@ main.wrap:has(> .card.narrow){
    * hand and was already out of sync. */
   :root{--t-hero:32px; --t-figure:30px; --t-h1:26px; --t-h2:20px; --t-lead:16px}
   header{padding:0 var(--s3)}
+  /* The nav wraps onto a second row here, and that row used to end flush with
+   * the header's bottom edge. Two things sat on that edge: the active link's
+   * orange underline, whose rounded ends were sliced flat so it read as a
+   * smudge rather than as a rule, and the white "Sign up" pill, which had
+   * 25px of navy above it and 2px below. One row of breathing space under the
+   * wrapped nav is the whole fix for both. */
+  .headerInner{padding-bottom:var(--s3)}
   .signedIn .headerInner{padding-top:var(--s2);row-gap:var(--s1)}
   .signedIn .brandTag{display:none}
   .signedIn .nav{

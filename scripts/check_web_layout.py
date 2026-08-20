@@ -167,6 +167,34 @@ with sync_playwright() as pw:
               f"{width}px viewport, {scroll}px document")
         ctx.close()
 
+    # -----------------------------------------------------------------------
+    print("\nThe wrapped nav row is not sliced by the header's own edge")
+    print("-" * 62)
+    # At 390 the nav wraps to a second row whose bottom was the header's
+    # bottom. The active link's underline is a 2px rule with 6px rounded ends,
+    # so being cut off at the header edge left a flat orange smudge; the white
+    # "Sign up" pill had 25px of navy above it and 2px below.
+    for path, signed_in in (("/pricing", False), ("/login", False),
+                            ("/library", True)):
+        ctx, page = open_page(390, signed_in=signed_in)
+        page.goto(BASE + path)
+        page.wait_for_load_state("networkidle")
+        header = box(page, "header")
+        rows = boxes(page, ".nav a, .navForm button")
+        wrapped = [r for r in rows if r["h"] > 0]
+        gap = min(header["bottom"] - r["bottom"] for r in wrapped)
+        check(gap >= 6, f"{path}: the nav row clears the header edge",
+              f"{gap:.0f}px below the lowest nav item")
+        pill = box(page, ".navCta")
+        if pill and pill["h"] > 0:
+            below = header["bottom"] - pill["bottom"]
+            # It cannot be centred in a two-row header, and it is not asked to
+            # be: it has to have navy under it rather than the header's edge.
+            check(below >= 8,
+                  f"{path}: the Sign up pill sits in the bar, not on its edge",
+                  f"{below:.0f}px of bar below it")
+        ctx.close()
+
     browser.close()
 
 # ---------------------------------------------------------------------------
