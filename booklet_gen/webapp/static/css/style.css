@@ -507,6 +507,43 @@ a.link{color:var(--navy);font-weight:600}
   .paulioRow>*{flex-basis:auto}
 }
 
+/* ---- the mascot on a page someone came to use ----
+ * Paulio at 220-320px is right where charm is the job: the landing page, the
+ * wait, the empty state. On Create, Study plans, My booklets and Account he
+ * was the same size, and he was eating the product. On My booklets at 1440 he
+ * stood 230x367 with the page title centred against his midriff, and an
+ * account with five booklets did not reach its first row until y=790 in a 900
+ * px window: a returning customer saw a bear and no booklets. On Create at
+ * 390 the first form control sat about 1.7 screens down a page whose entire
+ * job is one form.
+ *
+ * So on those four pages he is a margin figure at 96px, and the heading is
+ * top-aligned rather than centred against him. He is still there, still
+ * speaking, and the page starts with what the page is for.
+ */
+.pageHead{align-items:flex-start;gap:var(--s5)}
+.pageHead .paulioStd,.pageHead .paulioDesk{width:96px;margin-bottom:var(--s1)}
+.pageHead .paulioBubble{
+  max-width:150px;font-size:var(--t-micro);padding:var(--s1) var(--s2);
+  margin-top:var(--s1);
+}
+.pageHead > *{flex:1 1 240px}
+.pageHead .paulioWith{flex:0 0 auto}
+@media (max-width:700px){
+  /* Beside the heading rather than above it: at 96px he no longer needs a row
+   * of his own, and stacking him would put a bear between the customer and
+   * the first field again, in a smaller size. */
+  .pageHead{flex-direction:row;gap:var(--s4)}
+  /* Basis 0 rather than a width: a 240px basis plus a 78px mascot is 318px of
+   * hypothetical width in a 316px card, so the row wrapped by two pixels and
+   * dropped him onto a line of his own. */
+  .pageHead > *{flex:1 1 0;min-width:0}
+  .pageHead .paulioWith{flex:0 0 auto}
+  .pageHead .paulioStd,.pageHead .paulioDesk{width:78px}
+  .pageHead .paulioBubble{display:none}
+}
+
+
 /* ---- landing ----
  * A band, not a card. Every section of the site used to be the same rounded
  * white rectangle at the same width, so at squint distance the page was four

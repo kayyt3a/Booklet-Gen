@@ -275,6 +275,53 @@ with sync_playwright() as pw:
                   f"gaps {gaps}, spread {spread:.0f}px")
         ctx.close()
 
+    # -----------------------------------------------------------------------
+    print("\nOn a page someone came to use, the page comes first")
+    print("-" * 62)
+    # Paulio was 220-320px on Create, Study plans, My booklets and Account,
+    # with the page title vertically centred against him. The result: a
+    # library of five booklets whose first row began at y=790 in a 900px
+    # window, and a one-form page whose first control sat 1173px down.
+    for path in ("/", "/plans", "/library", "/account"):
+        for width in (390, 1440):
+            ctx, page = open_page(width, signed_in=True)
+            page.goto(BASE + path)
+            page.wait_for_load_state("networkidle")
+            # Selectors name the row that has always been there, not the
+            # modifier class this fix introduced, so the same measurements
+            # run against the old markup.
+            bear = box(page, ".paulioRow img")
+            card = box(page, ".paulioRow")
+            title = box(page, ".paulioRow h1")
+            check(bear is not None and bear["w"] <= 120,
+                  f"{path} at {width}: the mascot is a margin figure",
+                  f"{bear['w']:.0f}px wide" if bear else "no mascot found")
+            # Top-aligned, not floated in the middle of a tall bear.
+            drop = (title["y"] - card["y"]) if title and card else 999
+            check(drop <= 12,
+                  f"{path} at {width}: the page title starts at the top of "
+                  "its card", f"{drop:.0f}px down")
+            ctx.close()
+
+    ctx, page = open_page(1440, 900, signed_in=True)
+    page.goto(BASE + "/library")
+    page.wait_for_load_state("networkidle")
+    first = box(page, ".jobItem")
+    # 542 with the old header block, in a 900px window: the customer saw a
+    # bear, a speech bubble and the top of one row. 450 leaves the mascot
+    # room to exist and still puts two booklets on the first screen.
+    check(first["y"] < 450, "a returning customer sees their booklets without "
+                            "scrolling", f"first row at y={first['y']:.0f}")
+    ctx.close()
+
+    ctx, page = open_page(390, signed_in=True)
+    page.goto(BASE + "/")
+    page.wait_for_load_state("networkidle")
+    control = box(page, ".programOption label")
+    check(control["y"] < 844, "the create form's first choice is on the first "
+                              "screen", f"y={control['y']:.0f} in an 844px viewport")
+    ctx.close()
+
     browser.close()
 
 # ---------------------------------------------------------------------------
