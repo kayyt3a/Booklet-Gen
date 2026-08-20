@@ -98,6 +98,9 @@ with app.app_context():
         db.create_job(job, uid, label, units=1)
         db.finish_job(job, path=str(_tmp / "output" / f"{job}.pdf"))
         db.save_job_file(job, uid, "folio.pdf", "application/pdf", b"%PDF x")
+    # A job still running, for the progress page's waiting state.
+    db.create_job("layout-running", uid,
+                  "Academic Accelerate - Year 5 - Mathematics - Ella", units=1)
     # A plan is always ten weeks (programs.TERM_PLAN_WEEKS), so every plan
     # ends on a two-digit week chip. The ladder is written out here rather
     # than planned, because planning it would need a live model.
@@ -442,6 +445,53 @@ with sync_playwright() as pw:
         check(drift <= 8,
               f"{width}px: and it is centred like the bubble above it",
               f"{drift:.0f}px off centre")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe paper plane and its contrail are one object")
+    print("-" * 62)
+    # They were two SVGs in a flex row, each with its own coordinate space and
+    # one of them nudged with a translate, so the dashed trail ended about
+    # 16px left and 7px above the plane's tail, at a different angle. Two
+    # objects near each other, not one thing in motion.
+    #
+    # Measured at the geometry, not the boxes: the end point of the dashed
+    # path and the end point of the plane's spine (its tail) are both exact
+    # points on real SVG paths, in both the old markup and the new.
+    JOIN = """() => {
+        const paths = [...document.querySelectorAll('.flight path')];
+        const pt = (p, len) => {
+            const q = p.getPointAtLength(len);
+            const m = p.getScreenCTM();
+            return {x: q.x * m.a + q.y * m.c + m.e,
+                    y: q.x * m.b + q.y * m.d + m.f};
+        };
+        const trail = paths.find(
+            p => getComputedStyle(p).strokeDasharray !== 'none');
+        const spine = paths.find(
+            p => (p.getAttribute('d') || '').replace(/\\s+/g, '')
+                                            .includes('M284L1318'));
+        if (!trail || !spine) { return null; }
+        const a = pt(trail, trail.getTotalLength());
+        const b = pt(spine, spine.getTotalLength());
+        return {dx: b.x - a.x, dy: b.y - a.y,
+                svgs: document.querySelectorAll('.flight svg').length};
+    }"""
+    for width in (390, 1440):
+        ctx, page = open_page(width, signed_in=True)
+        page.goto(BASE + "/progress/layout-running")
+        page.wait_for_selector(".flight", state="visible", timeout=8000)
+        join = page.evaluate(JOIN)
+        check(join is not None, f"{width}px: the flight motif is drawn")
+        if join:
+            check(abs(join["dx"]) <= 4 and abs(join["dy"]) <= 4,
+                  f"{width}px: the trail ends where the plane begins",
+                  f"{join['dx']:.0f}px across, {join['dy']:.0f}px up")
+        bubble = box(page, "#working .paulioBubble")
+        motif = box(page, ".flight svg")
+        check(overlap(bubble, motif) == 0,
+              f"{width}px: and it does not fly through the speech bubble",
+              f"{overlap(bubble, motif):.0f} sq px shared")
         ctx.close()
 
     browser.close()

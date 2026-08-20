@@ -36,6 +36,31 @@
 </svg>
 {%- endmacro %}
 
+{# The plane and the path it has flown, in one drawing.
+   They used to be two SVGs sitting next to each other in a flex row, each
+   with its own coordinate space and one of them nudged into place with a
+   translate. The trail ended about 16px left and 7px above where the plane
+   began, at a different angle, so the wait was watched over by two objects
+   rather than by one object in motion. Drawn together, the trail ends exactly
+   at the plane's tail and runs into it along the plane's own axis, because
+   both are measured in the same viewBox. #}
+{% macro flight(width=170) -%}
+<svg class="motif flightPath" width="{{ width }}" height="{{ (width * 44 / 130) | round | int }}"
+     viewBox="0 0 130 44" fill="none" aria-hidden="true">
+  {# The last segment is a straight run at the plane's own angle (the plane
+     points along (24, -10.5) in its own 32-unit box), so the join is smooth
+     by construction rather than by eye. #}
+  <path class="ink-pale" stroke="currentColor" stroke-width="1.6"
+        stroke-linecap="round" stroke-dasharray="3 5"
+        d="M4 36C14 36 18 18 32 18C46 18 50 34 64 34C76 34 82 30 94 25.4L106 20.4"/>
+  <g class="ink-navy" transform="translate(93 2.4)">
+    <path d="M28 4L4 14.5l9 3.5 3.5 9z" fill="currentColor"/>
+    <path d="M28 4L13 18" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
+{%- endmacro %}
+
 {# The plane's dashed trail. Wide and short, meant to sit under or beside it. #}
 {% macro trail(width=90, cls='') -%}
 <svg class="motif {{ cls }}" width="{{ width }}" height="24" viewBox="0 0 90 24"

@@ -936,10 +936,12 @@ main.wrap:has(> .card.narrow){
  * percentage would be a number we invented; a moving bar says "still working"
  * without claiming to know how far along it is.
  */
-/* The plane and its trail above the heading, so the wait has something to look
- * at that is not a bar. */
-.flight{display:flex;align-items:center;gap:0;margin-bottom:var(--s4)}
-.flight .motif:last-child{transform:translate(-8px,-7px)}
+/* The plane and its trail above the bar, so the wait has something to look at
+ * that is not a bar. One drawing (see _motifs.html flight()), centred like
+ * the mascot and the bubble above it: it used to be two SVGs in a flex row
+ * with the plane nudged by a translate, which is how the trail ended up
+ * ending 16px short of the plane it belonged to. */
+.flight{display:flex;justify-content:center;margin:var(--s4) 0}
 .ink-green{color:var(--green)}
 /* The success line. Centred, because the mascot and his bubble directly above
  * it are centred, and a lone left-aligned tick under two centred things reads
