@@ -28,11 +28,8 @@ from .style import (
     _pixel_axes,
     _px,
     _width_budget,
+    save_figure,
 )
-
-
-
-
 
 
 def _wrap(slots: list[float], gap: float, budget: float) -> list[list[int]]:
@@ -51,10 +48,7 @@ def _wrap(slots: list[float], gap: float, budget: float) -> list[list[int]]:
 
 
 def _save(fig, out: Path) -> None:
-    import matplotlib.pyplot as plt
-
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.10, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.10)
 
 
 # ---------------------------------------------------------------------------

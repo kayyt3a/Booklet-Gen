@@ -22,6 +22,7 @@ from .style import (
     SHADE_COLOR,
     _finish,
     _Fonts,
+    save_figure,
     _pretty_num,
 )
 
@@ -32,10 +33,7 @@ SERIES_FILLS = (SHADE_COLOR, "#7FA8CC", "#C05621", "#9BB7A0")
 
 
 def _save(fig, out: Path) -> None:
-    import matplotlib.pyplot as plt
-
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.10, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.10)
 
 
 def _frame(ax, f: _Fonts, x_label: str = "", y_label: str = "") -> None:

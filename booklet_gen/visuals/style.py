@@ -166,14 +166,41 @@ def _unit_suffix(spec: dict) -> str:
     return f" {unit}" if unit else ""
 
 
-def _finish(fig, ax, out, pad: float = 0.08) -> None:
-    """Every renderer ends the same way: equal aspect, no axes, tight save."""
+# Every figure in the product is saved with a TRANSPARENT background, and this
+# is the one place that decides it.
+#
+# A diagram used to save on an opaque white canvas. On a plain question page
+# nobody could tell. Inside the worked example, whose panel is tinted, the
+# figure printed as a hard-edged white rectangle with a visible seam on all
+# four sides: the single most obvious "assembled from parts" mark in the whole
+# booklet, and the guided box is white while the worked example is tinted, so
+# the same figure meets both.
+#
+# The alternative was to pass the containing box's fill through to the figure's
+# facecolor. That is worse, and the reason is the cache. Diagrams are cached on
+# a hash of their spec, and the same spec is drawn both inside the tinted box
+# and on a white question page. A background that depends on where the figure
+# lands has to be part of the cache key, or the first caller decides what every
+# later caller gets, and the seam comes back inverted. Transparent needs no
+# context, so one cached file is correct on any background, now and for any
+# background this product grows later.
+#
+# Only the figure and axes patches go transparent. A white patch a renderer
+# drew ON PURPOSE, like the face of a solid or the card behind a label, is an
+# artist and keeps its fill.
+def save_figure(fig, out, pad: float = 0.08) -> None:
+    """Save a finished figure: tight bounds, transparent background, closed."""
     import matplotlib.pyplot as plt
 
+    fig.savefig(out, bbox_inches="tight", pad_inches=pad, transparent=True)
+    plt.close(fig)
+
+
+def _finish(fig, ax, out, pad: float = 0.08) -> None:
+    """Every renderer ends the same way: equal aspect, no axes, tight save."""
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=pad, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, pad)
 
 
 def _pixel_axes(width_in: float, height_in: float):
