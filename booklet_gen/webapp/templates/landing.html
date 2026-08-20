@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_motifs.html" import heroWaves, pencil, book, hexagon, triangle, check %}
+{% from "_motifs.html" import heroWaves, pencil, book, hexagon, triangle, check, magnifier %}
 {% block title %}FolioAI - printable practice booklets for Years 1 to 10{% endblock %}
 {% block body %}
 
@@ -32,6 +32,21 @@
   </div>
 </section>
 
+{# The covers, before anything else on the page describes the product. They
+   are rendered by the same code that draws the cover of a bought booklet
+   (scripts/build_cover_samples.py), so this is the object itself rather than
+   an illustration of it. #}
+<section class="coverBand">
+  <div class="coverFan">
+    {% for c in cover_samples[:3] %}
+      <img class="coverShot" src="{{ url_for('static', filename=c.file) }}"
+           width="760" height="1075" alt="{{ c.alt }}">
+    {% endfor %}
+  </div>
+  <p class="coverCaption">Every booklet opens with a cover like this, carrying
+    the student&rsquo;s own name and topic.</p>
+</section>
+
 <section class="sampleBand" id="sample">
   <div class="sample">
     <div class="sampleText">
@@ -48,12 +63,18 @@
     </div>
     <a class="sampleLink" href="{{ url_for('static', filename='img/sample-page.png') }}"
        target="_blank" rel="noopener" aria-label="Open the sample booklet page full size">
-      <img class="sampleShot" width="620" height="877"
-           src="{{ url_for('static', filename='img/sample-page.png') }}"
-           alt="A page from a Year 3 maths booklet: a short division worked
-                through in full, then the same method again with gaps for the
-                student to fill in, then three practice questions with ruled
-                answer lines.">
+      {# The shot cannot be shown at a size where its own text is readable and
+         still fit beside the list, so the link says plainly that it opens
+         bigger rather than leaving a parent to squint at a thumbnail. #}
+      <span class="sampleFrame">
+        <img class="sampleShot" width="620" height="877"
+             src="{{ url_for('static', filename='img/sample-page.png') }}"
+             alt="A page from a Year 3 maths booklet: a short division worked
+                  through in full, then the same method again with gaps for the
+                  student to fill in, then three practice questions with ruled
+                  answer lines.">
+        <span class="zoomChip">{{ magnifier(15) }} Click to enlarge</span>
+      </span>
       <span>Open full-size sample</span>
     </a>
   </div>

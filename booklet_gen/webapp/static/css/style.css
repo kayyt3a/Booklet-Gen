@@ -572,9 +572,24 @@ a.link{color:var(--navy);font-weight:600}
   /* min-width:0 matters: a flex item defaults to min-width:auto, which for an
    * image is its intrinsic width. At 620px intrinsic that refused to shrink
    * and shoved itself onto its own row under the text. */
-  flex:0 1 320px;width:320px;min-width:0;color:var(--navy);text-align:center;
+  flex:0 1 400px;width:400px;min-width:0;color:var(--navy);text-align:center;
   text-decoration:none;font-size:var(--t-small);font-weight:600;
 }
+/* The shot rendered about 320 CSS px wide, roughly half the width of the page
+ * it photographs, so none of its text was legible: the one picture of the
+ * actual product was a grey blur. It is wider now, and carries a plain
+ * affordance saying it opens full size, because even at 400px an A4 page's
+ * body text cannot be read on a screen. */
+.sampleFrame{display:block;position:relative}
+.zoomChip{
+  position:absolute;right:10px;bottom:18px;
+  display:inline-flex;align-items:center;gap:6px;
+  background:rgba(255,255,255,.96);color:var(--navy);
+  border:1px solid var(--border);border-radius:999px;
+  padding:5px var(--s3);font-size:var(--t-micro);font-weight:700;
+  box-shadow:0 2px 8px rgba(16,30,54,.18);
+}
+.sampleLink:hover .zoomChip{background:#fff;border-color:#c3cfe2}
 .creditBanner{
   display:flex;align-items:center;justify-content:space-between;gap:var(--s4);
   padding:var(--s3) var(--s3);border:1px solid #cfd9e7;border-radius:10px;
@@ -601,6 +616,52 @@ a.link{color:var(--navy);font-weight:600}
 .sampleLink:focus-visible{outline:3px solid rgba(45,81,131,.2);outline-offset:4px;border-radius:10px}
 @media (max-width:700px){
   .sampleLink{flex-basis:auto;width:100%;max-width:360px;margin:0 auto}
+}
+
+/* ---- booklet covers ----
+ * The covers are rendered by the product itself (scripts/build_cover_samples
+ * .py) and shipped as static PNGs. They are shown as objects: a paper edge,
+ * a real shadow, and a slight tilt on the outer two of a fan, because a cover
+ * lying flat and square reads as a screenshot of a file rather than as
+ * something that arrives in a printer tray.
+ */
+.coverShot{
+  display:block;height:auto;border-radius:5px;
+  border:1px solid rgba(16,30,54,.10);
+  box-shadow:0 10px 30px rgba(16,30,54,.16);
+  background:#fff;
+}
+.coverBand{margin:calc(-1 * var(--s5)) 0 var(--s7);text-align:center}
+.coverFan{display:flex;justify-content:center;align-items:flex-end;gap:var(--s6)}
+.coverFan .coverShot{width:250px;max-width:100%}
+.coverFan .coverShot:first-child{transform:rotate(-3.5deg) translateY(6px)}
+.coverFan .coverShot:last-child{transform:rotate(3.5deg) translateY(6px)}
+.coverCaption{
+  margin:var(--s5) auto 0;max-width:46ch;color:var(--muted);font-size:var(--t-small);
+}
+/* Beside a block of text, on pricing. Same stacking rule as .paulioRow: the
+ * text column keeps its measure and the cover moves under it rather than the
+ * two of them sharing a phone's width. */
+.coverSide{display:flex;align-items:center;gap:var(--s6);flex-wrap:wrap}
+.coverSide > div{flex:1 1 300px;min-width:0}
+.coverSide .coverShot{flex:0 0 auto;width:210px}
+.coverSide .sub{margin-bottom:0}
+@media (max-width:700px){
+  /* One cover, big enough that its title and topic line are legible, rather
+   * than three at a third of a phone's width each, where none of them are. */
+  .coverFan{gap:var(--s4)}
+  .coverFan .coverShot{width:min(240px,64vw)}
+  .coverFan .coverShot:first-child,
+  .coverFan .coverShot:last-child{display:none}
+  .coverSide{justify-content:center}
+  .coverSide .coverShot{width:min(220px,58vw)}
+}
+
+/* The cover on a library row, so a returning customer sees their booklets as
+ * things rather than as log lines. */
+.jobCover{
+  flex:none;width:56px;height:auto;display:block;border-radius:3px;
+  border:1px solid var(--border);box-shadow:0 1px 4px rgba(16,30,54,.13);
 }
 
 /* ---- stat tiles (account) ---- */
@@ -762,7 +823,11 @@ main.wrap:has(> .card.narrow){
   .wrap{margin-top:var(--s4);padding:0 var(--s3)}
   .card{padding:var(--s5) var(--s5)}
   .jobItem{flex-wrap:wrap}
-  .jobMain{flex:1 1 100%}
+  /* Everything but the cover, so the actions wrap to their own line while the
+   * cover stays beside the title it belongs to rather than sitting on a line
+   * of its own with white space beside it. */
+  .jobMain{flex:1 1 calc(100% - 60px)}
+  .jobCover{width:44px}
   .jobItem .rate,.jobItem .btn.small,.jobItem form{margin-left:auto}
   .programGrid{grid-template-columns:1fr}
   .programOption label{min-height:0}

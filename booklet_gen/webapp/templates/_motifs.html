@@ -45,6 +45,20 @@
 </svg>
 {%- endmacro %}
 
+{# A magnifier, for the one place on the site where an image is a link to a
+   bigger copy of itself. The sample booklet page renders too small to read at
+   any width, and a picture that is also a link says so with this or with
+   nothing. #}
+{% macro magnifier(size=20, cls='') -%}
+<svg class="motif {{ cls }}" width="{{ size }}" height="{{ size }}" viewBox="0 0 32 32"
+     fill="none" stroke="currentColor" stroke-width="2.4"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <circle cx="14" cy="14" r="8.5"/>
+  <path d="M20.5 20.5L28 28"/>
+  <path d="M14 10.5v7M10.5 14h7"/>
+</svg>
+{%- endmacro %}
+
 {% macro book(size=32, cls='') -%}
 <svg class="motif {{ cls }}" width="{{ size }}" height="{{ size }}" viewBox="0 0 32 32"
      fill="none" stroke="currentColor" stroke-width="1.6"

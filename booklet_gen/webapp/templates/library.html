@@ -34,6 +34,12 @@
     <ul class="jobs">
       {% for j in jobs %}
         <li class="jobItem">
+          {# A booklet is an object, so the row shows one. The thumbnail is the
+             cover family this booklet's subject and product line would be
+             delivered in (covers.py), not a render of this exact PDF: the file
+             is stored as a blob and nothing rasterises page 1 of it. #}
+          <img class="jobCover" alt=""
+               src="{{ url_for('static', filename=(j.label or '') | cover_for) }}">
           <div class="jobMain">
             <p class="jobTitle">{{ j.label or 'Booklet' }}</p>
             <div class="jobMeta">

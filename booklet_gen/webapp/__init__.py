@@ -227,6 +227,15 @@ def create_app() -> Flask:
             return f"{n} day{'s' if n != 1 else ''} ago"
         return datetime.fromtimestamp(int(ts)).strftime("%d %b %Y")
 
+    # The covers a booklet is delivered with, available to every template.
+    # They are the product's strongest asset and they appeared nowhere on the
+    # site, so a visitor could not see what they would be handed until after
+    # they had paid for it. See booklet_gen/webapp/covers.py.
+    from .covers import SAMPLES as _cover_samples, cover_for
+
+    app.jinja_env.globals["cover_samples"] = _cover_samples
+    app.template_filter("cover_for")(cover_for)
+
     from .admin import bp as admin_bp, is_admin
     from .auth import bp as auth_bp
     from .payments import bp as payments_bp

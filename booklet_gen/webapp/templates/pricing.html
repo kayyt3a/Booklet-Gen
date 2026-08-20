@@ -76,6 +76,21 @@
   {% endfor %}
 </div>
 
+{# What a credit actually buys, shown rather than described. The page took
+   money for a "printable PDF with a worked answer key" without ever showing
+   one. #}
+<section class="card coverSide">
+  <img class="coverShot" src="{{ url_for('static', filename=cover_samples[0].file) }}"
+       width="760" height="1075" alt="{{ cover_samples[0].alt }}">
+  <div>
+    <h2>One credit, one booklet like this</h2>
+    <p class="sub">Every booklet is written for the year level, subject and
+      student you pick, and the cover carries their name. Inside: a mini-lesson,
+      a worked example, class work, homework split into sittings, and an answer
+      key with the working shown.</p>
+  </div>
+</section>
+
 <div class="card pricingFinePrint">
   <h2>What a credit covers</h2>
   <p>A single booklet or exam paper uses one credit. A 10-week term plan uses
