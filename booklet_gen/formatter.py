@@ -101,6 +101,19 @@ PART_CHALLENGE = "#804C0C"
 # other pair six.
 _PART_GREY_FLOOR = 24
 
+# Green means ANSWER. It is the ink on "Answer: 60 cm3" in a worked example, on
+# every answer in the key, and on the tick that says an answer was verified. A
+# colour that carries meaning can carry one meaning, and this one was also
+# being spent on the time estimate beside a subtopic heading, so a page could
+# show a green "(about 16 min)" and a green "Answer: 73" a few centimetres
+# apart with nothing in common between them.
+#
+# Metadata goes in the grey the booklet already uses for metadata: the same ink
+# as "TOPIC 1 OF 2", which is the other locator on the same page. It is a
+# statement about the work, not part of it.
+ANSWER_GREEN = "#146B2C"
+META_GREY = "#647082"
+
 log = logging.getLogger(__name__)
 
 
@@ -241,7 +254,7 @@ def _make_styles():
         "topic_kicker": ParagraphStyle(
             "topic_kicker", parent=base["Normal"], fontName=FONT_BOLD,
             fontSize=8, leading=11, spaceBefore=0, spaceAfter=0,
-            textColor=colors.HexColor("#647082"),
+            textColor=colors.HexColor(META_GREY),
         ),
         # The subtopics inside a topic, listed on the opener as a contents.
         "topic_contents": ParagraphStyle(
@@ -324,7 +337,7 @@ def _make_styles():
         "we_answer": ParagraphStyle(
             "we_answer", parent=base["Normal"], fontName=FONT_BOLD,
             fontSize=10.5, leading=15, spaceBefore=7,
-            textColor=colors.HexColor("#146B2C"),
+            textColor=colors.HexColor(ANSWER_GREEN),
         ),
         "practice_label": ParagraphStyle(
             "practice_label", parent=base["Normal"], fontName=FONT_BOLD,
@@ -3469,7 +3482,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         mark = len(story)
         subject_topic_headers(section, state)
         time_badge = (
-            f'  <font size=9 color="#146B2C">'
+            f'  <font size=9 color="{META_GREY}">'
             f'(about {times["section_minutes"][si]} min)</font>'
         )
         story.append(Paragraph(_escape(section.subtopic) + time_badge, styles["subtopic"]))
@@ -4233,7 +4246,7 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
         story.append(PageBreak())
 
     # ---- Marking key ----
-    story.append(_part_band(styles, "Marking Key", "#146B2C",
+    story.append(_part_band(styles, "Marking Key", ANSWER_GREEN,
                             "Solutions and mark allocations"))
     story.append(Spacer(1, 0.4 * cm))
     counter["n"] = 0
@@ -4271,7 +4284,8 @@ def _answer_block(styles, q_num: int, vq: ValidatedQuestion, page: int | None = 
     # glyph is outside Latin-1, so fall back to the word when we fell back to
     # Helvetica. The key's own intro line says what the tick means.
     mark = "✓" if _UNICODE_FONT else "checked"
-    symbol_html = f'<font color="#146B2C"><b>{mark}</b></font>' if vq.verified else ""
+    symbol_html = (f'<font color="{ANSWER_GREEN}"><b>{mark}</b></font>'
+                   if vq.verified else "")
     # Marking 63 questions spread over 18 pages means constant flipping, so the
     # key says where the question was.
     page_html = (f'<font size=8.5 color="#5F5F5F">(p{page})</font>'
