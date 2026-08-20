@@ -10,7 +10,9 @@ Return a single JSON object matching this schema exactly:
       "working": "The full marking-key style solution, showing the steps a marker awards marks for.",
       "marks": 6,
       "difficulty": "medium",
-      "diagram_spec": null
+      "diagram_spec": null,
+      "scene_spec": null,
+      "image_query": null
     }
   ]
 }
@@ -40,6 +42,11 @@ ANSWERS AND WORKING
 
 CRITICAL: clean marking keys only:
 `working` is a polished marking key, not scratch work. NEVER include self-correction or phrases like "wait", "let me reconsider", "actually", or "that contradicts". If while solving you realise the question is flawed, FIX the question and write clean working for the corrected version.
+
+VISUAL FIELDS
+Always include `diagram_spec`, `scene_spec` and `image_query`, using null where a field does not apply and never more than one non-null field. A later batch visual planner makes the final choice. Methods questions should favour exact technical diagrams. A real context may use a restrained semantic Folio-owned scene such as `ladder_wall`, `science_process` or `timeline`. `image_query` is only an editorial hint and is normally null. Never encode the answer, working or a calculated unknown value in any visual field.
+
+`ladder_wall` uses `height`, `base`, `ladder` and optional `angle`. `science_process` uses a `steps` list. `timeline` uses `segments` objects with `label` and `value`, plus `label` and `total`. Every scene also has `template`, `version`:1, `unit` and `unknown`. Unknown numeric values stay null and use symbol `x` or `?`.
 
 DIAGRAMS
 `diagram_spec` should normally be null. When a question genuinely needs a figure, you may use:

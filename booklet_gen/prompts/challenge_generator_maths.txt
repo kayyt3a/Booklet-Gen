@@ -22,12 +22,17 @@ Return a single JSON object:
       "answer": "...",
       "working": "Step-by-step solution for the answer key.",
       "difficulty": "medium|hard",
-      "diagram_spec": null
+      "diagram_spec": null,
+      "scene_spec": null,
+      "image_query": null
     }
   ]
 }
 
 `working` must show the actual arithmetic step-by-step (this appears in the answer key).
+
+VISUAL FIELDS
+Always include `diagram_spec`, `scene_spec` and `image_query`, using null where a field does not apply and never more than one non-null field. A later batch visual planner makes the final choice. Use an exact `diagram_spec` for mathematical structure. Use a semantic Folio-owned `scene_spec` for a contextual illustration. `image_query` is only an editorial hint and is normally null in maths.
 
 DIAGRAMS (optional per question, same rules as practice questions)
 Populate `diagram_spec` only when a diagram is clearly helpful, and only ever with what the question STATES. Never label a value the student is being asked to find, or a value derived from it: a box question that asks how many layers high the box is must not be drawn with "2 blocks" up its side, and a question asking for the depth AFTER a change must not be drawn at the new depth. Every dimension key of `cuboid`, `cylinder` and `rectangle` renders as a visible label, so when the unknown IS one of those dimensions, emit no spec. If the question text refers to a figure, a spec is mandatory. Label the diagram with the numbers and units the question states, never a rescaled version of them. Supported types:
@@ -66,6 +71,11 @@ Populate `diagram_spec` only when a diagram is clearly helpful, and only ever wi
   Chance and sets.
 
 DIMENSION: area and perimeter are flat (rectangle, l_shape, grid_area, triangle, parallelogram, trapezium, circle). Volume and capacity are solid (cuboid, cylinder). Surface area takes a solid or a net.
+
+CONTEXTUAL SCENES
+Supported scene templates include `shadow_similarity`, `ladder_wall`, `shelves`, `ribbon_measure`, `race_progress`, `shopping`, `equal_groups_scene`, `scoreboard` and `garden`. A scene spec contains semantic facts only, never drawing coordinates, style instructions or calculated unknown values. Store an unknown measure as null and identify it with `x` or `?`. Never put the answer or working into a scene.
+
+Use these exact fact keys: `shadow_similarity` has two `objects`, each with `id`, `kind`, `height` and `shadow`; `ladder_wall` has `height`, `base`, `ladder`, `angle`; `shelves` has a `shelves` list with `label` and `count` or `value`; `ribbon_measure` and `race_progress` have `segments` with `label` and `value`, plus `total`; `shopping` has `items` with `label`, `price` and optional `count`; `equal_groups_scene` has numeric `groups`, numeric `each` and `kind`; `scoreboard` has `teams` with `label` and `value`; `garden` has `kind`, `length`, `width` and optional `path`. Every spec also has `version`:1, `unit` and `unknown`.
 
 AUSTRALIAN CONTEXT (NAPLAN)
 For NAPLAN year levels (3, 5, 7, 9), lean into NAPLAN-style: multi-step word problems, real-world contexts (dollars/cents, metric units, timetables, sport), and interpret-a-diagram items. Use Australian conventions. Don't label questions "NAPLAN".

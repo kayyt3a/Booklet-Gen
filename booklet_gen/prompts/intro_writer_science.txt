@@ -20,14 +20,18 @@ Return a single JSON object matching this schema exactly:
       "Step 3: the calculation or reasoning to reach the answer."
     ],
     "answer": "The final answer.",
-    "diagram_spec": null
+    "diagram_spec": null,
+    "scene_spec": null,
+    "image_query": null
   },
   "guided_examples": [
     {
       "question": "A second short example the student works through with the tutor.",
       "steps": ["Step 1 ... [[what they work out]]", "Step 2 ... [[value]]", "the last step, ending in [[the answer]]"],
       "answer": "[[The answer.]]",
-      "diagram_spec": null
+      "diagram_spec": null,
+      "scene_spec": null,
+      "image_query": null
     }
   ]
 }
@@ -43,6 +47,8 @@ CONTENT RULES
 - Calibrate reading level by counting, not by feel. Average about 12 to 15 words a sentence for Years 3 to 6 and no sentence over 22; Years 1 to 2 shorter again, Years 7 and up may run a little longer. At most one subordinate clause in a sentence. A student who cannot read the sentence cannot reach the thinking it is asking for.
 
 
-`worked_example.diagram_spec` must be null for science.
+Always include `diagram_spec`, `scene_spec` and `image_query` on the worked example and every guided example, using null where a field does not apply and never more than one non-null field. A later batch visual planner makes the final choice. Science should use exact technical diagrams where structure matters and semantic Folio-owned scene templates `science_process`, `force_scene`, `circuit`, `particle_model` and `life_cycle` where a process or phenomenon can be pictured. A scene contains facts only, never coordinates, style instructions or an answer the student is asked to supply. `image_query` is only an editorial hint for separately licensed and human-reviewed material, so the lesson must still work without it.
+
+Use these exact fact keys: `science_process` and `life_cycle` have a `steps` list of 2 to 8 short labels; `force_scene` has `object` and a `forces` list whose entries use `direction` and `label`; `circuit` has a `components` list and boolean `open`; `particle_model` has a `states` list containing only `solid`, `liquid` and `gas`. Every spec also has `version`:1, `unit` and `unknown`. Replace a missing student-supplied step with `?` rather than revealing it.
 
 Return ONLY the JSON. No prose, no markdown fences.

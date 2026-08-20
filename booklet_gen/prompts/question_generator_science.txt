@@ -9,25 +9,35 @@ Output rules:
         "question": string,   // the problem statement, plain text
         "answer": string,     // the final answer (concise; a balanced equation, a number with units, or a 1-3 sentence explanation)
         "working": string,    // brief reasoning or steps, one step per line
-        "difficulty": "easy" | "medium" | "hard"
+        "difficulty": "easy" | "medium" | "hard",
+        "diagram_spec": object | null,
+        "scene_spec": object | null,
+        "image_query": string | null
       }
     ]
   }
 
 Content rules:
-- Questions must be self-contained plain text, no diagrams, no images, no tables required to answer.
+- Questions must remain solvable if an optional editorial image is absent. A required technical diagram or Folio-owned scene may carry stated givens when its spec is complete.
 - Prefer question types with a clear correct answer: balancing equations, stoichiometry calculations, unit conversions, definitions, "true/false and explain", "compare A and B", "explain the process of X in 2-3 sentences".
 - For chemistry, use standard notation: H2O, CO2, NaCl, coefficients as integers (e.g. "2 H2 + O2 -> 2 H2O").
 - For physics, include units in numerical answers (e.g. "9.8 m/s^2", "12 J").
 - For biology, focus on named structures and processes with well-established textbook answers.
-- AVOID: open-ended discussion questions, anything requiring a specific figure/table, questions with contested answers.
+- AVOID: open-ended discussion questions, anything requiring an unsupported figure or table, and questions with contested answers.
 - The `answer` field is the model answer a student would need to give. Keep it tight, 1-3 sentences or a single expression.
 - The `working` field is brief reasoning (2-5 lines) that shows a student HOW to get there.
 
-IMAGES (optional per question)
-You MAY set an OPTIONAL `image_query` field on a question when a real-world photograph would help (e.g. "plant cell photomicrograph", "erosion coastline photograph"). Keep queries short and concrete. We look these up on Wikimedia Commons; if no good match exists, the question renders text-only.
+VISUAL FIELDS
+Always include `diagram_spec`, `scene_spec` and `image_query`, using null where a field does not apply. Use at most one on an item. A later batch visual planner makes the final choice. Use `diagram_spec` for an exact technical representation, `scene_spec` for a Folio-owned contextual science illustration, and `image_query` only as an editorial hint for a separately licensed and human-reviewed source image.
 
-An `image_query` must name an OBJECT, ANIMAL, PLANT, PLACE, BUILDING or MACHINE. Never people: no query naming a person, a group of people, a ceremony, a ritual, anything sacred, or human remains. The search returns whatever Wikimedia has, unreviewed, onto a page a child reads, and for Aboriginal and Torres Strait Islander subjects in particular an image of the deceased or of restricted material is a serious harm and not something a decorative photograph is worth. Write about the moth, the wetland, the pipeline or the train, not about who is standing next to it. Queries naming people are refused before the search runs and the question prints without a picture.
+IMAGES (optional per question)
+You MAY set `image_query` when a real-world photograph would help, such as "plant cell photomicrograph" or "erosion coastline photograph". Keep it short and concrete. The image may never be sourced, so the question must still work without it.
+
+An `image_query` must name an OBJECT, ANIMAL, PLANT, PLACE, BUILDING or MACHINE. Never people: no query naming a person, group of people, ceremony, ritual, anything sacred, or human remains. Every result needs source-rights approval and human review before use. Write about the moth, wetland, pipeline or train, not about who is standing next to it.
+
+Use `scene_spec` for relevant Folio-owned scene types such as `science_process`, `force_scene`, `circuit`, `particle_model` and `life_cycle`. Use exact labels stated in the question. Never show a value, stage or label the student is asked to supply.
+
+Use these exact fact keys: `science_process` and `life_cycle` have a `steps` list of 2 to 8 short labels; `force_scene` has `object` and a `forces` list whose entries use `direction` and `label`; `circuit` has a `components` list and boolean `open`; `particle_model` has a `states` list containing only `solid`, `liquid` and `gas`. Every spec also has `version`:1, `unit` and `unknown`. Replace a missing student-supplied step with `?` rather than revealing it.
 
 
 Calibrate to the year level, topic, and subtopic provided in the user turn.

@@ -19,7 +19,8 @@ Output rules:
         "difficulty": "easy" | "medium" | "hard",
         "passage_id": string,    // the id of the passage this question is about, or null if it needs no reading
         "image_query": string,   // or null (see IMAGES)
-        "diagram_spec": object   // or null (see DIAGRAMS)
+        "diagram_spec": object,  // or null (see DIAGRAMS)
+        "scene_spec": object     // or null (see SCENES)
       }
     ]
   }
@@ -88,12 +89,15 @@ Vary the questions within the set:
   * Literary devices: one identification, one explanation of effect, one "write a sentence using this device".
   * Vocabulary: one synonym, one antonym, one fill-in-the-blank using a word from the reading.
 
+VISUAL FIELDS
+Always include `diagram_spec`, `scene_spec` and `image_query`, using null where a field does not apply. Use at most one on an item. A later batch visual planner makes the final choice. `diagram_spec` explains language structure. `scene_spec` requests a Folio-owned contextual illustration. `image_query` is only an editorial hint for a separately licensed and human-reviewed source image. It may remain unrendered, so no question may depend on it.
+
 IMAGES (optional per question)
-A booklet that is nothing but text is a wall a child bounces off, so give each passage ONE photograph of the real-world thing it is set among, by putting `image_query` on the first question about that passage. A set with no passages may carry at most one image, on the question that gains most from it. Every other question leaves `image_query` null.
+A booklet that is nothing but text is a wall a child bounces off, so a passage may suggest ONE relevant source image by putting `image_query` on the first question about that passage. A set with no passages may suggest at most one. Every other question leaves `image_query` null.
 
-An `image_query` must name an OBJECT, ANIMAL, PLANT, PLACE, BUILDING or MACHINE. Never people: no query naming a person, a group of people, a ceremony, a ritual, anything sacred, or human remains. The search returns whatever Wikimedia has, unreviewed, onto a page a child reads, and for Aboriginal and Torres Strait Islander subjects in particular an image of the deceased or of restricted material is a serious harm and not something a decorative photograph is worth. Write about the moth, the wetland, the pipeline or the train, not about who is standing next to it. Queries naming people are refused before the search runs and the question prints without a picture.
+An `image_query` must name an OBJECT, ANIMAL, PLANT, PLACE, BUILDING or MACHINE. Never people: no query naming a person, group of people, ceremony, ritual, anything sacred, or human remains. Every result needs source-rights approval and human review before use. Write about the moth, wetland, pipeline or train, not about who is standing next to it.
 
-- We search Wikimedia Commons and print the top free-licensed photograph. A query that matches nothing renders text-only, so write 2 to 5 words naming a concrete thing that photographs exist of: "Sydney Harbour Bridge", "emperor penguin colony", "wheat harvester", "1950s classroom".
+- Write 2 to 5 words naming a concrete thing that a rights reviewer could source: "Sydney Harbour Bridge", "emperor penguin colony", "wheat harvester", "1950s classroom".
 - Never query an abstraction, a feeling, a plot event or a made-up name: "courage", "the theme of friendship", "Amara at the lighthouse" all return nothing or return something misleading. Query the real-world thing the reading is set among.
 
 DIAGRAMS (optional per question)
@@ -111,10 +115,15 @@ A passage is words, and words are not a picture. Almost everything TAUGHT about 
 Also: {"type":"venn","sets":["Text A","Text B"],"regions":{"a":"only A","b":"only B","ab":"both","none":""}} for comparing two texts. Keep each region to a few words, not a sentence.
 
 Rules:
-- A question may carry a diagram_spec OR an image_query, never both.
-- If the question text refers to a figure ("the diagram below", "the sentence shown"), a diagram_spec is MANDATORY.
+- A question may carry a diagram_spec, scene_spec OR image_query, never more than one.
+- If the question text refers to a figure ("the diagram below", "the sentence shown"), a matching diagram_spec or scene_spec is MANDATORY.
 - Never put the answer on the diagram. A question asking which part is the subject must not label the subject.
 - Only these exact type names and keys. Anything else is ignored and the question prints text-only.
+
+SCENES (optional per question)
+Use a Folio-owned `scene_spec` only when an original contextual illustration makes the task clearer. For English, prefer `timeline` or `reasoning_sequence` where the sequence itself is taught. Do not use a scene as decoration and do not place the answer in it.
+
+`timeline` uses `{"template":"timeline","version":1,"unit":"","label":"Sequence","segments":[{"label":"First","value":1},{"label":"Next","value":2},{"label":"Finally","value":3}],"total":null,"unknown":null}`. `reasoning_sequence` uses a `steps` list whose objects contain `shape`, `count` and `rotation`; shapes are `circle`, `square`, `triangle`, `star`, `diamond` or `?`. Replace any student-supplied step with `?`.
 
 AUSTRALIAN CONTEXT (NAPLAN)
 This booklet may be used to prepare Australian students for both regular school work and for NAPLAN (National Assessment Program, Literacy and Numeracy, sat in Years 3, 5, 7 and 9). For years that align with NAPLAN (3, 5, 7, 9), lean into NAPLAN-style items where they fit the subtopic: reading passages followed by targeted questions, language conventions items on grammar and punctuation, and short constructed-response writing tasks. Use Australian English spelling (colour, favourite, realise). Do NOT label questions "NAPLAN", just let the style come through.
