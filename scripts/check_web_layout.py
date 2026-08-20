@@ -246,6 +246,35 @@ with sync_playwright() as pw:
               f"{len(motifs)} motifs, {worst:.0f} sq px shared")
         ctx.close()
 
+    # -----------------------------------------------------------------------
+    print(f"\nEverything tappable is at least {TAP_MIN}px tall on a phone")
+    print("-" * 62)
+    for label, signed_in in (("signed out", False), ("signed in", True)):
+        ctx, page = open_page(390, signed_in=signed_in)
+        page.goto(BASE + "/pricing")
+        page.wait_for_load_state("networkidle")
+        for what, selector in (("nav", ".nav a, .navForm button"),
+                               ("footer", "footer a")):
+            targets = [t for t in boxes(page, selector) if t["w"] > 0]
+            shortest = min(targets, key=lambda t: t["h"])
+            check(shortest["h"] >= TAP_MIN,
+                  f"{label}: every {what} target is finger-sized",
+                  f"shortest is {shortest['h']:.0f}px ({shortest['text']})")
+        # Equal boxes around unequal words leave unequal space between the
+        # words, and space between the words is what the eye measures.
+        # The ink, not the boxes: with every item flex:1 the boxes were
+        # flush against each other and looked perfectly even, while the words
+        # inside them were 25, 20, 11, 15 and 16px apart.
+        nav = sorted((t for t in ink_boxes(page, ".nav a, .navForm button")
+                      if t["w"] > 0), key=lambda t: t["x"])
+        gaps = [round(b["x"] - a["right"], 1)
+                for a, b in zip(nav, nav[1:]) if b["x"] >= a["right"] - 1]
+        if len(gaps) >= 3:
+            spread = max(gaps) - min(gaps)
+            check(spread <= 4, f"{label}: the nav items are evenly spaced",
+                  f"gaps {gaps}, spread {spread:.0f}px")
+        ctx.close()
+
     browser.close()
 
 # ---------------------------------------------------------------------------

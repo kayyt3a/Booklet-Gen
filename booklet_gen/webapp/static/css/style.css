@@ -835,9 +835,36 @@ main.wrap:has(> .card.narrow){
     order:2;width:100%;justify-content:space-between;
     border-top:1px solid rgba(255,255,255,.14);padding:var(--s1) 0 var(--s1);
   }
-  .signedIn .nav a{flex:1;text-align:center;padding:var(--s1) var(--s1);font-size:var(--t-small)}
-  .signedIn .navForm{flex:1}
-  .signedIn .navForm button{width:100%;padding:var(--s1) var(--s1);font-size:var(--t-small)}
+  /* ---- tap targets ----
+   * These were 31px tall signed in and 39px signed out, against a 44px floor
+   * on iOS and 48dp on Android, on the device most of this traffic arrives
+   * from. A link that small is not a small link, it is a link that gets
+   * missed, and the six of them sit side by side so a miss lands on the wrong
+   * page rather than on nothing.
+   *
+   * The gaps between the six were 25, 20, 11, 15 and 16px, because each item
+   * was flex:1 with its label centred inside it: equal boxes around unequal
+   * words leave unequal space between the words, which is what the eye
+   * actually measures. Sized to their labels and spaced apart instead, the
+   * gaps are equal by construction. */
+  .nav a,.navForm button{
+    min-height:44px;display:inline-flex;align-items:center;justify-content:center;
+    padding:0 var(--s2);
+  }
+  .signedIn .nav a,.signedIn .navForm button{
+    flex:none;min-width:44px;padding:0 var(--s1);font-size:var(--t-micro);
+  }
+  .signedIn .navForm{flex:none;display:flex}
+  .signedIn .navForm button{width:auto}
+  /* The underline hangs off the bottom of a 44px box, so it needs the label
+   * near the top of that box rather than centred in it. The log-out button
+   * carries the same offset or it sits half a line above its six neighbours,
+   * which is the sort of thing that reads as a rendering fault. */
+  .signedIn .nav a,.signedIn .navForm button{
+    align-items:flex-start;padding-top:var(--s4);
+  }
+  footer a{min-height:44px;display:inline-flex;align-items:center}
+  .footerLinks{gap:var(--s4)}
   .signedIn .desktopLabel{display:none}
   .signedIn .mobileLabel{display:inline}
   .wrap{margin-top:var(--s4);padding:0 var(--s3)}
