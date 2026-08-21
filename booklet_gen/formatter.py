@@ -567,16 +567,11 @@ def _prettify_fractions(text: str) -> str:
     return _FRACTION_RE.sub(repl, text)
 
 
-# Models write units inconsistently: the question text says "cm²" but the
-# worked solution often says "cm^2". Normalise to the real glyph.
-_CARET_POWER_RE = re.compile(r"(?<=[A-Za-z])\^([23])\b")
-
-
-def _tidy_units(text: str) -> str:
-    if not _UNICODE_FONT:
-        return text
-    return _CARET_POWER_RE.sub(lambda m: m.group(1).translate(_SUPERSCRIPT), text)
-
+# _tidy_units used to live here, converting "cm^2" and "x^3" and nothing else.
+# Half a rule is worse than none: it is what printed "(x³ × x^4) ÷ x²" in a
+# real Year 9 booklet, two notations for an index inside one expression,
+# because it reached the squares and cubes and left every other index as
+# source code. mathnotation.set_indices now handles all of them.
 
 # Notation normalisation lives in mathnotation.py: how maths is written on
 # the page is one subject, and it is needed outside the ReportLab layer.
@@ -898,12 +893,18 @@ def _strip_step_prefix(text: str) -> str:
 
 
 def _escape(text: str) -> str:
-    return _prettify_fractions(_tidy_units(_normalise_notation(
+    # The notation pass runs after the XML escaping, not before, because it is
+    # allowed to emit markup of its own: an index that has no superscript
+    # spelling is set with <super>, and escaping that would print the tag.
+    # Nothing the model writes can reach this point as a live tag, since its
+    # own angle brackets became &lt; and &gt; one line above.
+    return _prettify_fractions(_normalise_notation(
         _strip_emphasis(_fix_articles(_dedash(text)))
             .replace("&", "&amp;")
             .replace("<", "&lt;")
-            .replace(">", "&gt;")
-    )))
+            .replace(">", "&gt;"),
+        unicode_ok=_UNICODE_FONT,
+    ))
 
 
 # ---------------------------------------------------------------------------
