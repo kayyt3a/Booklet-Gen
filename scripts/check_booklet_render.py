@@ -1101,7 +1101,14 @@ print("\nPage fill")
 def _exempt_pages(pages_, stop: int) -> set[int]:
     out = {0}
     for i, page in enumerate(pages_[:stop]):
-        if "intentionally blank" in page or "Marked by:" in page:
+        # The contents page joins them, and for the same reason: it is a
+        # designed short page. It lists a booklet's parts and topics, which on
+        # most booklets is a dozen lines, and the white under it is the shape
+        # of a contents page rather than questions that failed to pack. Named
+        # by its heading, not by its position, so it stays exempt wherever
+        # front matter puts it.
+        if ("intentionally blank" in page or "Marked by:" in page
+                or "Contents" in page.splitlines()):
             out.add(i)
     return out
 
@@ -1412,9 +1419,23 @@ check((e_key_start + 1) % 2 == 1,
       f"page {e_key_start + 1}")
 
 
-def page_of(pages_, needle):
-    return next((i for i, p in enumerate(pages_) if needle in p.replace("\n", " ")),
+def page_of(pages_, needle, first: int = 0):
+    return next((i for i, p in enumerate(pages_)
+                 if i >= first and needle in p.replace("\n", " ")),
                 None)
+
+
+def work_starts(pages_) -> int:
+    """The first page of the student's half, past the cover and the contents.
+
+    The contents page names every part and every topic in the booklet, so a
+    search for "Homework" or "Spelling Test" from page one finds the contents
+    row rather than the band it points at, and everything measured off that
+    index is then measured off an empty slice. Any locator that means "the page
+    the work starts on" begins here instead.
+    """
+    return next((i + 1 for i, p in enumerate(pages_)
+                 if "Contents" in p.splitlines()), 1)
 
 
 check(len(e_pages) > 3, "the English booklet renders", f"{len(e_pages)} pages")
@@ -1425,8 +1446,12 @@ print("\nPassages on the page")
 # contradict that: what must not happen is the same reading printed once per
 # question inside a single part.
 e_hw_start = next(i for i, p in enumerate(e_question_pages)
-                  if "Homework" in p)
-e_classwork_text = "\n".join(e_question_pages[:e_hw_start + 1]).split("Homework")[0]
+                  if "Homework" in p and i >= work_starts(e_pages))
+# From where the work starts, not from page one: the contents page names the
+# Homework part, and splitting on that word from page one leaves the class work
+# text empty.
+e_classwork_text = "\n".join(
+    e_question_pages[work_starts(e_pages):e_hw_start + 1]).split("Homework")[0]
 e_homework_text = "\n".join(e_question_pages[e_hw_start:])
 for title in ("The Lost Kitten", "Storm at Sea"):
     check(e_classwork_text.count(title) == 1,
@@ -1478,10 +1503,18 @@ check(spelling_test_spaces(english.spelling_test) == 12,
 check(spelling_test_spaces(None) == 0, "no test object means no test page")
 check(spelling_test_spaces(SpellingTest()) == SPELLING_TEST_SPACES,
       "a test with no words chosen still prints its spaces")
-test_page = page_of(e_pages, "Spelling Test")
-list_page = page_of(e_pages, "Spelling List")
-check(test_page == 1, "the test is the first thing after the cover",
-      f"page {test_page + 1 if test_page is not None else None}")
+# Found by the instruction on the test page rather than by its title, because
+# the contents page lists "Spelling Test" too and it comes first.
+test_page = page_of(e_pages, "Someone will read each word out loud")
+list_page = page_of(e_pages, "Spelling List", first=work_starts(e_pages))
+# It is still the first thing the child does. What is now in front of it is the
+# contents, which is addressed to whoever is running the session and holds
+# nothing a child could warm up on, and that is the point of the rule: the
+# dictation has to be answered cold.
+check(test_page == work_starts(e_pages),
+      "the test is the first thing the student is given",
+      f"page {test_page + 1 if test_page is not None else None}, work starts "
+      f"on page {work_starts(e_pages) + 1}")
 check(list_page is not None and list_page < e_key_start,
       "the list is at the back of the booklet, before the key",
       f"list p{list_page}, key p{e_key_start}")

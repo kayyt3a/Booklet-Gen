@@ -382,6 +382,15 @@ def _make_styles():
             fontSize=20, leading=24, alignment=TA_CENTER, spaceAfter=12,
             textColor=colors.HexColor("#1F3A5F"),
         ),
+        # The contents page's own heading. Left aligned and set on the same
+        # rule as the parts listed under it, the way a workbook's contents is,
+        # rather than centred like the answer key's banner: the key's heading
+        # opens a section, this one opens the book.
+        "contents_heading": ParagraphStyle(
+            "contents_heading", parent=base["Heading1"], fontName=FONT_DISPLAY,
+            fontSize=22, leading=26, alignment=TA_LEFT, spaceAfter=8,
+            spaceBefore=0, textColor=colors.HexColor("#1F3A5F"),
+        ),
         "challenge_heading": ParagraphStyle(
             "challenge_heading", parent=base["Heading1"], fontName=FONT_DISPLAY,
             fontSize=22, leading=26, alignment=TA_CENTER, spaceAfter=6,
@@ -2241,7 +2250,7 @@ class PageMarker(Flowable):
     width = 0
     height = 0
 
-    def __init__(self, page_map: dict, key: int):
+    def __init__(self, page_map: dict, key):
         super().__init__()
         self._page_map = page_map
         self._key = key
@@ -2251,6 +2260,24 @@ class PageMarker(Flowable):
 
     def draw(self):
         self._page_map[self._key] = self.canv.getPageNumber()
+
+
+def _locator(page_map: dict | None, *key):
+    """A marker that records the page a heading landed on, for the contents.
+
+    Keyed by a tuple rather than by a question's running index, so the parts,
+    the topics inside them and the answer key can all share one map with the
+    question page references the key already collects.
+
+    Placed in front of the heading it names, never behind it. Every heading
+    listed in the contents arrives behind a measured break that guarantees room
+    for the heading and the block under it, so a zero-height marker in front of
+    the heading lands on the page the heading is about to print on. A marker
+    behind it would be pushed to the next page whenever the heading finished
+    within a few points of the frame's foot, and a contents page whose numbers
+    are wrong is worse than no contents page.
+    """
+    return PageMarker({} if page_map is None else page_map, key)
 
 
 def question_numbering(data: BookletData) -> dict:
@@ -3238,6 +3265,235 @@ def _spelling_key_block(styles, test):
 LAST_STUDENT_PAGE = "last_student_page"
 
 
+# ---------------------------------------------------------------------------
+# The contents page
+#
+# The booklet has always known its own parts, topics and page numbers and never
+# printed them. Every workbook a parent has bought opens with a contents; a
+# generated PDF that goes straight from the cover to the first question reads
+# as a document somebody exported, and a tutor mid-session has no way to find
+# where the homework starts other than by flicking.
+#
+# The numbers are resolved, not guessed. render_pdf already builds the document
+# twice, once to find out which page each question landed on, and that map is
+# what the answer key's "(p9)" back-references are made of. The contents joins
+# the same mechanism: a zero-height marker in front of each part band and each
+# topic opener records its page during the throwaway build, and the real build
+# prints those numbers. The contents page itself is laid out in BOTH builds, so
+# the pagination the numbers came from is the pagination they are printed
+# against; the page slot is a fixed-width right-aligned column, so a two-digit
+# number cannot reflow the line a one-digit number was measured on.
+#
+# It is not printed at all for a booklet with only a couple of places to go: a
+# contents listing three destinations costs a sheet of paper and tells the
+# reader nothing they could not see by turning the page.
+# ---------------------------------------------------------------------------
+
+CONTENTS_MIN_ROWS = 4
+# The right-hand column the page number is set in, and the gap kept clear on
+# either side of the leader dots.
+_CONTENTS_NUM_CM = 1.0
+_CONTENTS_DOT_GAP = 5.0
+_CONTENTS_TOPIC_INDENT = 0.7 * cm
+_CONTENTS_DOTS = "#9AA6B8"
+
+
+class ContentsLine(Flowable):
+    """One line of the contents: a label, leader dots, and a page number.
+
+    Drawn rather than set as a table row because the leader is the point. A
+    two-column table gives a label at the left and a figure at the right with
+    nothing joining them, and the eye has to travel across white paper to pair
+    them up; a dot leader is what every printed contents uses instead, and it
+    is what makes the page read as typeset rather than tabulated.
+    """
+
+    def __init__(self, label: str, page, *, font: str, size: float,
+                 leading: float, colour: str, indent: float = 0.0,
+                 space_before: float = 0.0, dots: bool = True):
+        super().__init__()
+        self.label = label
+        self.page = "" if page in (None, 0) else str(page)
+        self.font = font
+        self.size = size
+        self.leading = leading
+        self.colour = colors.HexColor(colour)
+        self.indent = indent
+        self.spaceBefore = space_before
+        self.dots = dots
+        self._lines: list[str] = []
+        self.width = 0.0
+
+    def _text_width(self) -> float:
+        return (self.width - self.indent - _CONTENTS_NUM_CM * cm
+                - 2 * _CONTENTS_DOT_GAP) or 1.0
+
+    def wrap(self, availWidth, availHeight):
+        from reportlab.pdfbase import pdfmetrics
+        self.width = availWidth
+        limit = self._text_width()
+        words, line, out = self.label.split(), "", []
+        for word in words:
+            trial = f"{line} {word}".strip()
+            if pdfmetrics.stringWidth(trial, self.font, self.size) <= limit \
+                    or not line:
+                line = trial
+            else:
+                out.append(line)
+                line = word
+        if line:
+            out.append(line)
+        self._lines = out or [""]
+        self.height = self.leading * len(self._lines)
+        return availWidth, self.height
+
+    def draw(self):
+        from reportlab.pdfbase import pdfmetrics
+        c = self.canv
+        c.saveState()
+        c.setFont(self.font, self.size)
+        c.setFillColor(self.colour)
+        for i, line in enumerate(self._lines):
+            y = self.height - self.leading * (i + 1) + (self.leading - self.size) * 0.6
+            c.drawString(self.indent, y, line)
+        top = self.height - self.leading + (self.leading - self.size) * 0.6
+        if self.page:
+            c.drawRightString(self.width, top, self.page)
+        # Dots only where there is room for a run of them: three dots crammed
+        # into the last centimetre read as an ellipsis, which means something
+        # else entirely.
+        start = self.indent + pdfmetrics.stringWidth(
+            self._lines[0], self.font, self.size) + _CONTENTS_DOT_GAP
+        end = self.width - _CONTENTS_NUM_CM * cm - _CONTENTS_DOT_GAP
+        step = pdfmetrics.stringWidth(".", self.font, self.size)
+        count = int((end - start) / step) if step else 0
+        if self.dots and self.page and count >= 4:
+            c.setFillColor(colors.HexColor(_CONTENTS_DOTS))
+            c.drawString(start, top, "." * count)
+        c.restoreState()
+
+
+def contents_rows(data: BookletData) -> list:
+    """[(level, label, locator key)] for the contents, in printed order.
+
+    Read by the page itself and by scripts/check_contents_page.py, so the
+    check cannot pass by asserting the same mistake twice: it looks up where
+    each of these headings actually printed and compares.
+    """
+    rows: list = []
+    if spelling_test_spaces(getattr(data, "spelling_test", None)):
+        rows.append(("part", "Spelling Test", ("part", "Spelling Test")))
+    from .agents.tables import test_questions
+    if test_questions(getattr(data, "tables_test", None)):
+        rows.append(("part", "Times Tables Test",
+                     ("part", "Times Tables Test")))
+    if data.recap_questions:
+        rows.append(("part", "Warm-up Recap", ("part", "Warm-up Recap")))
+
+    def topics(part: str, attr: str):
+        out, seen = [], set()
+        for section in data.sections:
+            topic = (section.topic or "").strip()
+            if not getattr(section, attr) or not topic or topic in seen:
+                continue
+            seen.add(topic)
+            out.append(("topic", topic, ("topic", part, topic)))
+        return out
+
+    if any(s.questions for s in data.sections):
+        rows.append(("part", "Class Work", ("part", "Class Work")))
+        rows += topics("Class Work", "questions")
+    if any(s.homework_questions for s in data.sections):
+        rows.append(("part", "Homework", ("part", "Homework")))
+        rows += topics("Homework", "homework_questions")
+    if data.challenge_questions:
+        rows.append(("part", "Final Challenge", ("part", "Final Challenge")))
+    return rows
+
+
+_CONTENTS_SWATCH = {"Warm-up Recap": PART_RECAP, "Class Work": PART_CLASSWORK,
+                    "Homework": PART_HOMEWORK,
+                    "Final Challenge": PART_CHALLENGE,
+                    "Spelling Test": "#3F6B5E",
+                    "Times Tables Test": _TABLES_BAND}
+ANSWERS_KEY = ("part", "Answers")
+# The row is "Answers" and not "Answers and Worked Solutions" because the
+# contents page must not be the first page in the document carrying the words
+# the answer key's own heading is made of. Half a dozen checks find where the
+# student half ends by looking for that heading, and a contents row repeating
+# it in full puts the boundary on page 2, where the body is empty and the key
+# is the whole booklet. A contents row saying "Answers" is also what a printed
+# workbook says.
+_ANSWERS_LABEL = "Answers"
+
+
+def _contents_page(styles, data: BookletData, pages: dict | None) -> list:
+    """The contents, or nothing when the booklet is too small to want one."""
+    rows = contents_rows(data)
+    if len(rows) < CONTENTS_MIN_ROWS:
+        return []
+    pages = pages or {}
+    out: list = [Paragraph("Contents", styles["contents_heading"]),
+                 _rule(BODY_WIDTH, 1.2, PART_CLASSWORK), Spacer(1, 0.45 * cm)]
+    for level, label, key in rows:
+        if level == "part":
+            out.append(_contents_part_row(styles, label, pages.get(key)))
+        else:
+            out.append(ContentsLine(
+                label, pages.get(key), font=FONT_REGULAR, size=10,
+                leading=15, colour="#3A4A63",
+                indent=_CONTENTS_TOPIC_INDENT))
+    out.append(Spacer(1, 0.3 * cm))
+    out.append(_rule(BODY_WIDTH, 0.6, "#B7C3D4"))
+    out.append(_contents_part_row(styles, _ANSWERS_LABEL,
+                                  pages.get(ANSWERS_KEY), swatch=ANSWER_GREEN))
+    return out
+
+
+def _contents_part_row(styles, label: str, page, swatch: str | None = None):
+    """A part's line: a chip in the part's own colour, the name, the page.
+
+    The chip is the same colour as the band that part opens with, so the
+    contents and the page it points at are recognisably about the same thing
+    from across a table.
+    """
+    colour = swatch or _CONTENTS_SWATCH.get(label, PART_CLASSWORK)
+    chip = Table([[""]], colWidths=[0.32 * cm], rowHeights=[0.32 * cm],
+                 hAlign="LEFT")
+    chip.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(colour)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    line = ContentsLine(label, page, font=FONT_BOLD, size=11, leading=17,
+                        colour="#1F3A5F", space_before=6)
+    row = Table([[chip, line]], colWidths=[0.62 * cm, BODY_WIDTH - 0.62 * cm])
+    row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    row.spaceBefore = 7
+    return row
+
+
+def _rule(width: float, weight: float, colour: str):
+    """A horizontal rule as a flowable."""
+    tbl = Table([[""]], colWidths=[width], rowHeights=[weight], hAlign="LEFT")
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(colour)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return tbl
+
+
 def _booklet_story(styles, data: BookletData, times: dict, *,
                    page_map: dict | None, page_refs: dict | None,
                    blank_before_key: bool = False) -> list:
@@ -3261,6 +3517,15 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # prints, including the sentence about what the answer key has and has not
     # checked, is assembled by cover_spec()/cover_footer_note() above.
     story.append(PageBreak())
+
+    # Contents. Laid out in both builds so the pagination the numbers were
+    # measured against is the pagination they are printed against; only the
+    # figures differ, and they sit in a fixed-width right-aligned slot where a
+    # two-digit number cannot reflow the line a blank one was measured on.
+    front = _contents_page(styles, data, page_refs)
+    if front:
+        story.extend(front)
+        story.append(PageBreak())
 
     multi_subject = len({(s.subject or "") for s in data.sections if s.subject}) > 1
 
@@ -3395,14 +3660,17 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                 story.append(question_row(rest, row))
 
     def subject_topic_headers(section, state, key: bool = False,
-                              out: list | None = None):
+                              out: list | None = None, part: str = ""):
         """The subject band and topic heading, when either has just changed.
 
         `key` picks the answer key's smaller pair: the key is set in two
         columns, and the body's 19pt topic wraps to three lines in an 8cm
         measure. `out` lets the key collect its headings somewhere other than
         the story, so they can be held back until there is something to print
-        under them.
+        under them. `part` names the part these headings are printing inside,
+        and is what the contents page's marker is filed under: a topic is
+        opened once in Class Work and again in Homework, on different pages,
+        and the contents lists both.
         """
         dest = story if out is None else out
         if multi_subject and section.subject and section.subject != state["subject"]:
@@ -3410,6 +3678,9 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             state["subject"] = section.subject
             state["topic"] = None
         if section.topic != state["topic"]:
+            if part:
+                dest.append(_locator(page_map, "topic", part,
+                                     (section.topic or "").strip()))
             if key:
                 # The key is set in two columns, where a full-measure opener
                 # has no measure to be full across.
@@ -3423,15 +3694,22 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             state["topic"] = section.topic
 
     # ---- Spelling Test (dictation on last week's list, before anything else) ----
-    story.extend(_spelling_test_block(styles, getattr(data, "spelling_test", None),
-                                      times.get("spelling_minutes")))
+    spelling_test = _spelling_test_block(
+        styles, getattr(data, "spelling_test", None),
+        times.get("spelling_minutes"))
+    if spelling_test:
+        story.append(_locator(page_map, "part", "Spelling Test"))
+        story.extend(spelling_test)
 
     # ---- Times Tables Test (recall drill on last week's table) ----
     # Also at the front, and before the recap: it is the one part of the
     # booklet that has to be answered cold, so anything the student reads
     # first is a chance to warm up on facts they were supposed to have known.
-    story.extend(_tables_test_block(styles, getattr(data, "tables_test", None),
-                                    times.get("tables_minutes")))
+    tables_test = _tables_test_block(styles, getattr(data, "tables_test", None),
+                                     times.get("tables_minutes"))
+    if tables_test:
+        story.append(_locator(page_map, "part", "Times Tables Test"))
+        story.extend(tables_test)
 
     # ---- Warm-up Recap ----
     if data.recap_questions:
@@ -3447,6 +3725,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         first = first_loose_row(data.recap_questions, _RECAP_MIN_SPACE_CM)
         story.append(part_opening_break(
             [band, Spacer(1, 0.3 * cm)] + _unwrap([first] if first else [])))
+        story.append(_locator(page_map, "part", "Warm-up Recap"))
         story.append(band)
         story.append(Spacer(1, 0.3 * cm))
         render_questions(data.recap_questions, _RECAP_MIN_SPACE_CM)
@@ -3462,6 +3741,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # arrives with its worked example, and that break used to leave the band
     # behind on the old page with nine centimetres of white under it.
     cw_mark = len(story)
+    story.append(_locator(page_map, "part", "Class Work"))
     story.append(band)
     story.append(Spacer(1, 0.3 * cm))
     opened = False
@@ -3480,7 +3760,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         # headings, the intro and the key points above five centimetres of
         # white.
         mark = len(story)
-        subject_topic_headers(section, state)
+        subject_topic_headers(section, state, part="Class Work")
         time_badge = (
             f'  <font size=9 color="{META_GREY}">'
             f'(about {times["section_minutes"][si]} min)</font>'
@@ -3608,6 +3888,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             row = first_practice_row(first_hw, first_hw.homework_questions)
             opening += probe + (_unwrap([row]) if row is not None else [])
         story.append(part_opening_break(opening, HOMEWORK_MIN_START_CM))
+        story.append(_locator(page_map, "part", "Homework"))
         story.append(hw_band)
         story.append(Spacer(1, 0.3 * cm))
 
@@ -3620,7 +3901,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # starts here the band belongs above the heading, not between the
             # heading and its first question.
             mark = len(story)
-            subject_topic_headers(section, state)
+            subject_topic_headers(section, state, part="Homework")
             story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
             head_only = story[mark:]
             # A subtopic that did not fit the session brings its mini-lesson
@@ -3776,6 +4057,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             [ch_band, Spacer(1, 0.3 * cm)] + _unwrap([first] if first
                                                      else []),
             _CHALLENGE_MIN_START_CM))
+        story.append(_locator(page_map, "part", "Final Challenge"))
         story.append(ch_band)
         story.append(Spacer(1, 0.3 * cm))
         render_questions(data.challenge_questions)
@@ -3826,6 +4108,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     # cycle at the second entry, so "key" repeats for the rest of the booklet.
     story.append(NextPageTemplate(["key_open", "*", "key"]))
     story.append(PageBreak())
+    story.append(_locator(page_map, *ANSWERS_KEY))
     story.append(Paragraph("Answers &amp; Worked Solutions", styles["answers_heading"]))
     story.append(Paragraph(
         "For whoever is marking. A tick means the answer was checked. Page "
@@ -4119,9 +4402,17 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
         styles, data, times, page_map=page_refs, page_refs=None))
 
     # An odd last student page means the key would print on its reverse. The
-    # blank verso shifts every key page by one, but nothing references a key
-    # page, so the map built above still holds.
+    # blank verso shifts every key page by one, so anything the probe recorded
+    # beyond the student half moves down with it. The question references do
+    # not: every one of them points at a page the student writes on, which is
+    # above the shift. The contents page's entry for the answer key is the one
+    # thing on the far side of it, and a contents that is one out is worse than
+    # no contents at all.
     blank_before_key = page_refs.get(LAST_STUDENT_PAGE, 0) % 2 == 1
+    if blank_before_key:
+        last = page_refs[LAST_STUDENT_PAGE]
+        page_refs = {k: (v + 1 if isinstance(v, int) and v > last else v)
+                     for k, v in page_refs.items()}
 
     doc = _booklet_doc(str(out_path), data, times)
     doc.build(_booklet_story(

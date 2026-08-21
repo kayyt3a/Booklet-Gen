@@ -497,8 +497,6 @@ print("\nTHE WHITE AT THE FOOT OF THE PAGES ADDS UP TO NO MORE THAN IT DID")
 #         intro, key points and worked example have to arrive together and that
 #         run is 10 to 13cm here, against 7 to 10cm left on the page. The first
 #         check in this file is the reason, and it is worth the paper.
-#   25cm  the sheet that says it is intentionally blank, so the answer key does
-#         not print on the back of a page the child wrote on.
 #   12cm  page 2, where the Warm-up ends and the Class Work band, topic opener
 #         and mini-lesson will not fit in what is left. The band travels with
 #         the lesson now: printing the band here and sending the lesson overleaf
@@ -555,18 +553,38 @@ def spread_booklet():
         challenge_minutes=18, total_minutes=170)
 
 
-# 124.0cm across 21 pages, measured on the day this was written, against 131.1cm
-# for the same booklet before the two fixes above. The ceiling is two
-# centimetres over it: room for a font metric to move under the booklet, not
-# room for another rule to take a page foot.
-FOOT_WHITE_CM = 126.0
+# 93.5cm across the 20 question pages, measured the day the contents page
+# landed. The ceiling is two centimetres over it: room for a font metric to
+# move under the booklet, not room for another rule to take a page foot.
+#
+# It was 124.0cm across 21 pages when this was written, and the number moved
+# for two reasons, neither of them a page packing better or worse. The 25cm
+# blank verso and the contents page are now excluded by name (see foot_white),
+# which takes about 16cm off; and the contents page changed this fixture's
+# parity, so the blank verso it used to print is not there to measure. The
+# ceiling therefore came DOWN with the measurement rather than staying where it
+# was, which is the point: a ceiling that no longer touches the number it
+# guards is not a guard.
+FOOT_WHITE_CM = 95.5
 
 
 def foot_white(document, key_start):
-    """The white under the last ink on each page of the student half."""
+    """The white under the last ink on each page of the student half.
+
+    Two pages are excluded by name rather than by position, because they are
+    designed short pages and not abandoned ones: the contents, which lists a
+    dozen parts and topics and is meant to have air under it, and the sheet
+    that says it is intentionally blank. Counting them measures a decision
+    rather than a fault, and it also lets a real fault hide: this fixture's
+    parity moves between the two as the front matter changes, so a page foot
+    that grew could be paid for out of a blank page that disappeared.
+    """
     out = []
     for i in range(1, key_start):
         page = document[i]
+        lines = page.get_text().splitlines()
+        if "Contents" in lines or any("intentionally blank" in l for l in lines):
+            continue
         bottom = page.rect.height - PAGE_MARGIN
         low = PAGE_MARGIN
         for block in page.get_text("dict")["blocks"]:
