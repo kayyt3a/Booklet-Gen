@@ -3532,7 +3532,17 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
 
     # ---- Homework (repetition through the week) + Final Challenge ----
     has_homework = any(s.homework_questions for s in data.sections)
-    if has_homework or data.challenge_questions:
+    # The Homework part is printed only when there is homework in it. It used
+    # to be opened by "has_homework or data.challenge_questions", which asked
+    # the Homework band to introduce the Final Challenge: a booklet whose
+    # sections all came back with their questions inside the class-work count
+    # (a short subject, or a run where validation dropped enough that nothing
+    # spilled over) has no homework and still has a challenge. That reversed
+    # band would have printed with nothing under it but the challenge's own
+    # band, and it never got that far, because "Homework" is not in part_order
+    # when there is no homework and part_place raised ValueError. The customer
+    # paid, waited for the generation, and got no file at all.
+    if has_homework:
         # Not an unconditional break. Class Work used to end wherever it ended
         # and throw the rest of the page away: one real booklet finished the
         # section two questions into a page and left the other two thirds
@@ -3737,35 +3747,38 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                 flat += len(row)
                 j += len(row)
 
-        if data.challenge_questions:
-            # The Final Challenge is a scored part of the booklet, the same as
-            # the Warm-up, Class Work and Homework, and it is the one the
-            # product is sold on. It used to arrive as a centred heading a
-            # centimetre below the last homework question, so after twenty
-            # questions the thing called the challenge appeared squashed at the
-            # foot of the page it had been working down. It gets the same band
-            # every other part gets, and a page of its own to arrive on.
-            story.append(Spacer(1, 0.4 * cm))
-            ct = (f" About {times['challenge_minutes']} min."
-                  if times["challenge_minutes"] else "")
-            ch_band = _part_band(
-                styles, "Final Challenge", PART_CHALLENGE,
-                "You have done the hard part. These last questions mix "
-                f"everything together. Nothing new, just all at once.{ct}",
-                *part_place("Final Challenge"))
-            # Nine centimetres is the floor, not the whole answer. The
-            # challenge band carries three lines of blurb and its first
-            # question is the hardest in the booklet, so it gets the tallest
-            # working panel: the two together can want more than nine, and
-            # what is left over is the band alone at the foot of a page.
-            first = first_loose_row(data.challenge_questions)
-            story.append(part_opening_break(
-                [ch_band, Spacer(1, 0.3 * cm)] + _unwrap([first] if first
-                                                         else []),
-                _CHALLENGE_MIN_START_CM))
-            story.append(ch_band)
-            story.append(Spacer(1, 0.3 * cm))
-            render_questions(data.challenge_questions)
+    # ---- Final Challenge ----
+    # Outside the Homework branch, because it is its own part and a booklet can
+    # reach it without any homework at all.
+    if data.challenge_questions:
+        # The Final Challenge is a scored part of the booklet, the same as
+        # the Warm-up, Class Work and Homework, and it is the one the
+        # product is sold on. It used to arrive as a centred heading a
+        # centimetre below the last homework question, so after twenty
+        # questions the thing called the challenge appeared squashed at the
+        # foot of the page it had been working down. It gets the same band
+        # every other part gets, and a page of its own to arrive on.
+        story.append(Spacer(1, 0.4 * cm))
+        ct = (f" About {times['challenge_minutes']} min."
+              if times["challenge_minutes"] else "")
+        ch_band = _part_band(
+            styles, "Final Challenge", PART_CHALLENGE,
+            "You have done the hard part. These last questions mix "
+            f"everything together. Nothing new, just all at once.{ct}",
+            *part_place("Final Challenge"))
+        # Nine centimetres is the floor, not the whole answer. The
+        # challenge band carries three lines of blurb and its first
+        # question is the hardest in the booklet, so it gets the tallest
+        # working panel: the two together can want more than nine, and
+        # what is left over is the band alone at the foot of a page.
+        first = first_loose_row(data.challenge_questions)
+        story.append(part_opening_break(
+            [ch_band, Spacer(1, 0.3 * cm)] + _unwrap([first] if first
+                                                     else []),
+            _CHALLENGE_MIN_START_CM))
+        story.append(ch_band)
+        story.append(Spacer(1, 0.3 * cm))
+        render_questions(data.challenge_questions)
 
     # ---- Spelling List (words to learn for next week) ----
     spelling_block = _spelling_list_block(
