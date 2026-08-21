@@ -2688,6 +2688,105 @@ def cover_footer_note(data: BookletData) -> str:
            " checked."))
 
 
+# ---------------------------------------------------------------------------
+# The running head and foot
+#
+# Every page from 2 to 21 used to carry the identical line "Academic Accelerate
+# | Year 3 | Kieran" and a bare page number, which tells a reader three things
+# they knew when they bought it and nothing about where they are. A tutor mid
+# session could not find their place and a parent flipping to the back could
+# not see where the answers begin.
+#
+# So the head gained a right-hand slot naming the part the page belongs to, and
+# the rule under it took that part's colour, which is the same colour as the
+# band the part opened with and the chip beside it on the contents page. And
+# the foot says "Page 3 of 21" rather than "Page 3": a page number with no
+# total is a number, a page number with a total is a position, and it is also
+# how a reader knows the print job came out whole.
+#
+# Both are read off the same map the contents page is built from, so the head
+# cannot name a part the contents puts on a different page.
+SPELLING_BAND = "#3F6B5E"
+
+
+def part_ink(name: str) -> str | None:
+    """The colour a named part is banded in, or None if it is not one.
+
+    One table, read by the band, by the running head and by the chip on the
+    contents page, so a part cannot be one colour in the head and another in
+    the contents.
+    """
+    return {"Warm-up Recap": PART_RECAP, "Class Work": PART_CLASSWORK,
+            "Homework": PART_HOMEWORK, "Final Challenge": PART_CHALLENGE,
+            "Spelling Test": SPELLING_BAND,
+            "Times Tables Test": _TABLES_BAND,
+            "Answers": ANSWER_GREEN}.get(name)
+# How far the head rule is lightened from the part's own colour. Full strength
+# navy across the whole measure on every page is a heavier line than a running
+# head wants, and the slot's own type carries the colour at full strength.
+_HEAD_RULE_TINT = 0.62
+_HEAD_SLOT_PT = 8.5
+
+
+def _tint(hex_colour: str, amount: float):
+    """`hex_colour` mixed with white. Computed, not transparency: a page that
+    goes through a greyscale driver has to keep the same value it had on
+    screen, and alpha is where that stops being true."""
+    base = colors.HexColor(hex_colour)
+    return colors.Color(base.red + (1 - base.red) * amount,
+                        base.green + (1 - base.green) * amount,
+                        base.blue + (1 - base.blue) * amount)
+
+
+def part_page_map(pages: dict, total: int) -> dict:
+    """{page number: part name} from the contents page's own locators.
+
+    A page belongs to the last part that began on or before it. Pages in front
+    of the first part, the cover and the contents, belong to none, and the head
+    on them stays as it was.
+
+    Two parts can begin on the same page, and then the page belongs to the
+    second: the Warm-up is often three questions and the Class Work band
+    follows it half way down. Naming the part the page ENDS in is what makes
+    the head answer "what am I working on", and the part that finished up the
+    page still has its own band in plain view above.
+
+    The sort is stable on the page number alone, so parts that tie keep the
+    order they were drawn in. Sorting the pairs themselves put "Class Work"
+    before "Warm-up Recap" on a shared page because C comes before W, and the
+    booklet then ran three pages of class work under a Warm-up head.
+    """
+    starts = [(page, key[1]) for key, page in pages.items()
+              if isinstance(key, tuple) and len(key) == 2
+              and key[0] == "part" and isinstance(page, int)]
+    starts.sort(key=lambda pair: pair[0])
+    out: dict = {}
+    for i, (page, name) in enumerate(starts):
+        last = starts[i + 1][0] - 1 if i + 1 < len(starts) else max(total, page)
+        for p in range(page, last + 1):
+            out[p] = name
+    return out
+
+
+def _draw_running_head(canvas, doc, header: str) -> None:
+    part = getattr(doc, "_part_pages", {}).get(doc.page, "")
+    # An exam's parts are its sections, which are named by the paper rather
+    # than by this module, so the document may carry its own inks.
+    ink = getattr(doc, "_part_inks", {}).get(part) or part_ink(part)
+    y = A4[1] - CHROME_MARGIN
+    canvas.setFont(FONT_REGULAR, 9)
+    canvas.setFillColor(colors.HexColor("#5F5F5F"))
+    canvas.drawString(PAGE_MARGIN, y, header)
+    if part and ink:
+        canvas.setFont(FONT_BOLD, _HEAD_SLOT_PT)
+        canvas.setFillColor(colors.HexColor(ink))
+        canvas.drawRightString(A4[0] - PAGE_MARGIN, y, part.upper())
+    canvas.setStrokeColor(_tint(ink, _HEAD_RULE_TINT) if ink
+                          else colors.HexColor("#DDDDDD"))
+    canvas.setLineWidth(1)
+    canvas.line(PAGE_MARGIN, y - 0.15 * cm, A4[0] - PAGE_MARGIN, y - 0.15 * cm)
+
+
 def _draw_page_chrome(canvas, doc):
     if doc.page == 1:
         # Declares the document's language to a screen reader and to any
@@ -2715,15 +2814,17 @@ def _draw_page_chrome(canvas, doc):
         return
     canvas.setFont(FONT_REGULAR, 9)
     canvas.setFillColor(colors.HexColor("#5F5F5F"))
+    # "of 21" comes from the throwaway build, which paginates identically to
+    # this one. A booklet rendered without that pass keeps the bare number
+    # rather than printing a total it would have to invent.
+    total = getattr(doc, "_total_pages", 0)
     canvas.drawRightString(
-        A4[0] - PAGE_MARGIN, CHROME_MARGIN, f"Page {doc.page}",
+        A4[0] - PAGE_MARGIN, CHROME_MARGIN,
+        f"Page {doc.page} of {total}" if total else f"Page {doc.page}",
     )
     header = getattr(doc, "_header_text", "")
     if header:
-        canvas.drawString(PAGE_MARGIN, A4[1] - CHROME_MARGIN, header)
-        canvas.setStrokeColor(colors.HexColor("#DDDDDD"))
-        canvas.line(PAGE_MARGIN, A4[1] - CHROME_MARGIN - 0.15 * cm,
-                    A4[0] - PAGE_MARGIN, A4[1] - CHROME_MARGIN - 0.15 * cm)
+        _draw_running_head(canvas, doc, header)
     canvas.restoreState()
 
 
@@ -3094,7 +3195,7 @@ def _spelling_test_block(styles, test, minutes: int | None = None):
     if not spaces:
         return []
     band = _part_band(
-        styles, "Spelling Test", "#3F6B5E",
+        styles, "Spelling Test", SPELLING_BAND,
         f"{spaces} words. Someone will read each word out loud. "
         "Write it on the line beside its number."
         + (f" About {minutes} min." if minutes else ""))
@@ -3109,7 +3210,7 @@ def _spelling_list_block(styles, spelling_list):
     if not words:
         return []
     band = _part_band(
-        styles, "Spelling List", "#3F6B5E",
+        styles, "Spelling List", SPELLING_BAND,
         f"{len(words)} words to learn for next week. "
         "You will be tested on these in your next booklet.")
     grid = _spelling_grid(
@@ -3411,11 +3512,6 @@ def contents_rows(data: BookletData) -> list:
     return rows
 
 
-_CONTENTS_SWATCH = {"Warm-up Recap": PART_RECAP, "Class Work": PART_CLASSWORK,
-                    "Homework": PART_HOMEWORK,
-                    "Final Challenge": PART_CHALLENGE,
-                    "Spelling Test": "#3F6B5E",
-                    "Times Tables Test": _TABLES_BAND}
 ANSWERS_KEY = ("part", "Answers")
 # The row is "Answers" and not "Answers and Worked Solutions" because the
 # contents page must not be the first page in the document carrying the words
@@ -3457,7 +3553,7 @@ def _contents_part_row(styles, label: str, page, swatch: str | None = None):
     contents and the page it points at are recognisably about the same thing
     from across a table.
     """
-    colour = swatch or _CONTENTS_SWATCH.get(label, PART_CLASSWORK)
+    colour = swatch or part_ink(label) or PART_CLASSWORK
     chip = Table([[""]], colWidths=[0.32 * cm], rowHeights=[0.32 * cm],
                  hAlign="LEFT")
     chip.setStyle(TableStyle([
@@ -4415,6 +4511,12 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
                      for k, v in page_refs.items()}
 
     doc = _booklet_doc(str(out_path), data, times)
+    # What the foot and the right-hand slot of the running head are made of.
+    # The probe paginates identically to the real build, so its last page is
+    # this document's page count, give or take the blank verso the real build
+    # adds; and its markers say where each part began.
+    doc._total_pages = probe.page + (1 if blank_before_key else 0)
+    doc._part_pages = part_page_map(page_refs, doc._total_pages)
     doc.build(_booklet_story(
         styles, data, times, page_map=None, page_refs=page_refs,
         blank_before_key=blank_before_key))
@@ -4464,26 +4566,57 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    doc = BaseDocTemplate(
-        str(out_path), pagesize=A4,
-        leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
-        topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
-        title=f"{paper.subject} Practice Examination",
-        author="FolioAI",
-    )
-    doc._header_text = f"{paper.subject}  |  {paper.year_level}  |  {paper.student_name}"
-    # Exams use a plain cover: the booklet cover design undercuts the look of a
-    # formal examination front page, so page 1 stays a text page with no
-    # running header.
-    doc._cover = None
-    doc._plain_cover = True
 
-    frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="body")
-    doc.addPageTemplates([PageTemplate(id="main", frames=frame, onPage=_draw_page_chrome)])
+    def exam_doc(target):
+        doc = BaseDocTemplate(
+            target, pagesize=A4,
+            leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
+            topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
+            title=f"{paper.subject} Practice Examination",
+            author="FolioAI",
+        )
+        doc._header_text = (f"{paper.subject}  |  {paper.year_level}  |  "
+                            f"{paper.student_name}")
+        # Exams use a plain cover: the booklet cover design undercuts the look
+        # of a formal examination front page, so page 1 stays a text page with
+        # no running header.
+        doc._cover = None
+        doc._plain_cover = True
+        frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height,
+                      id="body")
+        doc.addPageTemplates([PageTemplate(id="main", frames=frame,
+                                           onPage=_draw_page_chrome)])
+        return doc
 
     styles = _make_styles()
     body_width = A4[0] - 2 * PAGE_MARGIN
-    story = []
+
+    # Built twice from the same code, the way the booklet is: once into nothing
+    # to find out how many pages the paper runs to and which page each section
+    # starts on, and once for real. A candidate reading "Page 3" alone cannot
+    # tell whether the paper printed whole, and "Section Two" in the head is
+    # what a real examination carries.
+    section_pages: dict = {}
+    probe = exam_doc(io.BytesIO())
+    probe.build(_exam_story(styles, paper, body_width, section_pages))
+
+    doc = exam_doc(str(out_path))
+    doc._total_pages = probe.page
+    doc._part_pages = part_page_map(section_pages, probe.page)
+    doc._part_inks = dict(
+        [(s.name, EXAM_SECTION_INK) for s in paper.sections]
+        + [("Marking Key", ANSWER_GREEN)])
+    doc.build(_exam_story(styles, paper, body_width, None))
+    return out_path
+
+
+EXAM_SECTION_INK = "#1F3A5F"
+
+
+def _exam_story(styles, paper: ExamPaper, body_width: float,
+                page_map: dict | None) -> list:
+    """The whole story for a practice examination paper."""
+    story: list = []
 
     # ---- Cover: formal exam front page ----
     story.append(Spacer(1, 1.2 * cm))
@@ -4539,7 +4672,8 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
         sub = f"{section.total_marks} marks"
         if section.working_minutes:
             sub += f"  |  suggested working time {section.working_minutes} minutes"
-        story.append(_part_band(styles, section.name, "#1F3A5F", sub))
+        story.append(_locator(page_map, "part", section.name))
+        story.append(_part_band(styles, section.name, EXAM_SECTION_INK, sub))
         if section.description:
             story.append(Spacer(1, 0.25 * cm))
             story.append(Paragraph(_escape(section.description), styles["intro_para"]))
@@ -4550,6 +4684,7 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
         story.append(PageBreak())
 
     # ---- Marking key ----
+    story.append(_locator(page_map, "part", "Marking Key"))
     story.append(_part_band(styles, "Marking Key", ANSWER_GREEN,
                             "Solutions and mark allocations"))
     story.append(Spacer(1, 0.4 * cm))
@@ -4560,8 +4695,7 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
             counter["n"] += 1
             story.append(_answer_block(styles, counter["n"], vq, tidy_answer=False))
 
-    doc.build(story)
-    return out_path
+    return story
 
 
 def _answer_block(styles, q_num: int, vq: ValidatedQuestion, page: int | None = None,

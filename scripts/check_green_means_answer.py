@@ -116,9 +116,18 @@ def spans():
 
 print("\nEVERY GREEN MARK ON THE PAGE IS AN ANSWER OR A VERIFICATION")
 
-green = [(i, t) for i, s, t in spans() if s["color"] == GREEN]
-strays = [(f"page {i + 1}", t[:40]) for i, t in green
-          if not (t.startswith("Answer:") or t in {"✓", "✔"})]
+# The running head's right-hand slot on a key page is the third thing allowed
+# to be green, and for the reason the exam paper's Marking Key band already is
+# (see the note at the top of this file): it says "you are in the answers",
+# which is the same meaning at the scale of a part rather than a fourth use of
+# the colour. It is recognised by where it sits, not only by what it says: the
+# head band above the type area. The word "Answers" anywhere in the body is
+# still a stray.
+HEAD_BAND = 55
+green = [(i, s, t) for i, s, t in spans() if s["color"] == GREEN]
+strays = [(f"page {i + 1}", t[:40]) for i, s, t in green
+          if not (t.startswith("Answer:") or t in {"✓", "✔"}
+                  or (t == "ANSWERS" and s["bbox"][3] < HEAD_BAND))]
 
 check(green, "the booklet prints green marks at all",
       "nothing at all is printed in the answer green, so this file is "
@@ -131,8 +140,8 @@ check(not strays,
       "estimate a few centimetres from a green answer is the page where a "
       "reader stops trusting the signal")
 
-check(any(t.startswith("Answer:") for _, t in green)
-      and any(t in {"✓", "✔"} for _, t in green),
+check(any(t.startswith("Answer:") for _, _, t in green)
+      and any(t in {"✓", "✔"} for _, _, t in green),
       "and both of the things green is for are actually on the page: an "
       "answer line and a verification tick",
       "the booklet printed green marks of only one kind, so the assertion "
