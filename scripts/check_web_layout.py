@@ -46,7 +46,23 @@ except ImportError:
 from booklet_gen.webapp import create_app                        # noqa: E402
 from booklet_gen.webapp import db                                # noqa: E402
 
-PORT = int(os.environ.get("FOLIO_LAYOUT_PORT", "5177"))
+def _free_port() -> int:
+    """A port nothing else is holding right now.
+
+    This used to be a fixed 5177, and the check failed whenever a previous run
+    still had that port in TIME_WAIT: green on its own, red in the suite,
+    which is the fastest way to teach people to ignore a check. Ask the kernel
+    for one instead. FOLIO_LAYOUT_PORT still overrides, for debugging against
+    a server you want to open in your own browser.
+    """
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+PORT = int(os.environ.get("FOLIO_LAYOUT_PORT") or _free_port())
 BASE = f"http://127.0.0.1:{PORT}"
 EMAIL, PASSWORD = "layout@test.com", "correct-horse-battery"
 # A second account with nothing in it, because the empty states are pages too.
