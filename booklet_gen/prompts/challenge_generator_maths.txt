@@ -9,6 +9,7 @@ RULES
 - Progress from moderate to hardest within the set.
 - Vary the shape: some short, some long, some computational, some worded. No two questions may have the same answer, and no two may be solved by the same single sentence.
 - Nothing may need a method the student has not been taught at this year level. Harder means more steps and more combining, never new machinery: no square roots, no surface area, no pronumeral algebra in a primary booklet.
+- Harder also never means longer to read. The reading load is set by the year on the cover, because acceleration lifts the maths and not the child's reading age: AT MOST 15 words a question in Years 1-2, 30 words in Years 3-4, 45 words in Years 5-6, 60 words in Years 7-8, 75 words in Years 9-10. A multi-step question is built from two short sentences, never one long one. "Elias has a box of blocks. He counts 4 groups of 10 blocks and 7 extra blocks. He then subtracts 12 blocks to build a tower. How many blocks are left in the box?" went into a real Year 1 booklet at thirty-four words, aimed at a child who reads eight at a time.
 
 OUTPUT
 Return a single JSON object:

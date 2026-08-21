@@ -21,7 +21,7 @@ from .agents.term_planner import TermPlannerAgent
 from .agents.validator import SympyValidator, ValidationResult
 from . import curriculum
 from .timing import (section_minutes, round_display, round_total,
-                     classwork_section_minutes)
+                     classwork_section_minutes, session_plan)
 from .config import Config, load_config
 from .llm import get_client
 from .rag import Retriever

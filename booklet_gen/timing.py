@@ -74,17 +74,27 @@ from dataclasses import dataclass
 #   today; the correction lands on the younger years, which is where the error
 #   was.
 #
-# THE SUBTOPIC FLOOR: a mini-lesson with its worked and guided examples costs
-# about twelve minutes before a single practice question, so three subtopics
-# cannot be taught inside thirty minutes, and a floor of three would simply
-# push every Year 1 booklet over its cap and back to today's length. Lower
-# primary therefore teaches two skills properly rather than three at a gallop.
-# From Year 3 up the floor of three subtopics and three topics is unchanged.
+# THE FLOORS ARE NOT SCALED, and that is a deliberate limit on how far this can
+# go. Both of them are sold: the pricing page renders MIN_CLASSWORK_TOPICS and
+# MIN_NOW_YOU_TRY into "every booklet covers at least three topics, and every
+# mini-lesson is followed by at least four questions to try". Lowering either
+# for six year olds would make a published promise false for the customers
+# least able to check it.
 #
-# The practice floor (`MIN_NOW_YOU_TRY`, four questions under every mini-lesson)
-# is NOT scaled. Four questions is the difference between practice and a
-# demonstration at any age, and a shorter session is bought with fewer
-# subtopics, never with thinner practice.
+# The cost of holding them is real and is worth stating plainly. One subtopic,
+# measured off the shipped booklets, is about thirteen minutes: seven of
+# mini-lesson, worked example and guided example, six of four practice
+# questions. Three subtopics is therefore about thirty-nine minutes whatever
+# the cap says, so a Years 1-2 cap of thirty cannot actually be reached, and
+# Years 1 through 6 all land near thirty-nine minutes of class work while
+# Years 7 and up fit a fourth subtopic and run to about fifty-five.
+#
+# The remaining levers to get a Year 1 session nearer thirty minutes are a
+# two-topic lower-primary booklet (a product and pricing decision, not a code
+# one) or shorter lower-primary mini-lessons (an authoring prompt change).
+# Neither is taken here. The caps below still bind: they are what stops a
+# fourth and fifth subtopic being packed into a primary session, which is the
+# whole of the observed fault.
 #
 # HOMEWORK is set once and worked across the week. Australian school homework
 # guidance runs at roughly ten minutes a night in Years 1-2 across all
@@ -122,8 +132,8 @@ class SessionPlan:
 # behaves exactly as the product did before year bands existed.
 _BANDS: tuple[tuple[int | None, SessionPlan], ...] = (
     (2, SessionPlan(band="lower primary", year=None,
-                    classwork_cap_minutes=30, min_subtopics=2, min_topics=2,
-                    homework_per_subtopic=3, recap_questions=3,
+                    classwork_cap_minutes=30, min_subtopics=3, min_topics=3,
+                    homework_per_subtopic=2, recap_questions=3,
                     challenge_questions=3)),
     (4, SessionPlan(band="middle primary", year=None,
                     classwork_cap_minutes=40, min_subtopics=3, min_topics=3,
