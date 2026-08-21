@@ -299,11 +299,14 @@ check(not emptied,
 data.student_name = "Sam"
 pdf = render_pdf(data, tmp / "trimmed.pdf")
 pages = page_texts(pdf)
-# From where the work starts. The contents page in front of it names every
-# part in the booklet, so splitting the whole document on "Homework" cuts it
-# at the contents row and leaves nothing of the class work to count.
-work_start = next((i + 1 for i, p in enumerate(pages)
-                   if "Contents" in p.splitlines()), 1)
+# From where the work starts. The front matter in front of it names every part
+# in the booklet twice over, on the contents page and on the page that explains
+# how to use it, so splitting the whole document on "Homework" cuts it in the
+# front matter and leaves nothing of the class work to count.
+work_start = 1
+for i, p in enumerate(pages):
+    if {"Contents", "How to use this booklet"} & set(p.splitlines()):
+        work_start = i + 1
 text = "\n".join(pages[work_start:])
 classwork_text = text.split("Homework")[0]
 

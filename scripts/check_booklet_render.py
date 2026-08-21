@@ -1098,17 +1098,26 @@ print("\nPage fill")
 # worked while the sign-off happened to be last: inserting the blank verso
 # pushed it one page in and the check started failing on a page it had never
 # been about.
+FRONT_MATTER_HEADINGS = ("Contents", "How to use this booklet")
+
+
+def is_front_matter(page: str) -> bool:
+    """The contents page and the page addressed to the adult.
+
+    Both are designed short pages. The contents lists a booklet's parts and
+    topics, and the how-to page is a dozen lines of prose; the white under
+    either is the shape of the page rather than questions that failed to pack.
+    Recognised by their headings, not by their position, so they stay
+    recognised wherever the front matter puts them.
+    """
+    return any(h in page.splitlines() for h in FRONT_MATTER_HEADINGS)
+
+
 def _exempt_pages(pages_, stop: int) -> set[int]:
     out = {0}
     for i, page in enumerate(pages_[:stop]):
-        # The contents page joins them, and for the same reason: it is a
-        # designed short page. It lists a booklet's parts and topics, which on
-        # most booklets is a dozen lines, and the white under it is the shape
-        # of a contents page rather than questions that failed to pack. Named
-        # by its heading, not by its position, so it stays exempt wherever
-        # front matter puts it.
         if ("intentionally blank" in page or "Marked by:" in page
-                or "Contents" in page.splitlines()):
+                or is_front_matter(page)):
             out.add(i)
     return out
 
@@ -1426,16 +1435,20 @@ def page_of(pages_, needle, first: int = 0):
 
 
 def work_starts(pages_) -> int:
-    """The first page of the student's half, past the cover and the contents.
+    """The first page of the student's half, past the cover and front matter.
 
-    The contents page names every part and every topic in the booklet, so a
-    search for "Homework" or "Spelling Test" from page one finds the contents
-    row rather than the band it points at, and everything measured off that
-    index is then measured off an empty slice. Any locator that means "the page
-    the work starts on" begins here instead.
+    The contents page names every part and every topic in the booklet, and the
+    how-to page names and explains every part, so a search for "Homework" or
+    "Spelling Test" from page one finds the front matter rather than the band
+    it points at, and everything measured off that index is then measured off
+    an empty slice. Any locator that means "the page the work starts on"
+    begins here instead.
     """
-    return next((i + 1 for i, p in enumerate(pages_)
-                 if "Contents" in p.splitlines()), 1)
+    last = 0
+    for i, page in enumerate(pages_):
+        if is_front_matter(page):
+            last = i
+    return last + 1
 
 
 check(len(e_pages) > 3, "the English booklet renders", f"{len(e_pages)} pages")

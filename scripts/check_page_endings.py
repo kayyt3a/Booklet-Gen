@@ -571,19 +571,21 @@ FOOT_WHITE_CM = 95.5
 def foot_white(document, key_start):
     """The white under the last ink on each page of the student half.
 
-    Two pages are excluded by name rather than by position, because they are
+    Three pages are excluded by name rather than by position, because they are
     designed short pages and not abandoned ones: the contents, which lists a
-    dozen parts and topics and is meant to have air under it, and the sheet
-    that says it is intentionally blank. Counting them measures a decision
-    rather than a fault, and it also lets a real fault hide: this fixture's
-    parity moves between the two as the front matter changes, so a page foot
-    that grew could be paid for out of a blank page that disappeared.
+    dozen parts and topics; the page addressed to the adult, which is a dozen
+    lines of prose; and the sheet that says it is intentionally blank. Counting
+    them measures a decision rather than a fault, and it also lets a real fault
+    hide: this fixture's parity moves as the front matter changes, so a page
+    foot that grew could be paid for out of a blank page that disappeared.
     """
+    designed = {"Contents", "How to use this booklet"}
     out = []
     for i in range(1, key_start):
         page = document[i]
         lines = page.get_text().splitlines()
-        if "Contents" in lines or any("intentionally blank" in l for l in lines):
+        if designed & set(lines) or any("intentionally blank" in l
+                                        for l in lines):
             continue
         bottom = page.rect.height - PAGE_MARGIN
         low = PAGE_MARGIN

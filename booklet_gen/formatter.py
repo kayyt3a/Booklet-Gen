@@ -391,6 +391,26 @@ def _make_styles():
             fontSize=22, leading=26, alignment=TA_LEFT, spaceAfter=8,
             spaceBefore=0, textColor=colors.HexColor("#1F3A5F"),
         ),
+        # The page addressed to the adult. Set at the body's own size and
+        # measure, not smaller: it is the one page in the booklet a parent
+        # reads rather than works through, and small print on a page that
+        # explains what the product is and is not would be the wrong choice
+        # twice over.
+        "how_to_lead": ParagraphStyle(
+            "how_to_lead", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=10.5, leading=15, spaceAfter=2,
+            textColor=colors.HexColor("#3A4A63"),
+        ),
+        "how_to_part": ParagraphStyle(
+            "how_to_part", parent=base["Heading2"], fontName=FONT_DISPLAY,
+            fontSize=11.5, leading=15, spaceBefore=0, spaceAfter=1,
+            textColor=colors.HexColor("#1F3A5F"),
+        ),
+        "how_to_body": ParagraphStyle(
+            "how_to_body", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=9.5, leading=13.5, spaceAfter=0,
+            textColor=colors.HexColor("#3A4A63"),
+        ),
         "challenge_heading": ParagraphStyle(
             "challenge_heading", parent=base["Heading1"], fontName=FONT_DISPLAY,
             fontSize=22, leading=26, alignment=TA_CENTER, spaceAfter=6,
@@ -3577,6 +3597,164 @@ def _contents_part_row(styles, label: str, page, swatch: str | None = None):
     return row
 
 
+# ---------------------------------------------------------------------------
+# "How to use this booklet"
+#
+# One page, addressed to the adult and not to the child. Nothing here is a
+# claim the code cannot back:
+#
+#   * the times are the ones the bands print, read from the same booklet_timing
+#     call, so this page and the bands cannot disagree;
+#   * what Class Work and Homework are for is what the layout and the timing
+#     model already say they are ("we do" then "you do", and a 0.65 context
+#     factor on homework because it is the same skill a second time, alone);
+#   * the tick is described exactly as pipeline._trusted grants it, and the
+#     stronger sentence is printed only when every_answer_checked() is true,
+#     which is the same function the cover and the key's colophon ask;
+#   * and the last paragraph says what generated the booklet and what did not
+#     review it, because a parent who works that out for themselves later has
+#     been sold something quietly.
+#
+# What is deliberately NOT here: any mention of teacher review, curriculum
+# accreditation or human authoring, none of which happened, and any promise of
+# a tick on every answer, because unverified answers exist and print without
+# one.
+# ---------------------------------------------------------------------------
+
+_HOW_TO_ROWS = [
+    ("Spelling Test", "spelling_minutes",
+     "A dictation on the list set in the last booklet. Read the words out one "
+     "at a time, in the order they are printed in the answer key. They appear "
+     "nowhere else, so the page in front of the student holds no clues."),
+    ("Times Tables Test", "tables_minutes",
+     "Every fact from the table set in the last booklet, shuffled. It is meant "
+     "to be answered cold, so it comes before anything else."),
+    ("Warm-up Recap", "recap_minutes",
+     "A short set on work already covered, so the session starts on something "
+     "they can already do."),
+    ("Class Work", "classwork_minutes",
+     "Meant to be worked through next to you. Each subtopic explains the "
+     "skill, shows a worked example, then works one through together with the "
+     "answer left blank, before any question is attempted alone."),
+    ("Homework", "homework_only_minutes",
+     "The same skills again, on their own, later in the week. It is split "
+     "into sittings with a date line on each, so the week can be planned "
+     "rather than piled up."),
+    ("Final Challenge", "challenge_minutes",
+     "Mixed questions that use the whole booklet at once. Nothing new in it, "
+     "all of it at the same time."),
+]
+
+
+def homework_band_minutes(data: BookletData, times: dict):
+    """The homework estimate the booklet prints, in one place.
+
+    When the homework is split into sittings the band prints the sum of the
+    sittings rather than the half's own total, because the sitting bands are
+    what a parent counts and the two round differently: 16 against 17 on the
+    same booklet. Both the band and the page that explains the booklet ask
+    this, so there is one homework number in the document and not two.
+    """
+    sessions = homework_session_plan(data)
+    if sessions:
+        return sum(s["minutes"] for s in sessions)
+    return times.get("homework_only_minutes")
+
+
+def how_to_rows(data: BookletData, times: dict) -> list:
+    """[(part, minutes or None, what it is)] for the parts this booklet has."""
+    present = {name for name, count in part_counts(data) if count}
+    return [(name,
+             homework_band_minutes(data, times) if name == "Homework"
+             else times.get(key), text)
+            for name, key, text in _HOW_TO_ROWS if name in present]
+
+
+def _how_to_row(styles, name: str, minutes, text: str):
+    """One part explained: its chip, its name, how long it runs, what it is."""
+    heading = _escape(name)
+    if minutes:
+        # Set in the sans, at the size and in the ink every other locator in
+        # the booklet uses ("TOPIC 1 OF 3", "PART 2 OF 4"), so the reader has
+        # one thing to learn rather than one per page.
+        heading += (f'  <font face="{FONT_BOLD}" size=8 color="{META_GREY}">'
+                    f'ABOUT {minutes} MIN</font>')
+    body = [Paragraph(heading, styles["how_to_part"]),
+            Paragraph(_escape(text), styles["how_to_body"])]
+    chip = Table([[""]], colWidths=[0.32 * cm], rowHeights=[0.32 * cm],
+                 hAlign="LEFT")
+    chip.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1),
+         colors.HexColor(part_ink(name) or PART_CLASSWORK)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    row = Table([[chip, body]], colWidths=[0.62 * cm, BODY_WIDTH - 0.62 * cm])
+    row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (0, 0), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (0, 0), 4),
+        ("TOPPADDING", (1, 0), (1, 0), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    return row
+
+
+_HOW_TO_KEY_CHECKED = (
+    "The answer key is at the back, and it shows the working rather than only "
+    "the answer, so a wrong answer can be traced to the line it went wrong on. "
+    "Every answer in this key has been checked.")
+_HOW_TO_KEY_PARTIAL = (
+    "The answer key is at the back, and it shows the working rather than only "
+    "the answer, so a wrong answer can be traced to the line it went wrong on. "
+    "A tick beside an answer means that answer was checked; an answer without "
+    "one was not, and is worth reading before you mark with it.")
+_HOW_TO_TIMES = (
+    "Each part carries an estimate on its band. It is worked out from this "
+    "booklet rather than assumed: how hard each question is, how much there is "
+    "to read in it, how many parts it has, and how long the teaching in front "
+    "of it takes to work through. It is an estimate and not a target.")
+_HOW_TO_HONESTY = (
+    "FolioAI writes and checks this booklet by machine. Maths answers are "
+    "re-worked symbolically where the question allows it, and the rest are "
+    "graded against the question by a language model; an answer whose working "
+    "disagrees with it is printed without a tick. No teacher has reviewed it. "
+    "That is why the working is printed beside every answer: so you can judge "
+    "it yourself rather than take it on trust.")
+
+
+def _how_to_page(styles, data: BookletData, times: dict) -> list:
+    """The one page in the booklet addressed to the adult, not the child."""
+    rows = how_to_rows(data, times)
+    if not rows:
+        return []
+    name = (data.student_name or "").strip()
+    lead = ("This page is for whoever is running the session. Everything "
+            "after it is for " + (_escape(name) if name else "the student")
+            + ".")
+    out: list = [Paragraph("How to use this booklet", styles["contents_heading"]),
+                 _rule(BODY_WIDTH, 1.2, PART_CLASSWORK),
+                 Spacer(1, 0.35 * cm),
+                 Paragraph(lead, styles["how_to_lead"]),
+                 Spacer(1, 0.3 * cm)]
+    out += [_how_to_row(styles, *row) for row in rows]
+    out += [Spacer(1, 0.2 * cm), _rule(BODY_WIDTH, 0.6, "#B7C3D4"),
+            Spacer(1, 0.35 * cm),
+            Paragraph("How long it takes", styles["how_to_part"]),
+            Paragraph(_HOW_TO_TIMES, styles["how_to_body"]),
+            Spacer(1, 0.3 * cm),
+            Paragraph("Marking it", styles["how_to_part"]),
+            Paragraph(_HOW_TO_KEY_CHECKED if every_answer_checked(data)
+                      else _HOW_TO_KEY_PARTIAL, styles["how_to_body"]),
+            Spacer(1, 0.3 * cm),
+            Paragraph("Where it comes from", styles["how_to_part"]),
+            Paragraph(_HOW_TO_HONESTY, styles["how_to_body"])]
+    return out
+
+
 def _rule(width: float, weight: float, colour: str):
     """A horizontal rule as a flowable."""
     tbl = Table([[""]], colWidths=[width], rowHeights=[weight], hAlign="LEFT")
@@ -3621,6 +3799,14 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     front = _contents_page(styles, data, page_refs)
     if front:
         story.extend(front)
+        story.append(PageBreak())
+
+    # The one page addressed to the adult rather than the child. It comes
+    # after the contents, which is where a workbook puts it, and before the
+    # first thing the student is asked to do.
+    how_to = _how_to_page(styles, data, times)
+    if how_to:
+        story.extend(how_to)
         story.append(PageBreak())
 
     multi_subject = len({(s.subject or "") for s in data.sections if s.subject}) > 1
@@ -3949,7 +4135,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
         if sessions:
             hw_sub = ("Do these through the week to lock it in. "
                       f"Split into {len(sessions)} sessions, about "
-                      f"{sum(s['minutes'] for s in sessions)} min in total.")
+                      f"{homework_band_minutes(data, times)} min in total.")
         if data.challenge_questions and times["challenge_minutes"]:
             hw_sub += (" The Final Challenge at the end adds about "
                        f"{times['challenge_minutes']} min.")
