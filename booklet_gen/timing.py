@@ -28,6 +28,142 @@ recap, which has no teaching to charge for.
 """
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+
+# ---------------------------------------------------------------------------
+# How much work one year level can actually do
+#
+# Five booklets generated from production on 21 August 2026 (Years 1, 3, 5, 7
+# and 9 Mathematics) were measured off the page:
+#
+#   Year 1: warm-up 5, class work 52, homework 19, total 105 min, 21 pages
+#   Year 3: 5 / 57 / 18, total 110, 24 pages
+#   Year 5: 6 / 55 / 19, total 110, 22 pages
+#   Year 7: 4 / 57 / 21, total 110, 22 pages
+#   Year 9: 4 / 55 / 18, total 105, 22 pages
+#
+# Every one of them taught four subtopics and set sixteen homework questions.
+# A six year old was being issued the same workload as a fourteen year old,
+# including a 52 minute continuous block of written maths, and a parent of a
+# Year 1 sees that instantly.
+#
+# It happened because nothing in the system knew the student's age. Class Work
+# is filled up to `CLASSWORK_CAP_MINUTES`, one flat hour for everybody, and the
+# homework count was a constructor default. The outline parser offers up to a
+# dozen subtopics whatever the year, so the cap fitter simply packed the hour.
+# Making the ESTIMATE year-aware would have changed nothing: the estimate was
+# roughly right, the workload was wrong. So the session length is decided here
+# and the pipeline builds the booklet to it.
+#
+# THE CAP: five minutes of seated written work per year of age, rounded to the
+# nearest ten, never more than the tutor's hour.
+#
+#   The rule of thumb tutors and OTs use for sustained attention on one seated
+#   task is two to five minutes per year of age. Take the top of that range,
+#   because a tutor is sitting beside the child and the block is broken up by a
+#   mini-lesson before each set of questions, so it is not one continuous task.
+#   Age is year level plus five, which is how Australian school years run.
+#
+#     Year 1 (age 6)  -> 30 min      Year 5 (age 10) -> 50 min
+#     Year 3 (age 8)  -> 40 min      Year 7 (age 12) -> 60 min
+#     Year 9 (age 14) -> 70, held at 60
+#
+#   Sixty is the ceiling because a tutoring session is an hour and the product
+#   is sold as one. Years 9 and 10 therefore keep exactly the session they have
+#   today; the correction lands on the younger years, which is where the error
+#   was.
+#
+# THE SUBTOPIC FLOOR: a mini-lesson with its worked and guided examples costs
+# about twelve minutes before a single practice question, so three subtopics
+# cannot be taught inside thirty minutes, and a floor of three would simply
+# push every Year 1 booklet over its cap and back to today's length. Lower
+# primary therefore teaches two skills properly rather than three at a gallop.
+# From Year 3 up the floor of three subtopics and three topics is unchanged.
+#
+# The practice floor (`MIN_NOW_YOU_TRY`, four questions under every mini-lesson)
+# is NOT scaled. Four questions is the difference between practice and a
+# demonstration at any age, and a shorter session is bought with fewer
+# subtopics, never with thinner practice.
+#
+# HOMEWORK is set once and worked across the week. Australian school homework
+# guidance runs at roughly ten minutes a night in Years 1-2 across all
+# subjects, twenty in Years 3-4, thirty in Years 5-6, and thirty to forty-five
+# in lower secondary. One subject cannot have all of it, so the per-subtopic
+# counts below land the maths homework at a few minutes a night for lower
+# primary and about ten for secondary.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SessionPlan:
+    """How much work one booklet at this year level is allowed to contain.
+
+    Everything here is a budget the pipeline builds to, not a number printed on
+    the page. What the page prints is measured back off the finished booklet by
+    `booklet_timing`, so a booklet that overruns its budget still says so.
+    """
+
+    band: str
+    year: int | None
+    # Class Work is filled up to this and the surplus moves to Homework.
+    classwork_cap_minutes: int
+    # Floors the cap fitter may not trim through.
+    min_subtopics: int
+    min_topics: int
+    # Practice questions written per subtopic for the homework half.
+    homework_per_subtopic: int
+    recap_questions: int
+    challenge_questions: int
+
+
+# Ordered oldest last. `max_year` is inclusive; the final entry is also the
+# fallback for a year level nothing can be parsed out of, so an unknown year
+# behaves exactly as the product did before year bands existed.
+_BANDS: tuple[tuple[int | None, SessionPlan], ...] = (
+    (2, SessionPlan(band="lower primary", year=None,
+                    classwork_cap_minutes=30, min_subtopics=2, min_topics=2,
+                    homework_per_subtopic=3, recap_questions=3,
+                    challenge_questions=3)),
+    (4, SessionPlan(band="middle primary", year=None,
+                    classwork_cap_minutes=40, min_subtopics=3, min_topics=3,
+                    homework_per_subtopic=3, recap_questions=4,
+                    challenge_questions=4)),
+    (6, SessionPlan(band="upper primary", year=None,
+                    classwork_cap_minutes=50, min_subtopics=3, min_topics=3,
+                    homework_per_subtopic=4, recap_questions=4,
+                    challenge_questions=5)),
+    (None, SessionPlan(band="secondary", year=None,
+                       classwork_cap_minutes=60, min_subtopics=3, min_topics=3,
+                       homework_per_subtopic=4, recap_questions=4,
+                       challenge_questions=5)),
+)
+
+
+def year_number(year_level: str | None) -> int | None:
+    """The digits out of "Year 5", or None when there are none.
+
+    Handles the shapes the product actually passes: "Year 5", "year 10",
+    "Yr 3", "Year 11/12" (takes the first, which is the one that sets the
+    workload) and a bare "7". Kindergarten and Pre-primary parse to None and
+    take the fallback band, which is deliberate: the booklet product is not
+    offered below Year 1, so an unrecognised label is a caller error rather
+    than a very young student, and the safe response is the behaviour that
+    shipped rather than a guess.
+    """
+    m = re.search(r"\d+", year_level or "")
+    return int(m.group(0)) if m else None
+
+
+def session_plan(year_level: str | None) -> SessionPlan:
+    """The workload budget for a year level. Never returns None."""
+    year = year_number(year_level)
+    for max_year, plan in _BANDS:
+        if max_year is None or (year is not None and year <= max_year):
+            return SessionPlan(**{**plan.__dict__, "year": year})
+    return _BANDS[-1][1]
+
+
 # ---------------------------------------------------------------------------
 # Capacity heuristic (pipeline)
 # ---------------------------------------------------------------------------
