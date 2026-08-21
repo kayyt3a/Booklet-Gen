@@ -1122,20 +1122,13 @@ class BookletPipeline:
         )
         teaching = self._make_teaching(subject, year_level, topic_name, subtopic, chunks)
         passages: list[Passage] = []
-        # How much practice this year level is set on one subtopic. The class
-        # work half is the same everywhere (MIN_NOW_YOU_TRY is a promise, not a
-        # dial); the homework half is where the year shows, because homework is
-        # worked alone across a week and a six year old cannot be set the same
-        # week a fourteen year old can. Asking the generator for exactly what
-        # will be printed also means a shorter booklet costs fewer tokens to
-        # write and fewer to validate, rather than generating sixteen homework
-        # questions and binning ten.
-        plan = session_plan(year_level)
-        n_homework = min(self._n_homework, plan.homework_per_subtopic)
+        # How much homework this year level is set on one subtopic. A six year
+        # old cannot be set the week a fourteen year old can, and until tonight
+        # both were set four questions per subtopic and sixteen per booklet.
+        _, n_homework = self._question_budget(year_level)
         validated = self._generate_and_validate(
             subject, year_level, topic_name, subtopic, chunks, teaching, seen,
             passages, passage_quota=passage_quota,
-            count=self._n_classwork + n_homework,
         )
         total = len(validated)
         failed = sum(1 for v in validated if not v.verified)
@@ -1514,10 +1507,29 @@ class BookletPipeline:
         det = self._reasoning.validate(q)
         return det is not None and not det.verified
 
+    def _question_budget(self, year_level) -> tuple[int, int]:
+        """(class work, homework) questions to write for one subtopic.
+
+        Class work is the same at every year: MIN_NOW_YOU_TRY is a promise on
+        the pricing page, not a dial. Homework is the year band's, because it
+        is worked alone across a week and that is where a six year old and a
+        fourteen year old genuinely differ.
+
+        Read defensively, for the same reason `_generate_and_validate` reads
+        `_n_classwork` defensively: the guard checks drive both methods on a
+        bare pipeline that sets only the attributes they exercise.
+        """
+        plan = session_plan(year_level)
+        n_classwork = max(1, getattr(self, "_n_classwork", None)
+                          or MIN_NOW_YOU_TRY)
+        configured = getattr(self, "_n_homework", None)
+        n_homework = (plan.homework_per_subtopic if configured is None
+                      else min(configured, plan.homework_per_subtopic))
+        return n_classwork, n_homework
+
     def _generate_and_validate(
         self, subject, year_level, topic_name, subtopic, reference_chunks,
         teaching=None, seen=None, passages_out=None, passage_quota=2,
-        count=None,
     ) -> list[ValidatedQuestion]:
         """Generate, validate and dedupe one subtopic's question set.
 
@@ -1545,6 +1557,13 @@ class BookletPipeline:
         # checks drive this method on a bare pipeline that sets just the
         # attributes they exercise.
         cut_at = getattr(self, "_n_classwork", None)
+        # Ask for exactly what this year level will print. The agent is built
+        # once, before anyone knows whose booklet this is, so the number has to
+        # arrive per call: a Year 1 subtopic is set six questions and a Year 9
+        # one eight, and generating eight everywhere means paying to write and
+        # to validate two that are then thrown away.
+        n_classwork, n_homework = self._question_budget(year_level)
+        count = n_classwork + n_homework
 
         def pooled(question_set):
             for p in getattr(question_set, "passages", None) or []:
