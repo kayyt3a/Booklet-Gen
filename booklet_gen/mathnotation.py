@@ -166,6 +166,11 @@ def _raised(body: str) -> str:
     tail = ""
     while body and body[-1] in ".,;:":
         body, tail = body[:-1], body[-1] + tail
+    # The brackets go for the same reason they go on the Unicode path: the
+    # group is the whole index. Both paths have to agree about this, or one
+    # index law prints as xᵃ⁺ᵇ and the next as x⁽ᵃ ˣ ᵇ⁾ two lines below it.
+    if body.startswith("(") and body.endswith(")") and "(" not in body[1:-1]:
+        body = body[1:-1]
     return (super_markup(body) if body else "") + tail
 
 

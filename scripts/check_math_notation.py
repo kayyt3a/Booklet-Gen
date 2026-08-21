@@ -187,6 +187,12 @@ mixed = _escape("(f²)^3 = f^(2 × 3) = f^6.")
 check("^" not in mixed and "super" in mixed and "ˣ" not in mixed,
       "an index containing a times sign is set with markup, not left as a caret",
       mixed)
+# Both paths drop the brackets round a whole index, or one index law prints
+# as xᵃ⁺ᵇ and the next as x⁽ᵃ ˣ ᵇ⁾ two lines below it.
+check(mixed.endswith("f⁶.") and ">(" not in mixed and N.super_markup("2 × 3") in mixed,
+      "the markup path drops the brackets the Unicode path drops", mixed)
+check(_escape("The result is c^12.").endswith("c¹²."),
+      "and leaves the sentence's full stop on the line, not in the air")
 
 
 # ---------------------------------------------------------------------------
