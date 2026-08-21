@@ -469,6 +469,33 @@ if raised:
           f"{raised[0]['bbox'][1]:.2f} vs {base['bbox'][1]:.2f}")
 
 
+# ---------------------------------------------------------------------------
+# The prompt says it too
+#
+# Same principle as the em dash: the deterministic pass is the backstop, and
+# the prompt is where the notation should not have been written wrongly in the
+# first place. The practice prompt used to say, in as many words, "`*` is fine
+# ... Powers as `x^2`", which is where the carets and the asterisks in those
+# five booklets came from. It now states a floor, because a preference is what
+# produced the mixture.
+# ---------------------------------------------------------------------------
+print("\nTHE MATHS PROMPTS STATE THE NOTATION AS A RULE")
+
+PROMPTS = ["question_generator_maths.txt", "intro_writer_maths.txt",
+           "challenge_generator_maths.txt"]
+for name in PROMPTS:
+    text = (Path("booklet_gen/prompts") / name).read_text(encoding="utf-8")
+    check("NOTATION" in text, f"{name} has a notation rule at all")
+    check("NEVER x^2" in text, f"{name} forbids the caret index by name")
+    check("x²" in text and "cm³" in text,
+          f"{name} shows the index the way it has to be written")
+    check("NEVER *" in text and "×" in text,
+          f"{name} names the multiplication sign and rules out the asterisk")
+    check("÷" in text and "a/b" in text,
+          f"{name} separates the division sign from the fraction slash")
+    check("`*` is fine" not in text and "Powers as `x^2`" not in text,
+          f"{name} no longer asks for the notation this fix removes")
+
 print()
 if _failed:
     print(f"{len(_failed)} FAILED, {_passed} passed")

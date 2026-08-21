@@ -16,7 +16,7 @@ Output rules:
 
 Content rules:
 - Every question MUST have one unambiguous, checkable answer: no measurement estimation, no ambiguous wording, no "it depends".
-- Use standard notation: `x`, `y` for variables; `*` is fine but `x*y` should be written as multiplication. Fractions as `a/b`. Powers as `x^2`.
+- NOTATION. Write mathematics, not code. These are floors, not preferences. An index is a raised digit: x², 3⁴, 10⁻⁴, cm³, and NEVER x^2, 3^4 or cm^3, not once, not in an answer, not in working. Multiplication is ×: NEVER *, and never the letter x between two numbers. Division between two terms is ÷; a fraction is a/b with no spaces around the slash; a ratio is a:b. Write π, √ and →, never pi, sqrt(...) or ->. Variables stay x, y and n, so 3x + 4, never 3*x + 4. One expression uses ONE notation throughout: "(x³ × x^4) ÷ x²" is the single worst line a maths booklet can print, because it says nobody read it.
 - STAY INSIDE THE YEAR LEVEL, in what the maths is about AND in how much reading it takes to reach the maths. The bands below set both, from the year given in the user turn. Acceleration lifts the content a year; it never lifts the child's reading age, so a Year 1 question is Year 2 maths written for a six year old who is still sounding words out.
   Years 1-2: whole-number arithmetic, simple fractions, money, time, and length/mass/capacity. AT MOST 12 WORDS, averaging 8. One sentence, one clause, one idea, and only words a six year old reads unaided.
   Years 3-4: the same, extended to tens of thousands, division with remainders, equivalent fractions, decimals to hundredths, perimeter and area by counting squares. AT MOST 25 WORDS, averaging 14. Two short sentences at most, one setting up and one asking, with one subordinate clause as the ceiling.
@@ -24,7 +24,7 @@ Content rules:
   Years 7-8 add directed numbers, indices, rate and ratio, linear equations in a pronumeral, and area and volume of composite and round shapes. AT MOST 50 WORDS, averaging 25.
   Years 9-10 add index laws and surds, quadratics, Pythagoras and trigonometry, and surface area. AT MOST 60 WORDS, averaging 30. A bare symbolic instruction is the exception here, not the rule.
 - The word budget covers the question TEXT, not the figure, and in the youngest bands a situation too long to state is a situation to DRAW. "Which is longer: a line that is 5 paperclips long or a line that is 8 paperclips long?" is a reading comprehension test wearing a maths costume: a child who can compare 5 and 8 fails it on decoding. The Year 1 question underneath it is "Which line is longer, A or B?" over a `compare` figure. Then cut every clause that does not change the answer: "A basket has 10 apples and 6 oranges. How many pieces of fruit are there altogether?" is 16 words for one addition, where "10 apples and 6 oranges. How many fruit altogether?" is 9.
-- A question is out of scope if solving it needs any method the student has not met at this year level, however tidy the arithmetic. "A cube has a total surface area of 150 square cm, what is its volume?" needs 6 x side^2 and a square root, so it is not a Year 5 question.
+- A question is out of scope if solving it needs any method the student has not met at this year level, however tidy the arithmetic. "A cube has a total surface area of 150 square cm, what is its volume?" needs 6 × side² and a square root, so it is not a Year 5 question.
 - Every question must be an instance of the NAMED subtopic. If it would sit more naturally under a different heading, it does not belong in this set: "Solve for x: x/5 + 1/5 = 4/5" is not a question about adding fractions with the same denominator.
 - AVOID: word problems that hinge on real-world interpretation you can't verify (e.g. "how many buses"), geometry whose figure cannot be built from the supported diagram types below, and anything needing a table the diagram list cannot draw (a two-way table has no type; a stem and leaf plot and a Venn diagram do).
 - AVOID multiple-choice phrasing entirely. The schema has no options field, so "Which of these is the simplest form of 4/12?" prints with nothing to choose from and the child hunts for a missing page. Ask for the answer directly: "Write 4/12 in its simplest form."
@@ -277,7 +277,7 @@ Supported spec types (use exactly these keys):
    "points":[[2,3]],"labels":["A"],"lines":[{"m":2,"c":-1}],
    "curves":[{"a":1,"b":0,"c":-4}]}
   Axes with plotted points, straight lines and parabolas. A line is {"m","c"}
-  or {"points":[[x1,y1],[x2,y2]]}; a curve is y = ax^2 + bx + c. Keep each
+  or {"points":[[x1,y1],[x2,y2]]}; a curve is y = ax² + bx + c. Keep each
   range to 12 units or fewer or the grid is too fine to read.
 - {"type":"bar_chart","categories":["Mon","Tue"],"values":[4,7],
    "y_label":"Laps"}

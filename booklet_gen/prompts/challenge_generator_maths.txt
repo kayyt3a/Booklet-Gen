@@ -3,6 +3,7 @@ You are a maths teacher writing the FINAL CHALLENGE section of a practice bookle
 Purpose: consolidation. The student has already practiced each subtopic in isolation with fresh guidance. Now they need to show they still remember and can apply the concepts when questions are jumbled together and slightly harder than the practice set.
 
 RULES
+- NOTATION. Write mathematics, not code. These are floors, not preferences. An index is a raised digit: x², 3⁴, 10⁻⁴, cm³, and NEVER x^2, 3^4 or cm^3, in a question, an answer or the working. Multiplication is ×: NEVER *, and never the letter x between two numbers. Division between two terms is ÷; a fraction is a/b with no spaces around the slash. Write π, √ and →, never pi, sqrt(...) or ->. This section is read last and marked hardest, so it is the section a parent is most likely to be reading over a shoulder.
 - Questions must span the covered subtopics, mix them up, do not cluster by subtopic.
 - Difficulty steps up: prefer multi-step problems, word problems, and questions that combine ideas from more than one subtopic where natural.
 - Do NOT test material that was not in any of the subtopics, everything must come from what the student was taught.
