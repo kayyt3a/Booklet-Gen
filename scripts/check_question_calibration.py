@@ -236,6 +236,65 @@ ok("the Year 9 set that shipped is quoted as the thing not to produce")
 
 
 # ---------------------------------------------------------------------------
+print("\nA SET OF FOUR HAS TO VARY IN WHAT IT ASKS FOR")
+
+# "Vary the FORM, not just the numbers" was already in the prompt when four
+# identical expand-and-simplify items shipped, so the fix cannot be to say it
+# again. The shapes are named and counted instead.
+SHAPES = ("DO IT", "APPLY IT", "RUN IT BACKWARDS", "FIND THE ERROR",
+          "DECIDE AND JUSTIFY", "COMPARE")
+missing = [s for s in SHAPES if s + ":" not in PRACTICE]
+assert not missing, (
+    f"the prompt does not name these question shapes: {missing}. A model told "
+    "only to 'vary the form' varies the numbers, which is what shipped.")
+ok(f"all {len(SHAPES)} question shapes are named: {', '.join(SHAPES)}")
+
+assert re.search(r"ACROSS ANY FOUR CONSECUTIVE QUESTIONS, use at least "
+                 r"THREE DIFFERENT SHAPES", PRACTICE), (
+    "the shapes are listed but nothing says how many of them a set must use, "
+    "so the list reads as inspiration rather than as a requirement")
+ok("and a count is attached to them, over a window of four questions")
+
+assert re.search(r"one sentence of instruction solves both", PRACTICE), (
+    "the prompt does not define when two questions are the same question, so "
+    "four items differing only in their numbers still read as varied")
+ok("'the same question' is defined by the instruction, not by the numbers")
+
+assert "List all the factors of 8" in PRACTICE, (
+    "the Year 5 set that shipped is not quoted, so the rule is abstract")
+ok("the two-templates-alternating set that shipped is quoted, and rewritten "
+   "in place as four different demands")
+
+print("\nAND THE CONTEXTS DO NOT COME FROM A POOL OF SIX")
+
+DEFAULTS = ["cricket club", "rectangular garden bed", "school hall of chairs",
+            "baker", "librar", "small business"]
+for name, body in (("question_generator_maths.txt", PRACTICE),
+                   ("challenge_generator_maths.txt", CHALLENGE)):
+    absent = [d for d in DEFAULTS if d not in body]
+    assert not absent, (
+        f"{name} does not rule out {absent}. Every one of those ran through "
+        "the five booklets measured, the cricket club across three year "
+        "levels, and a tutor who buys two booklets reads them side by side.")
+    assert re.search(r"No setting may repeat inside this set|"
+                     r"No two questions in one set may share a setting", body), (
+        f"{name} allows one set to use the same setting twice")
+ok("both maths generators ban the six default settings and forbid repeating "
+   "a setting inside a set")
+
+# Worth being honest about in the check itself: each subtopic is its own LLM
+# call with no sight of the others, so nothing in a prompt can stop two
+# subtopics of one booklet, let alone two booklets, landing on the same
+# setting. Naming the defaults is the only lever a prompt has.
+print("  note: cross-booklet repetition cannot be fixed from a prompt. Each "
+      "subtopic is a")
+print("        separate call with no sight of the others. Banning the known "
+      "defaults lowers")
+print("        the odds; passing used settings between calls is a pipeline "
+      "change, not a prompt one.")
+
+
+# ---------------------------------------------------------------------------
 print("\nWHAT ONLY A GENERATION RUN CAN SETTLE")
 
 if not (os.environ.get("GEMINI_API_KEY") and
