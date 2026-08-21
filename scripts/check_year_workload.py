@@ -3,9 +3,13 @@
 Five booklets generated from production on 21 August 2026 (Years 1, 3, 5, 7
 and 9 Mathematics) were measured off the page:
 
-    Year 1   warm-up 5,  class work 52,  total 105 min,  21 pages
-    Year 3   5 / 57 / 110, 24 pages       Year 5   6 / 55 / 110, 22 pages
-    Year 7   4 / 57 / 110, 22 pages       Year 9   4 / 55 / 105, 22 pages
+    warm-up / class work / homework / Final Challenge, then total and pages
+
+    Year 1   5 / 52 / 27 / 19, 105 min, 21 pages
+    Year 3   5 / 57 / 27 / 18, 110 min, 24 pages
+    Year 5   6 / 55 / 29 / 19, 110 min, 22 pages
+    Year 7   4 / 57 / 29 / 21, 110 min, 22 pages
+    Year 9   4 / 55 / 29 / 18, 105 min, 22 pages
 
 Every one of them taught four subtopics and set sixteen homework questions. A
 six year old was issued the same workload as a fourteen year old, including a
