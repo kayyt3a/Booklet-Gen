@@ -155,7 +155,13 @@ render_pdf(data, out)
 print(f"\nrendered {out}")
 
 doc = pymupdf.open(out)
-KEY_START = next(i for i, p in enumerate(doc) if "Worked Solutions" in p.get_text())
+# The first page of the key PROPER, found by the banner it opens with. The
+# half-title in front of it also carries the words "Worked Solutions", and it
+# is neither set in two columns nor full of answers: counting it as a key page
+# measured a designed landmark against a density floor written for pages of
+# answers, and put its centred legend tick into the column of marking ticks.
+KEY_START = next(i for i, p in enumerate(doc)
+                 if "Answers & Worked Solutions" in p.get_text())
 LEFT, RIGHT = PAGE_MARGIN, A4[0] - PAGE_MARGIN
 MEASURE = RIGHT - LEFT
 TYPE_AREA = MEASURE * (A4[1] - 2 * PAGE_MARGIN)

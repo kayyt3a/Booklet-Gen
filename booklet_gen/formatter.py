@@ -437,6 +437,17 @@ def _make_styles():
             fontSize=9.5, leading=13.5, spaceAfter=0,
             textColor=colors.HexColor("#3A4A63"),
         ),
+        # The half-title in front of the answer key.
+        "divider_title": ParagraphStyle(
+            "divider_title", parent=base["Heading1"], fontName=FONT_DISPLAY,
+            fontSize=25, leading=30, alignment=TA_CENTER, spaceBefore=0,
+            spaceAfter=0, textColor=colors.HexColor("#1F3A5F"),
+        ),
+        "divider_note": ParagraphStyle(
+            "divider_note", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=10, leading=14.5, alignment=TA_CENTER, spaceAfter=0,
+            textColor=colors.HexColor("#3A4A63"),
+        ),
         "challenge_heading": ParagraphStyle(
             "challenge_heading", parent=base["Heading1"], fontName=FONT_DISPLAY,
             fontSize=22, leading=26, alignment=TA_CENTER, spaceAfter=6,
@@ -3114,6 +3125,69 @@ def _finish_page(styles, data: BookletData) -> list:
             CentreOnPage(height)] + block
 
 
+# ---------------------------------------------------------------------------
+# The half-title in front of the answer key
+#
+# The key used to begin the way a second file begins: the last page the student
+# writes on, then a page of answers. Nothing said the half of the booklet the
+# adult uses had started, and "where do the answers begin" was a question you
+# answered by flicking.
+#
+# A divider answers it physically as well as visually, and it replaces a device
+# that was there for the same reason. The key must never print on the reverse
+# of a page the child wrote on: the first thing in it is the spelling dictation
+# list this booklet takes deliberate trouble to keep out of their hands, and
+# turning the sheet over handed it straight back. That used to be solved with a
+# sheet saying it was intentionally blank, which is a page a customer paid to
+# print and reads as a fault.
+#
+# The divider solves it in every case and says something while it does. Student
+# half ends on page N, divider on N+1, key from N+2: N and N+2 are never on the
+# same sheet of paper, whichever parity N has. So the blank verso is gone.
+# Bigger than the colophon's mark at the end of the key: this is a half-title,
+# the only page in the booklet whose whole job is to be a landmark, and the
+# publisher's mark on it should have the presence of one.
+_DIVIDER_MARK = 1.6 * cm
+_DIVIDER_RULE_W = 4.2 * cm
+_DIVIDER_TITLE = "Answers and Worked Solutions"
+_DIVIDER_FOR = "The pages behind this one are for whoever is marking."
+_DIVIDER_CHECKED = "Every answer in this key has been checked."
+_DIVIDER_PARTIAL = ("A tick beside an answer means that answer was checked. "
+                    "An answer without one was not.")
+_DIVIDER_WORKING = ("Each answer is printed with its working, so a wrong "
+                    "answer can be traced to the line it went wrong on.")
+
+
+def _key_divider(styles, data: BookletData, page_map: dict | None = None) -> list:
+    """The page that opens the answer key: wordmark, title, what a tick means.
+
+    Carries the contents page's marker for the answer key, placed after its own
+    page break rather than before it: a marker in front of a break records the
+    page the break is leaving, and the contents would point at the last page of
+    the student's half.
+    """
+    mark = "✓ " if _UNICODE_FONT else ""
+    legend = (_DIVIDER_CHECKED if every_answer_checked(data)
+              else _DIVIDER_PARTIAL)
+    rule = _rule(_DIVIDER_RULE_W, 2.0, ACCENT_BLUE)
+    rule.hAlign = "CENTER"
+    block = [
+        _wordmark_lockup(styles, _DIVIDER_MARK),
+        Spacer(1, 0.7 * cm),
+        rule,
+        Spacer(1, 0.55 * cm),
+        Paragraph(_DIVIDER_TITLE, styles["divider_title"]),
+        Spacer(1, 0.4 * cm),
+        Paragraph(_DIVIDER_FOR, styles["divider_note"]),
+        Spacer(1, 0.25 * cm),
+        Paragraph(f'<font color="{ANSWER_GREEN}"><b>{mark}</b></font>{legend}',
+                  styles["divider_note"]),
+        Paragraph(_DIVIDER_WORKING, styles["divider_note"]),
+    ]
+    return ([PageBreak(), _locator(page_map, *ANSWERS_KEY),
+             CentreOnPage(stack_height(block))] + block + [WaveBand()])
+
+
 def _key_colophon(styles, data: BookletData, width: float) -> list:
     """The end of the answer key: a rule, the wordmark, and what the key is.
 
@@ -3861,8 +3935,7 @@ def _rule(width: float, weight: float, colour: str):
 
 
 def _booklet_story(styles, data: BookletData, times: dict, *,
-                   page_map: dict | None, page_refs: dict | None,
-                   blank_before_key: bool = False) -> list:
+                   page_map: dict | None, page_refs: dict | None) -> list:
     """Build the whole story for the booklet.
 
     Called twice. On the first call `page_map` is an empty dict that the
@@ -4462,27 +4535,24 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
     #
     # The key must come off a different sheet of paper from the last page the
     # student writes on. Printed double-sided, an odd-numbered last student
-    # page puts the key on the back of it, and the first thing on the key is
-    # the spelling dictation list this booklet takes deliberate trouble to keep
-    # out of the child's hands. Turning the sheet over handed it straight back.
+    # page puts the key on the back of it, and the first thing in it is the
+    # spelling dictation list this booklet takes deliberate trouble to keep out
+    # of the child's hands. Turning the sheet over handed it straight back.
     #
-    # The probe build records where the student half ends; the real build adds
-    # a blank verso when that page is odd. Says so on the page, so a parent
-    # does not read a blank sheet as a printing fault.
+    # The half-title does that job now and says something while it does. It
+    # takes the page directly after the student half, so the key begins two
+    # pages after the last written one and can never share a sheet with it,
+    # whatever parity the booklet has. The blank verso it replaced was a sheet
+    # the customer paid to print that read as a fault.
     if page_map is not None:
         story.append(PageMarker(page_map, LAST_STUDENT_PAGE))
-    if blank_before_key:
-        story.append(PageBreak())
-        story.append(Paragraph(
-            "This page is intentionally blank, so the answers start on a new "
-            "sheet of paper.", styles["footer_note"]))
+    story.extend(_key_divider(styles, data, page_map))
     # The key is set in two columns from here to the end, and the answers
     # heading spans them: the first key page uses a template whose top frame is
     # full width, every page after it is two plain columns. "*" restarts the
     # cycle at the second entry, so "key" repeats for the rest of the booklet.
     story.append(NextPageTemplate(["key_open", "*", "key"]))
     story.append(PageBreak())
-    story.append(_locator(page_map, *ANSWERS_KEY))
     story.append(Paragraph("Answers &amp; Worked Solutions", styles["answers_heading"]))
     story.append(Paragraph(
         "For whoever is marking. A tick means the answer was checked. Page "
@@ -4775,29 +4845,18 @@ def render_pdf(data: BookletData, out_path: Path) -> Path:
     probe.build(_booklet_story(
         styles, data, times, page_map=page_refs, page_refs=None))
 
-    # An odd last student page means the key would print on its reverse. The
-    # blank verso shifts every key page by one, so anything the probe recorded
-    # beyond the student half moves down with it. The question references do
-    # not: every one of them points at a page the student writes on, which is
-    # above the shift. The contents page's entry for the answer key is the one
-    # thing on the far side of it, and a contents that is one out is worse than
-    # no contents at all.
-    blank_before_key = page_refs.get(LAST_STUDENT_PAGE, 0) % 2 == 1
-    if blank_before_key:
-        last = page_refs[LAST_STUDENT_PAGE]
-        page_refs = {k: (v + 1 if isinstance(v, int) and v > last else v)
-                     for k, v in page_refs.items()}
-
     doc = _booklet_doc(str(out_path), data, times)
     # What the foot and the right-hand slot of the running head are made of.
     # The probe paginates identically to the real build, so its last page is
-    # this document's page count, give or take the blank verso the real build
-    # adds; and its markers say where each part began.
-    doc._total_pages = probe.page + (1 if blank_before_key else 0)
+    # this document's page count and its markers say where each part began.
+    # Identically because the two stories are built by the same code from the
+    # same data: the only difference between them is which page numbers the
+    # contents and the answer key print, and both sit in slots whose width does
+    # not depend on the figure in them.
+    doc._total_pages = probe.page
     doc._part_pages = part_page_map(page_refs, doc._total_pages)
     doc.build(_booklet_story(
-        styles, data, times, page_map=None, page_refs=page_refs,
-        blank_before_key=blank_before_key))
+        styles, data, times, page_map=None, page_refs=page_refs))
     return out_path
 
 

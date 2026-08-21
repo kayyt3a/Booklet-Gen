@@ -169,10 +169,10 @@ print("\nTHE HEAD NAMES THE PART THE PAGE IS IN")
 
 # Derived from the PDF, not from the formatter's map: the part a page belongs
 # to is the last part band printed on or before it. The bands are found by
-# their 18pt display type, and the answer key by its own 20pt heading, which
-# is the only part of the booklet that opens without a band.
+# their 18pt display type, and the answer key by the half-title that opens it,
+# which is the only part of the booklet that begins without a band.
 PART_BAND_PT = 18.0
-ANSWERS_PT = 20.0
+ANSWERS_PT = 25.0
 KNOWN = {"Warm-up Recap", "Class Work", "Homework", "Final Challenge",
          "Spelling Test", "Times Tables Test"} \
     | {s.name for s in paper.sections} | {"Marking Key"}

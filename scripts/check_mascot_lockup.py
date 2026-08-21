@@ -36,6 +36,7 @@ from pathlib import Path
 
 import numpy as np
 import pymupdf
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 
 from booklet_gen.formatter import (PAULIO_ICON_SIZE, _PAULIO_GUIDED_ICON_PATH,
@@ -142,6 +143,13 @@ for i, page in enumerate(doc):
         if abs(rect.width - PAULIO_ICON_SIZE) > 6 and \
                 abs(rect.height - PAULIO_ICON_SIZE) > 6:
             continue        # the finish-page mascot and the cover, not a lockup
+        # A lockup hangs at the left edge of the taught box. Size alone is not
+        # enough to tell it from the brand mark, which is also a small picture
+        # and which now appears at more than one size in the booklet: on the
+        # answer key's half-title, on the finish page and at the end of the
+        # key. Those are all centred on the measure; the mascot never is.
+        if rect.x0 > A4[0] / 3:
+            continue
         LOCKUPS.append((i, rect, info.get("digest")))
 
 check(len(LOCKUPS) >= 2,

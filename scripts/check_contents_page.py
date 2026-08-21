@@ -223,8 +223,12 @@ def heading_pages(doc, text: str, size: float, tol: float = 0.6) -> list:
 
 PART_BAND_PT = 18.0
 TOPIC_OPENER_PT = 19.0
-ANSWERS_HEADING_PT = 20.0
-ANSWERS_HEADING = "Answers & Worked Solutions"
+# The half-title that opens the answer key, which is what the contents points
+# at: it is where the answers section begins, and it is the page a reader
+# recognises when they flip to the back. The key's own banner ("Answers &
+# Worked Solutions", with the ampersand) is on the page behind it.
+ANSWERS_HEADING_PT = 25.0
+ANSWERS_HEADING = "Answers and Worked Solutions"
 
 print("\nTHE CONTENTS PAGE IS THERE, AND IT IS PAGE 2")
 
@@ -285,28 +289,30 @@ for name, (data, path) in BOOKS.items():
           "page they use it")
     doc.close()
 
-print("\nAND THE ANSWER KEY'S NUMBER SURVIVES THE BLANK VERSO")
+print("\nAND THE ANSWER KEY'S NUMBER IS THE PAGE ITS DIVIDER IS ON")
 
-# The booklet inserts a blank sheet before the key when the student half ends
-# on an odd page, so the answers do not print on the back of a page the child
-# wrote on. That shifts everything past the student half down by one, and the
-# key is the only thing the contents lists on the far side of it. This asserts
-# the fixture really does exercise that, so the check above cannot pass by
-# never meeting the case.
-shifted = False
+# This section used to assert that one fixture paginated with a blank verso
+# before the key, because that blank page shifted every number past the student
+# half down by one and the answer key was the only thing the contents listed on
+# the far side of it. There is no blank verso any more: the key's half-title
+# took its job, and it takes the page directly after the student half in every
+# booklet, so nothing shifts. What is left to assert is that the contents
+# points at the half-title rather than at the page of answers behind it, which
+# is the page a reader recognises when they flip to the back.
 for name, (data, path) in BOOKS.items():
     doc = pymupdf.open(path)
-    blank = any("intentionally blank" in page.get_text() for page in doc)
+    printed = dict(printed_contents(doc))
+    divider = heading_pages(doc, ANSWERS_HEADING, ANSWERS_HEADING_PT)
+    banner = [i + 1 for i, page in enumerate(doc)
+              if "Answers & Worked Solutions" in page.get_text()]
     doc.close()
-    if blank:
-        shifted = True
-        print(f"  ({name} paginates with the blank verso)")
-check(shifted,
-      "one of the fixtures paginates with a blank sheet before the key, so "
-      "the shift is measured rather than assumed",
-      "neither fixture inserts a blank verso before the answer key, so "
-      "nothing here tests the page numbers on the far side of it. Change a "
-      "fixture until one of them does")
+    check(len(divider) == 1 and banner and banner[0] == divider[0] + 1
+          and printed.get(_ANSWERS_LABEL) == divider[0],
+          f"{name}: the contents sends the reader to the half-title on page "
+          f"{divider[0] if divider else '?'}, with the answers behind it",
+          f"{name}: the divider is on {divider}, the answers begin on "
+          f"{banner}, and the contents says "
+          f"{printed.get(_ANSWERS_LABEL)}")
 
 print("\nTHE NUMBERS ONLY EVER GO FORWARDS")
 

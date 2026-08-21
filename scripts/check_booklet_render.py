@@ -679,20 +679,37 @@ check(not (tmp / "booklet-student.pdf").exists(),
       "render_pdf writes one file and no second copy")
 check("Answers &" in text or "Worked Solutions" in text, "the key is present")
 check(key_start > 0, "the key is at the back", f"key starts on page {key_start + 1}")
-# Printed double-sided, sheet n carries pages 2n-1 and 2n. If the key starts on
-# an even page it is the back of the last page the student wrote on, and the
-# first thing on the key is the spelling dictation list this booklet takes
-# deliberate trouble to keep out of the child's hands. Turning the sheet over
-# handed it straight back.
-check((key_start + 1) % 2 == 1,
-      "and starts on the front of a fresh sheet, not the back of the last one",
-      f"page {key_start + 1}")
+# Printed double-sided, sheet n carries pages 2n-1 and 2n. No page of the
+# answer key may be the back of a page the student wrote on: the first thing in
+# the key is the spelling dictation list this booklet takes deliberate trouble
+# to keep out of the child's hands, and turning the sheet over handed it
+# straight back.
+#
+# This used to be asserted as "the key starts on an odd page", because the
+# device that guaranteed it was a blank verso inserted when the student half
+# ended on an odd one. The half-title in front of the key does that job now:
+# the student half ends on page N, the divider takes N+1 and the key starts at
+# N+2, which is never on N's sheet whatever parity N has. So the assertion is
+# now the invariant itself rather than one way of satisfying it, and the key
+# is allowed to start on the back of the divider.
+def sheet_of(page_number: int) -> int:
+    return (page_number + 1) // 2
+
+
+answers_start = next(i for i, p in enumerate(pages) if "Answers &" in p) + 1
+last_written = key_start                    # 1-based: the page before the divider
+check(sheet_of(answers_start) > sheet_of(last_written),
+      "and no page of the key is the back of a page the student wrote on",
+      f"the last written page is {last_written} and the answers start on "
+      f"{answers_start}, both on sheet {sheet_of(answers_start)}")
+check(pages[key_start].count("Worked Solutions") == 1
+      and "for whoever is marking" in pages[key_start].lower(),
+      "the key opens on a half-title that says who the rest is for")
 blank_versos = [i + 1 for i, p in enumerate(pages) if "intentionally blank" in p]
-check(all(b == key_start for b in blank_versos),
-      "any blank verso sits immediately before the key and nowhere else",
-      str(blank_versos))
-check(len(blank_versos) <= 1, "and there is at most one of them",
-      str(blank_versos))
+check(not blank_versos,
+      "and no sheet is spent on a page that says it is intentionally blank",
+      f"blank pages at {blank_versos}. The divider does that job now and says "
+      "something while it does it")
 for q in ("Homework 0.0", "Question 0.0", "Subtopic 4"):
     check(q in question_text, f"the questions come first ({q})")
 
@@ -724,8 +741,16 @@ print("\nVerification marks")
 work_text = "\n".join(question_pages[1:])
 check(TICK not in work_text and "verified" not in work_text,
       "no verification mark beside an unattempted question")
-check(key_text.count(TICK) == n_questions,
-      "one mark per answer in the key", f"{key_text.count(TICK)} of {n_questions}")
+# The answer pages only. The half-title in front of them prints one tick as a
+# legend, over the sentence saying what a tick means, which is the whole reason
+# that page exists.
+answer_pages_text = "\n".join(pages[answers_start - 1:])
+check(answer_pages_text.count(TICK) == n_questions,
+      "one mark per answer in the key",
+      f"{answer_pages_text.count(TICK)} of {n_questions}")
+check(pages[key_start].count(TICK) == 1,
+      "and the divider prints one, as the legend for what it means",
+      f"{pages[key_start].count(TICK)} ticks on the divider")
 
 print("\nNotation in the rendered PDF")
 check("*" not in text, "no asterisk anywhere in the booklet")
@@ -1423,9 +1448,14 @@ check("show your working" not in e_cover,
 check("symbolically" not in e_cover.lower()
       and "has been checked" in e_cover,
       "and claims the same accuracy check the maths cover does")
-check((e_key_start + 1) % 2 == 1,
-      "the English key also starts on the front of a fresh sheet",
-      f"page {e_key_start + 1}")
+# The same invariant as above, on the booklet where it matters most: this one
+# has a spelling test, so the first thing in its key is the list of words the
+# adult calls out.
+e_answers = next(i for i, p in enumerate(e_pages) if "Answers &" in p) + 1
+check(sheet_of(e_answers) > sheet_of(e_key_start),
+      "no page of the English key is the back of a page the student wrote on "
+      "either, which is the booklet where the dictation list is at stake",
+      f"last written page {e_key_start}, answers from {e_answers}")
 
 
 def page_of(pages_, needle, first: int = 0):
