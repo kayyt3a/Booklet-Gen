@@ -72,7 +72,18 @@ def check(cond, msg, detail=""):
     if cond:
         ok(msg)
     else:
+        detail = str(detail)
         bad(f"{msg}{(': ' + detail) if detail else ''}")
+
+
+def summary(mark, msg):
+    """One line for a whole loop, but only when the loop found nothing.
+
+    Printing "ok" under a run of FAILs is how a check comes to be read as
+    passing when it is not.
+    """
+    if len(_failed) == mark:
+        ok(msg)
 
 
 _register_fonts()
@@ -109,11 +120,12 @@ X_CASES = [
     ("Six boxes of matches", "Six boxes of matches", "x inside ordinary words"),
     ("Simplify x × x × x.", "Simplify x × x × x.", "x times itself is left alone"),
 ]
+mark = len(_failed)
 for raw, want, why in X_CASES:
     got = _escape(raw)
     if got != want:
         bad(f"the x rule broke {why}: {raw!r} became {got!r}, wanted {want!r}")
-ok("x multiplies between two operands and is an unknown everywhere else")
+summary(mark, "x multiplies between two operands and is an unknown everywhere else")
 
 # ---------------------------------------------------------------------------
 # Indices, division and the rest of the source-code notation
@@ -161,11 +173,13 @@ NOTATION_CASES = [
     ("Visit https://folioai.com.au/help", "Visit https://folioai.com.au/help",
      "a URL"),
 ]
+mark = len(_failed)
 for raw, want, why in NOTATION_CASES:
     got = _escape(raw)
     if got != want:
         bad(f"{why}: {raw!r} became {got!r}, wanted {want!r}")
-ok(f"{len(NOTATION_CASES)} lines taken from the five real booklets set correctly")
+summary(mark, f"{len(NOTATION_CASES)} lines taken from the five real booklets "
+        "set correctly")
 
 # The one index Unicode cannot spell: it has to be markup, not a caret and not
 # an approximation with the letter x standing in for a times sign.
@@ -272,6 +286,7 @@ print("\nNO PAGE OF ANY YEAR LEVEL CARRIES SOURCE CODE")
 
 SUPERS = set(N.SUPERSCRIPTS)
 pages_by_year = {}
+mark = len(_failed)
 for year, data in BOOKLETS.items():
     out = render_pdf(data, tmp / f"{year.replace(' ', '')}.pdf")
     doc = pymupdf.open(out)
@@ -292,7 +307,8 @@ for year, data in BOOKLETS.items():
                 bad(f"{year} page {page_no} mixes two index notations in one "
                     f"line: {line!r}")
     check(bool(body.strip()), f"{year} rendered pages to read", str(len(pages)))
-ok("no caret, asterisk, sqrt( or -> survives to any page of any year level")
+summary(mark, "no caret, asterisk, sqrt( or -> survives to any page of any "
+        "year level")
 
 y9 = "\n".join(pages_by_year["Year 9"])
 y1 = "\n".join(pages_by_year["Year 1"])
@@ -381,6 +397,7 @@ SIZES = sorted({round(styles[n].fontSize, 2)
                 for n in ("question", "working", "key_point", "intro_para",
                           "subtopic", "topic")})
 SPECIMEN = "x" + "".join(sorted(SUPERS))
+mark = len(_failed)
 for size in SIZES:
     style = ParagraphStyle("probe", fontName=F.FONT_REGULAR, fontSize=size,
                            leading=size * 1.5)
@@ -425,7 +442,7 @@ for size in SIZES:
     if hi_em > 0.95:
         bad(f"at {size}pt the superscripts stand {hi_em:.2f} em above the "
             f"baseline, higher than the font's own superscript digits")
-ok(f"every superscript draws as a raised glyph at {SIZES} pt")
+summary(mark, f"every superscript draws as a raised glyph at {SIZES} pt")
 
 # The two paths, side by side on one line: they must agree, or the booklet is
 # back to two notations in one expression.
