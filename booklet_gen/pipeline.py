@@ -1122,9 +1122,20 @@ class BookletPipeline:
         )
         teaching = self._make_teaching(subject, year_level, topic_name, subtopic, chunks)
         passages: list[Passage] = []
+        # How much practice this year level is set on one subtopic. The class
+        # work half is the same everywhere (MIN_NOW_YOU_TRY is a promise, not a
+        # dial); the homework half is where the year shows, because homework is
+        # worked alone across a week and a six year old cannot be set the same
+        # week a fourteen year old can. Asking the generator for exactly what
+        # will be printed also means a shorter booklet costs fewer tokens to
+        # write and fewer to validate, rather than generating sixteen homework
+        # questions and binning ten.
+        plan = session_plan(year_level)
+        n_homework = min(self._n_homework, plan.homework_per_subtopic)
         validated = self._generate_and_validate(
             subject, year_level, topic_name, subtopic, chunks, teaching, seen,
             passages, passage_quota=passage_quota,
+            count=self._n_classwork + n_homework,
         )
         total = len(validated)
         failed = sum(1 for v in validated if not v.verified)
@@ -1150,7 +1161,10 @@ class BookletPipeline:
         validated = self._group_by_passage(validated)
         cut = self._passage_safe_split(validated, self._n_classwork)
         classwork = validated[:cut]
-        homework = validated[cut:]
+        # Held to the year band's budget even when the model wrote more than it
+        # was asked for, which it does often enough to matter: the count in the
+        # prompt is a request, this is the guarantee.
+        homework = validated[cut:cut + n_homework]
         # A guided example that works through a question about one of this
         # section's readings prints above that reading, so it hands over the
         # answer before the student has read a word. Guided examples are
@@ -1503,6 +1517,7 @@ class BookletPipeline:
     def _generate_and_validate(
         self, subject, year_level, topic_name, subtopic, reference_chunks,
         teaching=None, seen=None, passages_out=None, passage_quota=2,
+        count=None,
     ) -> list[ValidatedQuestion]:
         """Generate, validate and dedupe one subtopic's question set.
 
@@ -1538,7 +1553,7 @@ class BookletPipeline:
 
         qs = pooled(self._generator.generate(
             subject, year_level, topic_name, subtopic, reference_chunks, teaching,
-            classwork_count=cut_at, passage_quota=passage_quota))
+            classwork_count=cut_at, passage_quota=passage_quota, count=count))
         # Validate the whole set in one batched judge call up front; per-question
         # regeneration below still uses the single-question path.
         initial = self._validate_many(subject, year_level, qs.questions,
@@ -1562,7 +1577,7 @@ class BookletPipeline:
                 fresh = pooled(self._generator.generate(
                     subject, year_level, topic_name, subtopic, reference_chunks,
                     teaching, classwork_count=cut_at,
-                    passage_quota=passage_quota,
+                    passage_quota=passage_quota, count=count,
                 ))
                 best_q, best_result = None, None
                 # Start at this question's OWN position in the fresh set, not
@@ -1698,7 +1713,9 @@ class BookletPipeline:
         # whole booklet: the Final Challenge is meant to combine the skills,
         # not reprint a question already answered in the practice.
         candidates = []
-        for q in qs.questions:
+        # Never more than the year band asked for: the generator is told the
+        # number but a model that returns six would otherwise print six.
+        for q in qs.questions[:n_challenge]:
             if self._norm_q(q.question) in seen:
                 continue
             if self._reasoning_reject(subject, q):
