@@ -437,6 +437,19 @@ def _make_styles():
             fontSize=9.5, leading=13.5, spaceAfter=0,
             textColor=colors.HexColor("#3A4A63"),
         ),
+        # The reminder strip set in front of a subtopic's homework. Quieter
+        # than the mini-lesson's own key points, because it is a reminder of
+        # something already taught and not the teaching itself.
+        "reminder_label": ParagraphStyle(
+            "reminder_label", parent=base["Normal"], fontName=FONT_BOLD,
+            fontSize=8.5, leading=11, spaceAfter=2,
+            textColor=colors.HexColor("#1F3A5F"),
+        ),
+        "reminder_point": ParagraphStyle(
+            "reminder_point", parent=base["Normal"], fontName=FONT_REGULAR,
+            fontSize=9.5, leading=13, spaceAfter=0,
+            textColor=colors.HexColor("#2E3B4E"),
+        ),
         # The half-title in front of the answer key.
         "divider_title": ParagraphStyle(
             "divider_title", parent=base["Heading1"], fontName=FONT_DISPLAY,
@@ -3213,6 +3226,84 @@ def _key_colophon(styles, data: BookletData, width: float) -> list:
         Paragraph(line, styles["colophon"])])]
 
 
+# ---------------------------------------------------------------------------
+# The reminder beside the homework
+#
+# Homework is worked days later, alone, and pages away from the lesson. A
+# subtopic taught in the session deliberately does NOT reprint its mini-lesson
+# down here, which is right: reprinting a page of teaching in front of five
+# questions would double the length of the booklet. But it leaves the child
+# with nothing at all at the moment they are on their own with it, which is
+# the moment a printed workbook puts a "Remember" beside the questions.
+#
+# Nothing here is written by the formatter. The strip prints this subtopic's
+# own key points, verbatim, the same lines the mini-lesson set as bullets when
+# it was taught. intro_writer holds each of them to "a few words to one
+# sentence", which is what makes them usable as a callout at all; anything
+# longer than that is a paragraph rather than a reminder and the strip is
+# dropped instead of truncated. A cut-off rule is worse than no rule.
+#
+# It is a strip across the measure and not a true margin column, because the
+# measure is load-bearing: the working panels and the two-up practice rows are
+# both sized from it, and narrowing the body to open a margin would undo them.
+# One point, not several. Two reasons, and the second is the one that decided
+# it: a callout in a printed workbook is a line, not a lesson, and every extra
+# line here is paid for in page turns. Measured on a six-subtopic booklet, a
+# two-point strip pushed enough runs over page boundaries to add thirteen
+# centimetres of dead white at the page feet and a whole sheet to the booklet.
+# A one-line reminder costs about a third of that.
+_REMINDER_MAX_POINTS = 1
+_REMINDER_MAX_CHARS = 95
+_REMINDER_LABEL = "Remember"
+# A pale wash of the accent, and deliberately NOT the worked example's tint.
+# That tint means "this is a solved example" everywhere else in the booklet,
+# and a reminder wearing it would be read as one.
+_REMINDER_FILL = "#EEF4FF"
+
+
+def reminder_points(section) -> list:
+    """The key points worth setting beside this subtopic's homework.
+
+    Empty whenever the data cannot carry it honestly: no teaching, no key
+    points, a subtopic whose lesson is reprinted here anyway, or points too
+    long to be a reminder.
+    """
+    if not getattr(section, "homework_questions", None):
+        return []
+    # A subtopic the hour could not fit brings its whole mini-lesson down into
+    # Homework, key points and all. A reminder under it would print the same
+    # lines twice on one page.
+    if not getattr(section, "questions", None):
+        return []
+    teaching = getattr(section, "teaching", None)
+    points = [str(p).strip() for p in (getattr(teaching, "key_points", None)
+                                       or []) if str(p).strip()]
+    points = [p for p in points if len(p) <= _REMINDER_MAX_CHARS]
+    return points[:_REMINDER_MAX_POINTS]
+
+
+def _reminder_strip(styles, section):
+    """This subtopic's own key points, set where the homework is worked."""
+    points = reminder_points(section)
+    if not points:
+        return None
+    text = " ".join(_escape(_dedash(p)) for p in points)
+    body = [Paragraph(f'<font color="#1F3A5F"><b>{_REMINDER_LABEL}</b></font>'
+                      f"  {text}", styles["reminder_point"])]
+    tbl = Table([[body]], colWidths=[BODY_WIDTH])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(_REMINDER_FILL)),
+        ("LINEBEFORE", (0, 0), (0, -1), 3, colors.HexColor(ACCENT_BLUE)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    tbl.spaceBefore = 2
+    tbl.spaceAfter = 6
+    return tbl
+
+
 def _session_band(styles, index: int, of: int, minutes: int, count: int):
     """A day marker inside the Homework part.
 
@@ -4332,6 +4423,14 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                                   out=probe)
             probe.append(Paragraph(_escape(first_hw.subtopic),
                                    styles["subtopic"]))
+            # The reminder is part of the run the band opens, so the one break
+            # in front of the band has to cover it. Left out, the break
+            # reserved room for the band, the headings and the first row, the
+            # reminder pushed the row over the foot of the page, and the part
+            # opened with more thrown away than the rule allows.
+            first_reminder = _reminder_strip(styles, first_hw)
+            if first_reminder is not None:
+                probe.append(first_reminder)
             row = first_practice_row(first_hw, first_hw.homework_questions)
             opening += probe + (_unwrap([row]) if row is not None else [])
         story.append(part_opening_break(opening, HOMEWORK_MIN_START_CM))
@@ -4350,6 +4449,13 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             mark = len(story)
             subject_topic_headers(section, state, part="Homework")
             story.append(Paragraph(_escape(section.subtopic), styles["subtopic"]))
+            # Before head_only is taken, so the break in front of these
+            # headings reserves room for the reminder too. Added after it, the
+            # strip would be the thing left at the foot of the page with the
+            # questions overleaf.
+            reminder = _reminder_strip(styles, section)
+            if reminder is not None:
+                story.append(reminder)
             head_only = story[mark:]
             # A subtopic that did not fit the session brings its mini-lesson
             # down here, so the teaching is not lost: nothing else in the
