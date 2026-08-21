@@ -22,7 +22,8 @@ from reportlab.lib.utils import ImageReader
 
 from .schemas import BookletData, ExamPaper, ValidatedQuestion, WorkedExample
 from .timing import booklet_timing, homework_session_plan
-from .visuals.cover import CoverSpec, render_cover, variant_for
+from .visuals.cover import (ACCENT_HEX, CoverSpec, draw_wave_band,
+                            render_cover, variant_for)
 
 
 PAGE_MARGIN = 2.0 * cm
@@ -113,6 +114,31 @@ _PART_GREY_FLOOR = 24
 # statement about the work, not part of it.
 ANSWER_GREEN = "#146B2C"
 META_GREY = "#647082"
+
+# ---------------------------------------------------------------------------
+# The cover's blue, inside the booklet
+#
+# The cover was designed to a system (booklet_gen/assets/COVER_DESIGN_SYSTEM.md)
+# and the interior shared nothing with it: no accent, no wordmark, no motif. A
+# customer who opened the file saw a designed cover and then twenty pages that
+# could have come from anywhere, which reads as two products stapled together.
+#
+# So three things cross over, and only three, because the interior is a page
+# somebody writes on and not a poster.
+#
+#   * ACCENT_BLUE is the cover's own accent, imported rather than retyped. It
+#     rules the lines the child writes on. A workbook's ruled lines are blue in
+#     every exercise book ever printed, and it is very slightly darker in
+#     greyscale than the grey it replaces (154 against 164 out of 255), so
+#     nothing is lost on a mono printer.
+#   * The wordmark sits at the foot of every page opposite the page number,
+#     which is where a publisher's imprint goes.
+#   * The cover's wave motif closes the front matter pages, drawn by the cover's
+#     own routine and held inside the type area.
+ACCENT_BLUE = ACCENT_HEX
+# The neutral the accent replaced, kept for the marks that are not rules to
+# write on: leader dots, and anything that has to stay out of the way.
+RULE_GREY = "#9AA6B8"
 
 log = logging.getLogger(__name__)
 
@@ -2220,7 +2246,7 @@ class WorkingSpace(Flowable):
         c.saveState()
         c.setFont(FONT_REGULAR, 9.5)
         c.setFillColor(colors.HexColor("#333333"))
-        c.setStrokeColor(colors.HexColor("#9AA6B8"))
+        c.setStrokeColor(colors.HexColor(ACCENT_BLUE))
         c.setLineWidth(0.6)
         line_h = _ANSWER_LINE_CM * cm
         # Inset from the panel's edges, so the label and its rule sit inside
@@ -2788,6 +2814,26 @@ def part_page_map(pages: dict, total: int) -> dict:
     return out
 
 
+_FOOT_MARK_PT = 7.5
+_FOOT_MARK_INK = "#8A93A3"
+
+
+def _draw_foot_mark(canvas) -> None:
+    """The wordmark at the foot, opposite the page number.
+
+    Where a publisher's imprint goes, and the one place in the interior that
+    says who made the thing on every page. Small, quiet and in the cover's two
+    colours: the point is that the page and the cover belong to each other, not
+    that the reader is told the brand twenty times.
+    """
+    canvas.setFont(FONT_BOLD, _FOOT_MARK_PT)
+    canvas.setFillColor(colors.HexColor(_FOOT_MARK_INK))
+    canvas.drawString(PAGE_MARGIN, CHROME_MARGIN, "FOLIO")
+    width = canvas.stringWidth("FOLIO ", FONT_BOLD, _FOOT_MARK_PT)
+    canvas.setFillColor(colors.HexColor(ACCENT_BLUE))
+    canvas.drawString(PAGE_MARGIN + width, CHROME_MARGIN, "AI")
+
+
 def _draw_running_head(canvas, doc, header: str) -> None:
     part = getattr(doc, "_part_pages", {}).get(doc.page, "")
     # An exam's parts are its sections, which are named by the paper rather
@@ -2845,6 +2891,7 @@ def _draw_page_chrome(canvas, doc):
     header = getattr(doc, "_header_text", "")
     if header:
         _draw_running_head(canvas, doc, header)
+        _draw_foot_mark(canvas)
     canvas.restoreState()
 
 
@@ -3079,7 +3126,7 @@ def _key_colophon(styles, data: BookletData, width: float) -> list:
             else _COLOPHON_PARTIAL)
     rule = Table([[""]], colWidths=[width], rowHeights=[1.2], hAlign="LEFT")
     rule.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#B7C3D4")),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(ACCENT_BLUE)),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
@@ -3194,7 +3241,7 @@ def _spelling_grid(styles, cells: list, ruled: bool):
                 row.append(cells[i])
                 if ruled:
                     style.append(("LINEBELOW", (2 * c + 1, r), (2 * c + 1, r),
-                                  0.6, colors.HexColor("#9AA6B8")))
+                                  0.6, colors.HexColor(ACCENT_BLUE)))
             else:
                 row.extend(["", ""])
         data.append(row)
@@ -3285,7 +3332,7 @@ def _tables_grid(styles, items: list, ruled: bool):
                                      styles["spelling_word"]))
                 if ruled:
                     style.append(("LINEBELOW", (3 * c + 2, r), (3 * c + 2, r),
-                                  0.6, colors.HexColor("#9AA6B8")))
+                                  0.6, colors.HexColor(ACCENT_BLUE)))
             else:
                 row.extend(["", "", ""])
         data.append(row)
@@ -3416,7 +3463,50 @@ CONTENTS_MIN_ROWS = 4
 _CONTENTS_NUM_CM = 1.0
 _CONTENTS_DOT_GAP = 5.0
 _CONTENTS_TOPIC_INDENT = 0.7 * cm
-_CONTENTS_DOTS = "#9AA6B8"
+# The leader dots stay in the booklet's neutral rule grey. The accent is spent
+# on the lines a child writes on; a page of blue leaders spends it on nothing.
+_CONTENTS_DOTS = RULE_GREY
+
+
+class WaveBand(Flowable):
+    """The cover's page-fold waves, closing a front matter page.
+
+    The front matter pages are short by design: a contents is a dozen lines and
+    the page that explains the booklet is three short blocks. What was under
+    them was a third of a sheet of nothing, which reads as a page that failed
+    rather than a page that finished. The cover's own motif closes them, which
+    is also the cheapest possible way to make the inside of the booklet look
+    like the outside of it.
+
+    It takes what is left of the page and nothing that was wanted for anything
+    else. It is the last flowable before a page break, so claiming the rest of
+    the frame costs nothing and is what puts the waves at the foot of the sheet
+    rather than immediately under the last line of type. Below a floor the
+    shapes stop reading as waves and it draws nothing.
+    """
+
+    _MIN_CM = 2.2
+    _MAX_CM = 4.6
+
+    def __init__(self, max_height: float | None = None):
+        super().__init__()
+        self.max_height = max_height or self._MAX_CM * cm
+        self.width = 0.0
+        self.height = 0.0
+
+    def wrap(self, availWidth, availHeight):
+        self.width = availWidth
+        # availHeight above the frame's own height means this is a measurement
+        # rather than a placement, and a measurement must not commit the page
+        # to a band.
+        self.height = 0.0 if availHeight > BODY_HEIGHT else max(0.0, availHeight)
+        return availWidth, self.height
+
+    def draw(self):
+        band = min(self.max_height, self.height)
+        if band < self._MIN_CM * cm:
+            return
+        draw_wave_band(self.canv, 0, 0, self.width, band)
 
 
 class ContentsLine(Flowable):
@@ -3560,9 +3650,10 @@ def _contents_page(styles, data: BookletData, pages: dict | None) -> list:
                 leading=15, colour="#3A4A63",
                 indent=_CONTENTS_TOPIC_INDENT))
     out.append(Spacer(1, 0.3 * cm))
-    out.append(_rule(BODY_WIDTH, 0.6, "#B7C3D4"))
+    out.append(_rule(BODY_WIDTH, 0.6, ACCENT_BLUE))
     out.append(_contents_part_row(styles, _ANSWERS_LABEL,
                                   pages.get(ANSWERS_KEY), swatch=ANSWER_GREEN))
+    out.append(WaveBand())
     return out
 
 
@@ -3741,7 +3832,7 @@ def _how_to_page(styles, data: BookletData, times: dict) -> list:
                  Paragraph(lead, styles["how_to_lead"]),
                  Spacer(1, 0.3 * cm)]
     out += [_how_to_row(styles, *row) for row in rows]
-    out += [Spacer(1, 0.2 * cm), _rule(BODY_WIDTH, 0.6, "#B7C3D4"),
+    out += [Spacer(1, 0.2 * cm), _rule(BODY_WIDTH, 0.6, ACCENT_BLUE),
             Spacer(1, 0.35 * cm),
             Paragraph("How long it takes", styles["how_to_part"]),
             Paragraph(_HOW_TO_TIMES, styles["how_to_body"]),
@@ -3751,7 +3842,8 @@ def _how_to_page(styles, data: BookletData, times: dict) -> list:
                       else _HOW_TO_KEY_PARTIAL, styles["how_to_body"]),
             Spacer(1, 0.3 * cm),
             Paragraph("Where it comes from", styles["how_to_part"]),
-            Paragraph(_HOW_TO_HONESTY, styles["how_to_body"])]
+            Paragraph(_HOW_TO_HONESTY, styles["how_to_body"]),
+            WaveBand()]
     return out
 
 

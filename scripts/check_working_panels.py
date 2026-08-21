@@ -155,8 +155,12 @@ render_pdf(data, out)
 print(f"  rendered {out}")
 
 INK = tuple(round(int(F._PANEL_INK[i:i + 2], 16) / 255, 3) for i in (1, 3, 5))
-# The darker ink the "Answer:" rule itself is stroked in.
-RULE_INK = tuple(round(int("#9AA6B8"[i:i + 2], 16) / 255, 3) for i in (1, 3, 5))
+# The darker ink the "Answer:" rule itself is stroked in. Read from the
+# formatter rather than written out here: it used to be the literal "#9AA6B8"
+# and the booklet moved to the cover's accent blue underneath it, which left
+# the loop that uses it finding no rules at all and passing on an empty set.
+RULE_INK = tuple(round(int(F.ACCENT_BLUE[i:i + 2], 16) / 255, 3)
+                 for i in (1, 3, 5))
 
 
 def panel_paths(page):
@@ -250,6 +254,7 @@ print("\nTHE ANSWER RULE SITS INSIDE THE PANEL")
 # it belongs to, not floating under it: that is what makes the whole thing
 # read as one allocation.
 loose = []
+found = 0
 for n, page in enumerate(body, start=2):
     rects, _ = panel_paths(page)
     # Identified by the answer rule's own stroke colour, not by weight alone.
@@ -262,10 +267,17 @@ for n, page in enumerate(body, start=2):
                  and d.get("color")
                  and max(abs(a - b) for a, b in
                          zip(d["color"], RULE_INK)) < 0.01]
+    found += len(hairlines)
     for d in hairlines:
         y = d["rect"].y0
         if not any(r["rect"].y0 <= y <= r["rect"].y1 for r in rects) and rects:
             loose.append((n, round(y, 1)))
+# Or the ink moved under this check and it is passing on an empty set, which is
+# exactly what happened when the rules changed colour and this file still held
+# the old one as a literal.
+assert found >= 20, (
+    f"only {found} answer rules found in the whole booklet by their ink. The "
+    "assertion below is then about nothing")
 assert not loose, (
     f"answer rules drawn outside any panel: {loose[:4]}. The rule and the "
     "working area have to read as one block, or the panel is just a box with "
