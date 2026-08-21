@@ -30,8 +30,19 @@ from .schemas import (
     SubtopicOutput, SubtopicTeaching, TablesList, ValidatedQuestion,
 )
 
-# A tutoring session runs an hour, so the Class Work half of a booklet has to
-# fit inside one. Anything past this moves to Homework rather than being cut.
+# The longest a Class Work section may ever be, whatever the year level. A
+# tutoring session runs an hour, so this is that hour; anything past it moves to
+# Homework rather than being cut.
+#
+# It is a CEILING now, not the cap itself. `timing.session_plan` sets the cap
+# for the student's year (thirty minutes for a Year 1, sixty for a Year 9) and
+# `_session_cap` takes whichever of the two is smaller, so a deployment that
+# lowers FOLIO_CLASSWORK_CAP_MINUTES still shortens every booklet and no year
+# band can ever raise its own session above the hour.
+#
+# One flat hour for every year is what produced five booklets in a row, Years 1
+# to 9, with fifty-two to fifty-seven minutes of class work each. The hour was
+# never wrong for Year 9. It was applied to a six year old.
 CLASSWORK_CAP_MINUTES = int(os.environ.get("FOLIO_CLASSWORK_CAP_MINUTES", "60"))
 
 # Never teach fewer than this many subtopics in a session, even if the cap
@@ -187,7 +198,9 @@ class BookletPipeline:
         challenge = self._build_challenge(
             outline.subject, outline.year_level, covered, rag_pool, seen,
         )
-        self._fit_classwork_to_cap(sections)
+        # Free-text booklets carry a year level too ("Year 8 maths, fractions"),
+        # so they are sized by it exactly as a program booklet is.
+        self._fit_classwork_to_cap(sections, session_plan(outline.year_level))
         t = self._timing(sections, challenge, recap)
         return BookletData(
             subject=outline.subject,
@@ -286,7 +299,20 @@ class BookletPipeline:
                 )
             )
 
-        self._fit_classwork_to_cap(all_sections)
+        # Sized for the student's year, not for a flat hour. A NAPLAN booklet
+        # merges two subjects into one session, so the cap is applied to the
+        # merged list once, after both halves exist.
+        plan = session_plan(year_level)
+        self._fit_classwork_to_cap(all_sections, plan)
+        log.info("pipeline.session_plan",
+                 extra={"year_level": year_level, "band": plan.band,
+                        "cap": self._session_cap(plan),
+                        "subtopics_taught": sum(1 for s in all_sections if s.questions),
+                        "classwork_questions": sum(len(s.questions) for s in all_sections),
+                        "homework_questions": sum(len(s.homework_questions)
+                                                  for s in all_sections),
+                        "challenge": len(all_challenge),
+                        "recap": len(all_recap)})
         t = self._timing(all_sections, all_challenge, all_recap)
         return BookletData(
             subject=subject_display,
@@ -672,15 +698,24 @@ class BookletPipeline:
         return len({s.topic for s in in_session})
 
     @staticmethod
-    def _may_drop(in_session) -> bool:
-        """Whether one more subtopic can leave the hour.
+    def _may_drop(in_session, plan=None) -> bool:
+        """Whether one more subtopic can leave the session.
 
         Two floors, and the topic one is not implied by the subtopic one:
         three subtopics all under "Number" is one topic, not three.
+
+        The floors come from the year band when there is one, and they are the
+        same three everywhere today. That is on purpose: the pricing page sells
+        both numbers, so a shorter session for a younger student is bought by
+        lowering their cap, never by handing them a narrower booklet than the
+        product promises. `plan` carries them anyway so the decision has a
+        single place to live if the product ever changes.
         """
-        if len(in_session) <= MIN_CLASSWORK_SUBTOPICS:
+        min_subtopics = plan.min_subtopics if plan else MIN_CLASSWORK_SUBTOPICS
+        min_topics = plan.min_topics if plan else MIN_CLASSWORK_TOPICS
+        if len(in_session) <= min_subtopics:
             return False
-        if BookletPipeline._topics_in_session(in_session) > MIN_CLASSWORK_TOPICS:
+        if BookletPipeline._topics_in_session(in_session) > min_topics:
             return True
         # At the topic floor, a subtopic may still leave as long as its topic
         # keeps another one in the session.
@@ -717,15 +752,32 @@ class BookletPipeline:
         return max(shared or list(in_session), key=classwork_section_minutes)
 
     @staticmethod
-    def _fit_classwork_to_cap(sections) -> None:
+    def _session_cap(plan) -> int:
+        """The Class Work cap for this student, in minutes.
+
+        The year band's cap, held under the deployment's ceiling. `plan` is
+        None for callers with no year level (the guard checks drive the fitter
+        directly), and that means the hour, which is what the fitter did before
+        year bands existed.
+        """
+        if plan is None:
+            return CLASSWORK_CAP_MINUTES
+        return min(CLASSWORK_CAP_MINUTES, plan.classwork_cap_minutes)
+
+    @staticmethod
+    def _fit_classwork_to_cap(sections, plan=None) -> None:
         """Move classwork past the time cap into homework, in place.
 
-        A tutoring session is an hour, so the Class Work half has to fit in
-        one. Trimming the printed estimate alone would just make the booklet
-        lie about its own workload, so move the surplus questions into
-        Homework instead, where there is no clock. Longest section first, so
-        the trimming lands on whichever subtopic is overweight rather than
-        flattening every one of them equally.
+        The session has to fit the time the student can actually work for,
+        which `timing.session_plan` sets from their year: thirty minutes for a
+        Year 1, an hour for a Year 9. Trimming the printed estimate alone would
+        just make the booklet lie about its own workload, so move the surplus
+        questions into Homework instead, where there is no clock. Longest
+        section first, so the trimming lands on whichever subtopic is
+        overweight rather than flattening every one of them equally.
+
+        `plan` is optional: without one the cap is the flat hour, which is what
+        this did before year bands existed and what the guard checks exercise.
 
         Every subtopic keeps at least one classwork question: a mini-lesson
         with nothing to try immediately afterwards is worse than a slightly
@@ -751,6 +803,8 @@ class BookletPipeline:
         """
         if not sections:
             return
+
+        cap = BookletPipeline._session_cap(plan)
 
         def in_session():
             """Subtopics the tutor actually covers in the hour.
@@ -800,19 +854,20 @@ class BookletPipeline:
         # fall to 48 and waste a quarter of the session. A subtopic that
         # moves keeps its questions as homework practice; only its mini-lesson
         # goes unread in the session.
-        while (leanest() > CLASSWORK_CAP_MINUTES
-               and BookletPipeline._may_drop(in_session())):
+        while (leanest() > cap
+               and BookletPipeline._may_drop(in_session(), plan)):
             dropped = BookletPipeline._leaves_the_session(in_session())
             sections.remove(dropped)
             log.info("pipeline.subtopic_dropped",
                      extra={"subtopic": dropped.subtopic,
                             "homework_lost": len(dropped.homework_questions),
-                            "still_over_by": round(total() - CLASSWORK_CAP_MINUTES, 1)})
+                            "cap": cap,
+                            "still_over_by": round(total() - cap, 1)})
 
         # Step 2: thin the practice on what remains.
         # Bounded: each pass moves at least one question and no section goes
         # below one.
-        while total() > CLASSWORK_CAP_MINUTES:
+        while total() > cap:
             # Sections that can give ground without splitting a reading go
             # first, so an English booklet loses a maths-shaped tail or a whole
             # spare reading before any comprehension is broken up.
@@ -848,7 +903,7 @@ class BookletPipeline:
             log.warning(
                 "pipeline.classwork_over_cap",
                 extra={"minutes": round(total(), 1),
-                       "cap": CLASSWORK_CAP_MINUTES,
+                       "cap": cap,
                        "subtopics": len(in_play),
                        "topics": BookletPipeline._topics_in_session(in_play),
                        "reason": "at the subtopic, topic or practice floor"})
@@ -951,7 +1006,12 @@ class BookletPipeline:
         ambush on question 1, which is where a child decides how this is going
         to go.
         """
-        if self._n_recap <= 0:
+        # The warm-up was already the right length at every year (four to six
+        # minutes on the shipped booklets), so the year band only trims it by a
+        # question in lower primary, where three is a warm-up and four is the
+        # start of a worksheet.
+        n_recap = min(self._n_recap, session_plan(year_level).recap_questions)
+        if n_recap <= 0:
             return []
         from .schemas import Subtopic
         if seen is None:
@@ -1002,7 +1062,7 @@ class BookletPipeline:
         except Exception as e:
             log.warning("pipeline.recap_failed", extra={"error": str(e)[:200]})
             return []
-        picked = qs.questions[:self._n_recap]
+        picked = qs.questions[:n_recap]
         verdicts = self._validate_many(subject, year_level, picked, reference_chunks)
         out: list[ValidatedQuestion] = []
         for q, r in zip(picked, verdicts):
@@ -1609,13 +1669,19 @@ class BookletPipeline:
     def _build_challenge(
         self, subject, year_level, covered, reference_chunks, seen=None,
     ) -> list[ValidatedQuestion]:
-        if not covered or self._n_challenge <= 0:
+        # The Final Challenge is cumulative and its questions are the longest in
+        # the booklet: five of them cost a Year 1 nineteen minutes on the
+        # shipped booklet, on top of everything else. Three is the lower primary
+        # share of that.
+        n_challenge = min(self._n_challenge,
+                          session_plan(year_level).challenge_questions)
+        if not covered or n_challenge <= 0:
             return []
         if seen is None:
             seen = _SeenQuestions()
         try:
             qs = self._challenger.generate(
-                subject, year_level, covered, self._n_challenge, reference_chunks,
+                subject, year_level, covered, n_challenge, reference_chunks,
             )
         except Exception as e:
             log.warning("pipeline.challenge_failed", extra={"error": str(e)[:200]})

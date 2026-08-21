@@ -196,6 +196,46 @@ ok("Years 1-2 are told to draw a situation rather than describe it")
 
 
 # ---------------------------------------------------------------------------
+print("\nWORD PROBLEMS ARE QUOTAED, AND THE QUOTA RISES WITH THE YEAR")
+
+context_quota = {
+    (int(a), int(b)): int(num) / int(den)
+    for num, den, a, b in re.findall(
+        r"(\d+) IN (\d+) in Years (\d+)-(\d+)", PRACTICE)
+}
+assert set(context_quota) == set(BANDS), (
+    "question_generator_maths.txt does not set a per-band share of questions "
+    f"that must carry a real context, only {sorted(context_quota)}. 'Mix "
+    "straight computation and word problems' is what shipped, and it produced "
+    "20% context at Year 9 against 40% at Year 1.")
+seq = [context_quota[b] for b in BANDS]
+assert seq == sorted(seq), (
+    f"the context quota does not rise with the year: {seq}. That is the "
+    "measured defect written down rather than fixed.")
+assert seq[-1] >= 0.5, (
+    f"Years 9-10 are asked for only {seq[-1]:.0%} context. Senior maths is "
+    "where application matters most and the exams are heavily worded.")
+assert seq[-1] >= 2 * seq[0], (
+    f"the quota barely moves across nine years of school: {seq[0]:.0%} to "
+    f"{seq[-1]:.0%}")
+ok(f"context quota by band: {[f'{s:.0%}' for s in seq]}")
+
+# The quota alone is gameable by writing "Priya solves 2(x + 4) = 16", which is
+# the same drill item with a name on it, and would satisfy any counter.
+assert re.search(r"come OUT of the situation|comes OUT of the situation",
+                 PRACTICE), (
+    "nothing defines what makes a context real, so the quota can be met by "
+    "gluing a name onto a bare calculation")
+ok("and the prompt says what a real context is, so the quota cannot be gamed "
+   "with a name")
+
+assert PRACTICE.count("Solve for x: 2(x + 4) = 16") == 1, (
+    "the four identical Year 9 items that shipped are not quoted back, so the "
+    "prompt describes the fault in the abstract only")
+ok("the Year 9 set that shipped is quoted as the thing not to produce")
+
+
+# ---------------------------------------------------------------------------
 print("\nWHAT ONLY A GENERATION RUN CAN SETTLE")
 
 if not (os.environ.get("GEMINI_API_KEY") and
@@ -214,8 +254,15 @@ else:
     from booklet_gen.llm import get_client
     from booklet_gen.schemas import Subtopic
 
+    # A bare drill stem is the one thing that can be counted without judging
+    # whether a context is any good: "Solve for x: 2(x + 4) = 16" carries no
+    # situation at all, whatever else it is.
+    DRILL = re.compile(
+        r"^(solve|simplify|calculate|expand|evaluate|factorise|work out|"
+        r"find the value)\b", re.I)
+
     agent = QuestionGeneratorAgent(get_client(), questions_per_subtopic=6)
-    measured = {}
+    measured, drill = {}, {}
     for year, topic, sub in (
             ("Year 1", "Addition and Subtraction",
              Subtopic(name="Adding and subtracting within 20")),
@@ -224,12 +271,19 @@ else:
         qs = agent.generate("Mathematics", year, topic, sub)
         lens = [words(q.question) for q in qs.questions]
         measured[year] = sum(lens) / len(lens)
+        drill[year] = sum(bool(DRILL.match(q.question.strip()))
+                          for q in qs.questions) / len(lens)
         print(f"  {year}: {len(lens)} questions, mean {measured[year]:.1f} "
-              f"words, longest {max(lens)}")
+              f"words, longest {max(lens)}, bare drill stems "
+              f"{drill[year]:.0%}")
     assert measured["Year 1"] < measured["Year 9"], (
         "a live run still writes Year 1 at Year 9 length, so the budgets are "
         "written down but not obeyed")
     ok("a live run writes Year 1 shorter than Year 9")
+    assert drill["Year 9"] <= 1 - context_quota[(9, 10)], (
+        f"{drill['Year 9']:.0%} of the live Year 9 set is a bare drill stem, "
+        f"against a quota of {context_quota[(9, 10)]:.0%} in a real situation")
+    ok("and keeps the live Year 9 set inside its drill allowance")
 
 print(f"\n{_passed} CALIBRATION CHECKS PASSED")
 sys.exit(0)
