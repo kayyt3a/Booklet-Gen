@@ -313,6 +313,12 @@ class BookletPipeline:
                                                   for s in all_sections),
                         "challenge": len(all_challenge),
                         "recap": len(all_recap)})
+        # Last line of defence on the cover. The trimmer above is now the thing
+        # that keeps both halves of a two-subject booklet, but the cover should
+        # not be able to name a subject that is not inside it whatever happens
+        # three steps upstream.
+        subject_display = self._honest_subject_display(
+            subject_display, subjects, all_sections)
         t = self._timing(all_sections, all_challenge, all_recap)
         return BookletData(
             subject=subject_display,
@@ -673,6 +679,41 @@ class BookletPipeline:
                 "calculators satisfying SCSA conditions.",
             ],
         )
+
+    @staticmethod
+    def _honest_subject_display(subject_display, subjects, sections) -> str:
+        """The cover line, narrowed to the subjects the booklet really holds.
+
+        `subject_display` is a fixed string chosen from the program before a
+        single question exists ("Numeracy and Literacy"), while the contents are
+        whatever survived generation and the cap fitter. That gap is the general
+        shape of the defect the subject-aware trimmer fixes: a booklet that says
+        one thing on its cover and contains another, with no error anywhere to
+        say so.
+
+        The trimmer is the fix. This is the guarantee, and it is enforced at the
+        point of printing rather than three steps upstream, so any future path
+        that loses a subject (a subject engine returning nothing, a validator
+        rejecting a whole half) cannot get a false cover past it either.
+
+        It narrows rather than raises. A parent who has paid and waited is
+        better served by a booklet correctly labelled as the half that
+        generated than by no booklet at all, and the error log is what tells
+        support the other half went missing.
+        """
+        declared = [s for s in subjects if s]
+        if len(declared) < 2:
+            return subject_display
+        present = {s.subject for s in sections}
+        missing = [s for s in declared if s not in present]
+        if not missing:
+            return subject_display
+        kept = [s for s in declared if s in present]
+        log.error("pipeline.subject_missing_from_booklet",
+                  extra={"declared": declared, "missing": missing,
+                         "cover_was": subject_display,
+                         "cover_now": " and ".join(kept) or subject_display})
+        return " and ".join(kept) or subject_display
 
     @staticmethod
     def _floor_questions(section) -> int:
