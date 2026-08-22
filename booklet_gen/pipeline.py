@@ -698,13 +698,44 @@ class BookletPipeline:
         return len({s.topic for s in in_session})
 
     @staticmethod
-    def _may_drop(in_session, plan=None) -> bool:
-        """Whether one more subtopic can leave the session.
+    def _subjects_in_session(in_session) -> Counter:
+        """Subtopics per subject still taught in the session.
 
-        Two floors, and the topic one is not implied by the subtopic one:
-        three subtopics all under "Number" is one topic, not three.
+        Single-subject booklets carry `subject=None` on every section (only
+        `run_program` stamps it), so they land in one bucket and every subject
+        rule below is a no-op for them, which is what we want: Accelerate and
+        Scholarships run one engine and have no breadth to protect.
+        """
+        return Counter(s.subject for s in in_session)
 
-        The floors come from the year band when there is one, and they are the
+    @staticmethod
+    def _subject_spares(in_session):
+        """Subtopics that can leave without taking their whole subject with them.
+
+        This is the floor the trimmer used not to have. A NAPLAN booklet is two
+        engines merged into one list, and every rule below this line counted
+        subtopics and topics only: three maths subtopics under three maths
+        topics satisfied both floors perfectly while the literacy half, cover
+        billing and all, had been deleted one subtopic at a time.
+        """
+        per_subject = BookletPipeline._subjects_in_session(in_session)
+        if len(per_subject) < 2:
+            return list(in_session)
+        return [s for s in in_session if per_subject[s.subject] > 1]
+
+    @staticmethod
+    def _droppable(in_session, plan=None):
+        """The subtopics that are allowed to leave the session right now.
+
+        Three floors, none implied by another:
+
+        * Subtopic count. A booklet that teaches one thing is not worth a
+          session.
+        * Subject. Every subject the cover names has to survive the trimming
+          with a lesson and practice of its own.
+        * Topic. Three subtopics all under "Number" is one topic, not three.
+
+        The counts come from the year band when there is one, and they are the
         same three everywhere today. That is on purpose: the pricing page sells
         both numbers, so a shorter session for a younger student is bought by
         lowering their cap, never by handing them a narrower booklet than the
@@ -714,16 +745,22 @@ class BookletPipeline:
         min_subtopics = plan.min_subtopics if plan else MIN_CLASSWORK_SUBTOPICS
         min_topics = plan.min_topics if plan else MIN_CLASSWORK_TOPICS
         if len(in_session) <= min_subtopics:
-            return False
-        if BookletPipeline._topics_in_session(in_session) > min_topics:
-            return True
-        # At the topic floor, a subtopic may still leave as long as its topic
-        # keeps another one in the session.
-        per_topic = Counter(s.topic for s in in_session)
-        return any(per_topic[s.topic] > 1 for s in in_session)
+            return []
+        candidates = BookletPipeline._subject_spares(in_session)
+        if BookletPipeline._topics_in_session(in_session) <= min_topics:
+            # At the topic floor, a subtopic may still leave as long as its
+            # topic keeps another one in the session.
+            per_topic = Counter(s.topic for s in in_session)
+            candidates = [s for s in candidates if per_topic[s.topic] > 1]
+        return candidates
 
     @staticmethod
-    def _leaves_the_session(in_session):
+    def _may_drop(in_session, plan=None) -> bool:
+        """Whether one more subtopic can leave the session."""
+        return bool(BookletPipeline._droppable(in_session, plan))
+
+    @staticmethod
+    def _leaves_the_session(in_session, plan=None):
         """Which subtopic gives up its place in the hour.
 
         It used to be whichever came last, which is not a choice at all, and
@@ -735,21 +772,51 @@ class BookletPipeline:
         ten of the eleven questions, Similes was left with one, and Commas with
         none.
 
-        Two rules, in order.
+        Four rules, in order. Each one only ever chooses between what the rule
+        above it left on the table.
 
-        Breadth first: prefer a subtopic whose topic still has another subtopic
-        in the session. Losing one of two readings costs the child a reading;
-        losing the only grammar subtopic costs them grammar. A booklet that
-        teaches three things is worth more than one that teaches one thing
+        Subject first, and this is a floor rather than a preference, so it
+        lives in `_droppable`: the last subtopic of a subject never leaves. A
+        NAPLAN booklet prints "Numeracy and Literacy" on its cover, and an
+        English subtopic carries a reading passage, so it costs more minutes
+        than any maths subtopic and "drop the longest" chose English every
+        time. Years 3 and 5 shipped with no literacy in them at all.
+
+        Then subject balance: among what may leave, take from whichever subject
+        currently holds the most of the session. Breadth alone would have left
+        one English subtopic against three of maths, which is a booklet sold as
+        two halves and delivered as seven eighths of one. Alternating the drops
+        this way spends the trimming evenly and lands both halves near half the
+        session. It is a no-op on a single-subject booklet, where every
+        candidate belongs to the same subject.
+
+        Then topic breadth, the original rule, now applied inside the subject
+        that was chosen: prefer a subtopic whose topic still has another
+        subtopic in the session. Losing one of two readings costs the child a
+        reading; losing the only grammar subtopic costs them grammar. A booklet
+        that teaches three things is worth more than one that teaches one thing
         thoroughly and two things nominally, and the subtopic that leaves is
         not lost, it is worked at home with its mini-lesson attached.
 
         Then cost: among those, the longest, so one drop frees the most time
         and fewer subtopics have to go.
         """
+        candidates = BookletPipeline._droppable(in_session, plan) or list(in_session)
+
+        # Subject balance. Measured in minutes, not in subtopic count, because
+        # minutes are what the cap is spent in and an English subtopic is worth
+        # about one and a third maths ones.
+        per_subject_minutes: Counter = Counter()
+        for s in in_session:
+            per_subject_minutes[s.subject] += classwork_section_minutes(s)
+        heaviest = max({s.subject for s in candidates},
+                       key=lambda subj: (per_subject_minutes[subj], str(subj)))
+        pool = [s for s in candidates if s.subject == heaviest]
+
+        # Topic breadth, then cost.
         per_topic = Counter(s.topic for s in in_session)
-        shared = [s for s in in_session if per_topic[s.topic] > 1]
-        return max(shared or list(in_session), key=classwork_section_minutes)
+        shared = [s for s in pool if per_topic[s.topic] > 1]
+        return max(shared or pool, key=classwork_section_minutes)
 
     @staticmethod
     def _session_cap(plan) -> int:
@@ -792,6 +859,11 @@ class BookletPipeline:
         taught in the session. A child working alone at the kitchen table on
         Wednesday cannot be taught a new method by a box of text, and a parent
         cannot help with one they never saw covered.
+
+        A multi-subject booklet (NAPLAN merges numeracy and literacy into one
+        list before this runs) is trimmed subject by subject rather than
+        cheapest-first: see `_leaves_the_session`. The cover names both halves,
+        so neither half may be trimmed away to make room for the other.
 
         The hour is held in every case but one. A reading and its five
         questions move as a unit and are never split, so an English session
@@ -856,10 +928,11 @@ class BookletPipeline:
         # goes unread in the session.
         while (leanest() > cap
                and BookletPipeline._may_drop(in_session(), plan)):
-            dropped = BookletPipeline._leaves_the_session(in_session())
+            dropped = BookletPipeline._leaves_the_session(in_session(), plan)
             sections.remove(dropped)
             log.info("pipeline.subtopic_dropped",
                      extra={"subtopic": dropped.subtopic,
+                            "subject": dropped.subject,
                             "homework_lost": len(dropped.homework_questions),
                             "cap": cap,
                             "still_over_by": round(total() - cap, 1)})
