@@ -29,6 +29,13 @@ Measured through `run_program("naplan", ...)` on the stub below, before the fix:
     Year 7   sections: Mathematics 3, English 1 class work: Mathematics 3, English 1
     Year 9   sections: Mathematics 3, English 1 class work: Mathematics 3, English 1
 
+and after it:
+
+    Year 3   Mathematics 2, English 1   English 35% of the class work
+    Year 5   Mathematics 2, English 1   English 35%
+    Year 7   Mathematics 2, English 2   English 52%
+    Year 9   Mathematics 2, English 2   English 52%
+
 At Years 3 and 5 the customer received a booklet titled "NAPLAN Practice /
 Numeracy and Literacy" containing no literacy whatsoever: no reading passage,
 no comprehension, no language conventions, in the lesson, the practice or the
@@ -42,10 +49,16 @@ What is pinned here is deliberately the whole promise, not the mechanism:
     classwork questions. A subject present only as leftover homework is not
     what "in one booklet" means.
   * Neither subject is reduced to a token. A booklet that is seven eighths
-    numeracy and one English question still misdescribes itself.
+    numeracy and one English question still misdescribes itself. Two ways: a
+    third of the session in minutes, which is what the customer experiences,
+    and a spread of at most one subtopic, which is the unit the trimmer moves
+    and so the thing it can actually be held to.
   * The session cap is still held. The cheap way to pass everything above is to
     stop trimming, which hands a Year 3 an hour of work; that is the defect
     this trimmer exists to prevent, so it is asserted against here too.
+  * The cover cannot name a subject the booklet does not hold. Everything above
+    is about the trimmer; this last one is about the printed claim, and it
+    holds however the contents came to be narrower than the label.
 
 No API key is needed or used: every call is served by the stub client below.
 
@@ -68,6 +81,7 @@ logging.disable(logging.CRITICAL)
 
 from booklet_gen.pipeline import BookletPipeline            # noqa: E402
 from booklet_gen.programs import PROGRAMS                   # noqa: E402
+from booklet_gen.schemas import SubtopicOutput              # noqa: E402
 from booklet_gen.timing import (booklet_timing,             # noqa: E402
                                 classwork_section_minutes, session_plan)
 
@@ -376,10 +390,22 @@ for year, data in booklets.items():
 
 print("\nNEITHER SUBJECT IS REDUCED TO A TOKEN")
 # A booklet that is 90 percent numeracy with one English section bolted on the
-# end still misdescribes itself. A quarter of the session is the floor: with
-# two subjects an even split is a half, and a third of the session is a fair
-# minimum for the smaller half once whole subtopics are the unit being moved.
-FLOOR = 0.25
+# end still misdescribes itself. The cover gives the two halves equal billing,
+# so the target is an even split and the floor is a third.
+#
+# A third rather than a half because whole subtopics are the unit being moved,
+# and rather than the quarter this file first asked for because a quarter lets
+# a three-to-one booklet through: Years 7 and 9 passed a quarter at 27 percent
+# while teaching three maths subtopics against one of English, which is the
+# defect wearing a smaller hat.
+#
+# A third is also as far as this can honestly be pushed. `MIN_CLASSWORK_SUBTOPICS`
+# is 3 and both floors are sold on the pricing page, so the closest to even a
+# Year 3 session can come is two subtopics against one. Demanding more of the
+# smaller half than a third would be demanding a product change (a two-subject
+# session that teaches four subtopics, or a shorter mini-lesson) and pretending
+# it was a code one.
+FLOOR = 1.0 / 3.0
 for year, data in booklets.items():
     minutes = Counter()
     for s in data.sections:
@@ -394,6 +420,26 @@ for year, data in booklets.items():
               f"A {year} booklet sold as \"{program.subject_display}\" is "
               f"really one subject with a token section of the other stapled "
               f"to it. The parent bought two halves and is printing one")
+
+print("\nAND THE SPLIT IS EVEN IN THE UNIT THE TRIMMER ACTUALLY MOVES")
+# The minute share above is what the customer experiences, but it is a ratio of
+# two numbers the fixture chose, so on its own it can be satisfied by luck: a
+# subject with one long subtopic clears a third against three short ones. What
+# the trimmer decides is which whole subtopic leaves, so that is the unit this
+# is asserted in, and it is the assertion that would fail first if the balance
+# rule in `_leaves_the_session` were removed and only the subject floor left.
+for year, data in booklets.items():
+    taught = by_subject([s for s in data.sections if s.questions])
+    counts = {subject: taught[subject] for subject in DECLARED}
+    spread = max(counts.values()) - min(counts.values())
+    check(spread <= 1,
+          f"{year} teaches "
+          f"{', '.join(f'{n} {s}' for s, n in sorted(counts.items()))}, "
+          f"a spread of {spread} subtopic(s)",
+          f"The {year} session is shared out {counts}. Both halves survive, so "
+          f"nothing above catches it, but the child still gets one subject "
+          f"taught properly and the other touched on. Trimming is spent on "
+          f"whichever subject is heaviest for exactly this reason")
 
 print("\nAND THE SESSION IS STILL TRIMMED TO WHAT THE STUDENT CAN WORK FOR")
 # The cheap way to pass everything above is to stop trimming. That hands a
@@ -419,6 +465,40 @@ for year, data in booklets.items():
           f"{plan.min_topics}",
           "The pricing page renders this number into a promise, so a booklet "
           "under it is a promise the customer can check and find false")
+
+print("\nAND THE COVER CANNOT NAME A SUBJECT THE BOOKLET DOES NOT HOLD")
+# Everything above pins the trimmer, which is the fix. This pins the guarantee,
+# at the point of printing, which is stronger: `subject_display` is a fixed
+# string chosen before a single question exists, and the trimmer is only one of
+# the ways the contents can end up narrower than it. An engine that returns
+# nothing, or a validator that rejects a whole half, prints the same false
+# cover, and no assertion about the trimmer would notice.
+for year, data in booklets.items():
+    check(data.subject == program.subject_display,
+          f'{year} still prints "{data.subject}" on the cover, and holds both '
+          f"halves to back it up",
+          f'The finished {year} booklet is labelled "{data.subject}" rather '
+          f'than "{program.subject_display}", which means the honesty guard '
+          f"fired and a subject really did go missing upstream")
+
+FAKE = [SubtopicOutput(topic="Number and Algebra", subtopic="Place value",
+                       subject="Mathematics", questions=[]),
+        SubtopicOutput(topic="Language Conventions", subtopic="Commas",
+                       subject="English", questions=[])]
+narrowed = BookletPipeline._honest_subject_display(
+    program.subject_display, DECLARED, FAKE[:1])
+check(narrowed == "Mathematics",
+      f'a booklet holding only maths would be covered "{narrowed}", not '
+      f'"{program.subject_display}"',
+      "The cover line is still whatever the program declared, so a booklet "
+      "that loses a subject by any route the trimmer does not control goes "
+      "out claiming to teach it")
+kept = BookletPipeline._honest_subject_display(
+    program.subject_display, DECLARED, FAKE)
+check(kept == program.subject_display,
+      f'and a booklet holding both is left alone at "{kept}"',
+      "The guard is rewriting covers it should not touch, which would replace "
+      "the product's own words with the engine names on every booklet")
 
 print(f"\n{_passed} passed, {len(_failed)} failed")
 if _failed:
