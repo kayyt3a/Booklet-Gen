@@ -59,6 +59,32 @@ THE RULE FOR `x`
     text is left exactly as written. That is the standing rule here: prove
     both readings, or leave it alone.
 
+THE MARKUP-FREE MODE
+    Everything above is written for ReportLab, which is the only consumer that
+    can raise an index the font cannot spell. Matplotlib draws the labels on
+    the diagrams, and it has no idea what `<super>` means: handed one it prints
+    the tag, angle brackets, percent signs and all, in the middle of a figure.
+    So `markup=False` says "emit characters only". An index that has a Unicode
+    superscript spelling is still set as one, because that is a character; an
+    index that has not is LEFT EXACTLY AS WRITTEN, caret included.
+
+    Leaving it alone is the deliberate choice and it is the same trade the rule
+    for `x` makes. A missed normalisation on a figure is invisible: it prints
+    the notation the model wrote, which is what would have printed anyway. A
+    literal `<super size="56%" rise="33%">` across a diagram is a defect a
+    customer photographs. The unrepresentable cases are rare and narrow, being
+    an index containing a multiplication sign ("f^(2 × 3)"), a decimal index
+    ("x^1.5"), an uppercase index and a "q", so the cost of leaving them is a
+    caret in a corner of a figure once in a long while, against the certainty
+    of printed markup every time otherwise.
+
+    Matplotlib's own mathtext ("$x^{1.5}$") was the other candidate and is not
+    used. A mathtext parse error raises at draw time, and a raise inside a
+    renderer loses the whole figure (`render_diagram` returns None and the
+    question prints with no diagram at all), so a notation tidy-up would be
+    able to delete a picture. Swapping the font mid-label for one string in one
+    corner of a figure is also visibly not the rest of the figure.
+
 WHAT IS DELIBERATELY NOT TOUCHED
     Subscripts. The distance formula arrives as "sqrt((x2 - x1)^2 + ...)", and
     "x2" is a subscripted point in that line but a perfectly ordinary product
@@ -174,13 +200,23 @@ def _raised(body: str) -> str:
     return (super_markup(body) if body else "") + tail
 
 
-def set_indices(text: str, unicode_ok: bool = True) -> str:
-    """Every caret index becomes a raised index. See THE RULE FOR INDICES."""
+def set_indices(text: str, unicode_ok: bool = True,
+                markup: bool = True) -> str:
+    """Every caret index becomes a raised index. See THE RULE FOR INDICES.
+
+    With `markup=False` the caller cannot render a `<super>` tag, so an index
+    with no superscript spelling is returned untouched rather than tagged.
+    See THE MARKUP-FREE MODE.
+    """
     if unicode_ok:
         def glyphs(m: re.Match) -> str:
             sup = _as_superscript(m.group(1))
-            return sup if sup is not None else _raised(m.group(1))
+            if sup is not None:
+                return sup
+            return _raised(m.group(1)) if markup else m.group(0)
         text = _INDEX_RE.sub(glyphs, text)
+    if not markup:
+        return text
     # Whatever is left has no superscript spelling: set it in the real font.
     return _INDEX_ANY_RE.sub(lambda m: _raised(m.group(1)), text)
 
@@ -310,7 +346,8 @@ def _divide(m: re.Match) -> str:
     return f"{lhs} {DIVIDE} "
 
 
-def normalise_notation(text: str, unicode_ok: bool = True) -> str:
+def normalise_notation(text: str, unicode_ok: bool = True,
+                       markup: bool = True) -> str:
     """One symbol per operation, whatever the model wrote.
 
     `unicode_ok` says whether the Unicode font registered. Superscripts past
@@ -318,12 +355,16 @@ def normalise_notation(text: str, unicode_ok: bool = True) -> str:
     fallback path they would print as boxes; indices go through the markup
     path instead and the rest is left as the model wrote it.
 
+    `markup` says whether the caller can render ReportLab markup. Matplotlib
+    cannot, so the diagram path passes False and gets characters only. See
+    THE MARKUP-FREE MODE.
+
     Indices run first, so that a term carrying one ("e⁹", "b⁻²") is still
     recognisable as an operand to the multiplication and division rules that
     follow. The markup the fallback emits carries no space, no asterisk and no
     spaced slash, so nothing downstream can rewrite the inside of a tag.
     """
-    text = set_indices(text, unicode_ok)
+    text = set_indices(text, unicode_ok, markup)
     if unicode_ok:
         text = _SQRT_RE.sub(ROOT, text)
         text = _ARROW_RE.sub("→", text)
@@ -342,3 +383,22 @@ def normalise_notation(text: str, unicode_ok: bool = True) -> str:
     text = _POWER_WORD_RE.sub(unit_word, text)
     text = _UNIT_POWER_FLAT_RE.sub(lambda m: m.group(1) + _SUPER_23[m.group(2)], text)
     return text
+
+
+# Every character this module can put on a page in markup-free mode. A
+# consumer that draws its own text has to be able to draw all of these, or the
+# tidy-up prints boxes; scripts/check_diagram_notation.py holds matplotlib's
+# own default face to exactly this set.
+PLAIN_GLYPHS = frozenset(SUPERSCRIPTS) | {MULTIPLY, DIVIDE, ROOT, "→"}
+
+
+def normalise_plain(text: str) -> str:
+    """One symbol per operation, in characters only, for a consumer that
+    cannot render markup. See THE MARKUP-FREE MODE.
+
+    Emphasis markers come off first, exactly as they do in `formatter._escape`
+    and for the same reason: a model writes `*area*` for emphasis constantly,
+    and the multiplication rule would otherwise read the markers as operators.
+    """
+    return normalise_notation(strip_emphasis(text), unicode_ok=True,
+                              markup=False)
