@@ -107,6 +107,7 @@ from typing import Optional
 # the renderer modules below can share them without importing this dispatcher,
 # which imports them. Re-exported here because callers and check scripts reach
 # for `diagrams.DPI`, `diagrams.CACHE_DIR` and friends.
+from .labels import label_text, normalise_spec                    # noqa: F401
 from .style import (                                              # noqa: F401
     ACCENT_COLOR,
     DIAGRAM_PRINT_BOX_PT,
@@ -147,7 +148,7 @@ CACHE_DIR = Path("output/diagrams")
 # Bump this whenever a change alters what a renderer PUTS ON THE PAGE for an
 # unchanged spec. It is also the hook a context-dependent background would hang
 # off, if this ever stops being able to be context-free.
-RENDER_VERSION = 2
+RENDER_VERSION = 3
 
 
 def _cache_path(spec: dict) -> Path:
@@ -166,6 +167,14 @@ def render_diagram(spec: dict) -> Optional[Path]:
     kind = spec.get("type")
     if not kind:
         return None
+    # The model writes its labels the way it writes everything else, in source
+    # code: "cm^2", "3*4", "sqrt(16)". Every other string in the booklet is put
+    # right by formatter._escape and these never went near it, so a figure
+    # printed a caret under a paragraph that printed an index. See labels.py.
+    #
+    # Before the cache key, not after: "cm^2" and "cm²" draw the same picture
+    # and should be the same file.
+    spec = normalise_spec(spec)
     out = _cache_path(spec)
     if out.exists():
         return out

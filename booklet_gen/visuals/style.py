@@ -188,10 +188,40 @@ def _unit_suffix(spec: dict) -> str:
 # Only the figure and axes patches go transparent. A white patch a renderer
 # drew ON PURPOSE, like the face of a solid or the card behind a label, is an
 # artist and keeps its fill.
+def _set_notation(fig) -> None:
+    """Last look over the text on a finished figure. See labels.py.
+
+    The real pass runs on the spec, before anything is drawn, because several
+    figures lay themselves out by measuring their own text. This is the
+    backstop for a string a renderer built from something other than a spec
+    string, and for whatever renderer somebody adds next. It cannot raise: a
+    notation tidy-up is never worth losing a picture over.
+
+    A label already in mathtext is left alone. Rewriting the inside of a
+    `$...$` run can turn a formula matplotlib parses into one it does not, and
+    a parse error at draw time takes the whole figure with it.
+    """
+    from .labels import label_text
+
+    try:
+        from matplotlib.text import Text
+
+        for artist in fig.findobj(Text):
+            raw = artist.get_text()
+            if not raw or "$" in raw:
+                continue
+            fixed = label_text(raw)
+            if fixed != raw:
+                artist.set_text(fixed)
+    except Exception:                       # pragma: no cover
+        log.info("diagram.notation_sweep_skipped")
+
+
 def save_figure(fig, out, pad: float = 0.08) -> None:
     """Save a finished figure: tight bounds, transparent background, closed."""
     import matplotlib.pyplot as plt
 
+    _set_notation(fig)
     fig.savefig(out, bbox_inches="tight", pad_inches=pad, transparent=True)
     plt.close(fig)
 
@@ -301,6 +331,6 @@ __all__ = [
     "_MAX_FONT_SCALE", "_FLOOR_MARGIN", "_Fonts", "_COMPARE_LABEL_PX_MIN",
     "_COMPARE_LABEL_PX_MAX", "_pretty_num", "_dim_label", "_side_rotation",
     "_scale_note", "_unit_suffix", "_finish", "_label_font", "_SHAPE_SIDES",
-    "_pixel_axes", "_measure", "_px", "_width_budget",
+    "_pixel_axes", "_measure", "_px", "_width_budget", "_set_notation",
     "Optional",
 ]
