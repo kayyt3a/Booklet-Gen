@@ -243,7 +243,11 @@ class BookletPipeline:
                     f"({', '.join(ACCELERATE_SUBJECTS)}); got {subject!r}"
                 )
             subjects = (norm,)
-            subject_display = norm
+            # Through the program rather than straight off the subject, so one
+            # function decides how a product names a subject on its cover.
+            # Accelerate maps nothing, so this is the engine name it always
+            # was; a product that does have its own word gets it here too.
+            subject_display = program.display_for(norm)
         else:
             subjects = program.subjects
             subject_display = program.subject_display
@@ -319,7 +323,8 @@ class BookletPipeline:
         # three steps upstream.
         subject_display = self._honest_subject_display(
             subject_display, subjects, all_sections,
-            loose_questions=[*all_recap, *all_challenge])
+            loose_questions=[*all_recap, *all_challenge],
+            display_by_subject=program.subject_display_by_subject)
         t = self._timing(all_sections, all_challenge, all_recap)
         return BookletData(
             subject=subject_display,
@@ -683,7 +688,7 @@ class BookletPipeline:
 
     @staticmethod
     def _honest_subject_display(subject_display, subjects, sections,
-                                loose_questions=()) -> str:
+                                loose_questions=(), display_by_subject=None) -> str:
         """The cover line, narrowed to the subjects the booklet really holds.
 
         `subject_display` is a fixed string chosen from the program before a
@@ -711,6 +716,14 @@ class BookletPipeline:
         Final Challenge still holds five literacy items was covered
         "Mathematics", printed over English questions, which is the same defect
         this guard exists to prevent, pointing the other way.
+
+        `display_by_subject` is the product's own word for each subject
+        (`Program.subject_display_by_subject`). Narrowing without it swaps
+        vocabularies as well as scope: a maths-only NAPLAN booklet came out
+        covered "Mathematics" when the product, its menu and the test it
+        practises for all call that half "Numeracy". Telling the truth and
+        speaking the product's language are not a trade. Without a mapping it
+        falls back to the engine names, which is what it did before.
         """
         declared = [s for s in subjects if s]
         if len(declared) < 2:
@@ -720,8 +733,9 @@ class BookletPipeline:
         missing = [s for s in declared if s not in present]
         if not missing:
             return subject_display
+        words = display_by_subject or {}
         kept = [s for s in declared if s in present]
-        narrowed = " and ".join(kept) or subject_display
+        narrowed = " and ".join(words.get(s) or s for s in kept) or subject_display
         log.error("pipeline.subject_missing_from_booklet",
                   extra={"declared": declared, "missing": missing,
                          "cover_was": subject_display,

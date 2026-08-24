@@ -8,7 +8,7 @@ here: nothing else in the codebase hard-codes these names.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -53,6 +53,36 @@ class Program:
     guidance_file: Optional[str] = None
     year_guidance_pattern: Optional[str] = None
     use_rag: bool = True
+    # This product's own word for ONE subject engine, keyed by the engine name.
+    #
+    # `subject_display` above is the whole cover line and cannot be taken
+    # apart, so when the pipeline has to narrow it (a booklet that lost a
+    # subject upstream must not keep claiming it) the only names left to fall
+    # back on are the engines': a maths-only NAPLAN booklet was covered
+    # "Mathematics" when the product, its menu and its marketing all call that
+    # half "Numeracy". Honesty and the product's vocabulary are not a trade,
+    # and this file is the source of truth for cover and menu labels, so the
+    # words live here rather than in the pipeline that needs them.
+    #
+    # Empty is legitimate for a product whose cover line is not a list of
+    # subjects at all; `display_for` then falls back to the engine name, which
+    # is what happened everywhere before this existed.
+    subject_display_by_subject: dict[str, str] = field(default_factory=dict)
+
+    def display_for(self, subject: str) -> str:
+        """This product's word for one subject, or the engine name."""
+        return self.subject_display_by_subject.get(subject) or subject
+
+    def display_for_all(self, subjects) -> str:
+        """The cover line for exactly these subjects, in this product's words.
+
+        The whole declared list reproduces `subject_display` (checked by
+        scripts/check_cover_vocabulary.py, which is what keeps the two in step
+        when a product is renamed), so a caller narrowing a cover can use this
+        for any subset and get a line in the same voice as the one it replaces.
+        """
+        words = [self.display_for(s) for s in subjects if s]
+        return " and ".join(words)
 
     def describe(self, subject: str, year_level: str, topic: Optional[str]) -> str:
         """Build the free-text description the outline parser expects, for one
@@ -114,6 +144,11 @@ PROGRAMS: dict[str, Program] = {
         subjects=("Reasoning",),
         pick_subject=False,
         blurb="Selective-school and scholarship-test style reasoning practice.",
+        # One engine, and the cover line is already this product's name for it.
+        # Stated anyway so a narrowed cover cannot fall back to the bare word
+        # "Reasoning", which is the engine's name and not the product's.
+        subject_display_by_subject={
+            "Reasoning": "Verbal and Quantitative Reasoning"},
     ),
     "naplan": Program(
         key="naplan",
@@ -122,6 +157,12 @@ PROGRAMS: dict[str, Program] = {
         subjects=("Mathematics", "English"),
         pick_subject=False,
         blurb="NAPLAN-style numeracy and literacy in one booklet.",
+        # The two halves of "Numeracy and Literacy", split so a cover narrowed
+        # to one of them still speaks NAPLAN's language. The test the customer
+        # is buying practice for uses these words; "Mathematics" over a
+        # numeracy booklet is a different product's vocabulary.
+        subject_display_by_subject={"Mathematics": "Numeracy",
+                                    "English": "Literacy"},
         guidance_file="naplan_practice.txt",
         year_guidance_pattern="naplan_year_{year}.txt",
         # The existing vector library contains past assessment papers whose
@@ -138,6 +179,11 @@ PROGRAMS: dict[str, Program] = {
         subjects=(),
         pick_subject=True,
         blurb="Curriculum revision to help a student get ahead at school. Pick the subject.",
+        # Deliberately empty. The parent picks the subject from a menu that
+        # already reads "Mathematics" or "English", and the cover prints the
+        # word they chose, so the engine name IS this product's word for it.
+        # An identity mapping here would be a second copy of ACCELERATE_SUBJECTS
+        # that nothing forces to agree with the first.
         # Accelerate is a launch product and production runs clean-room, so
         # external retrieval is off for it exactly as it is for NAPLAN. Without
         # a guide it would be the only customer-facing product generating with
@@ -153,6 +199,9 @@ PROGRAMS: dict[str, Program] = {
         pick_subject=False,
         blurb="A full practice ATAR examination paper for WACE Mathematics Methods, "
               "with a calculator-free and a calculator-assumed section and a marking key.",
+        # One engine again, and the paper is titled the way SCSA titles it.
+        subject_display_by_subject={
+            "Mathematics Methods": "Mathematics Methods Units 3 and 4"},
     ),
 }
 
