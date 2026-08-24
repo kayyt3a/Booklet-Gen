@@ -48,6 +48,20 @@
   --display:Georgia,"Iowan Old Style",Charter,"Bitstream Charter","Liberation Serif",serif;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
 
+  /* The wordmark, and nothing else. A logotype is not a heading: it is the same
+   * object on the booklet cover and on the site, and it has to be the same
+   * object. booklet_gen/visuals/cover.py draws "FOLIO AI" in Helvetica-Bold,
+   * so this stack lands on Helvetica where it exists and on its clones
+   * everywhere else: Arial on Windows, Liberation or Nimbus Sans on Linux.
+   * Still nothing fetched. Georgia used to sit here, which meant the header
+   * and the cover of the thing being bought were set in two different
+   * typefaces, in the same session, minutes apart.
+   *
+   * --brand-blue is cover.py's ACCENT_HEX, the blue it tints the "AI" with.
+   * The header used a grey-blue of its own. */
+  --wordmark:"Helvetica Neue",Helvetica,Arial,"Liberation Sans","Nimbus Sans",sans-serif;
+  --brand-blue:#6E9EFD; --brand-tag:#B9CDF2;
+
   /* ---- type scale ----
    * Seven steps, each a clear jump from the last. The old sizes ran 11.5, 12.5,
    * 13, 13.5, 14, 14.5, 15, 16.5: eight values inside five points, so no two
@@ -91,18 +105,26 @@ header{
   justify-content:space-between;gap:var(--s3);min-height:64px;flex-wrap:wrap;
 }
 header a{color:#fff;text-decoration:none}
+/* The lockup, laid out as the booklet cover lays it out: the mark, then the
+ * wordmark with "practice booklets" stacked under it and flush with the F. The
+ * tagline used to sit inline beside the name, which is a different lockup from
+ * the one printed on the cover of every booklet the customer buys. Sizes hold
+ * the cover's own ratios: the tagline is about half the wordmark, and the mark
+ * stands as tall as the two lines together. */
 .brand{
-  font-family:var(--display);font-weight:700;letter-spacing:.6px;
-  font-size:var(--t-h2);display:flex;align-items:baseline;gap:var(--s2);
+  font-family:var(--wordmark);font-weight:700;letter-spacing:0;
+  font-size:var(--t-h2);display:flex;align-items:center;gap:var(--s3);
 }
-.brandName em{font-style:normal;color:#93aac6}
+.brandLockup{display:flex;flex-direction:column;justify-content:center}
+.brandName{line-height:1.05}
+.brandName em{font-style:normal;color:var(--brand-blue)}
 /* The mark is now the supplied artwork rather than tokens, so the light-surface
  * variant is a different file (the app-icon tile) rather than a recolour. It
  * only needs its corners rounded to match the tile it was drawn on. */
 .brandMark.onLight{border-radius:22%;display:block}
 .brand .brandTag{
-  font-family:var(--sans);font-weight:500;font-size:var(--t-micro);
-  letter-spacing:.3px;color:#aab8cc;
+  font-family:var(--wordmark);font-weight:700;font-size:var(--t-micro);
+  letter-spacing:0;color:var(--brand-tag);line-height:1.25;
 }
 .brandMark{flex:none;display:block;align-self:center}
 .nav{display:flex;align-items:center;gap:var(--s1);flex-wrap:wrap}

@@ -41,7 +41,7 @@ from reportlab.pdfgen import canvas
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from booklet_gen.visuals.cover import (  # noqa: E402
-    NAVY, BLUE_PALE, CoverSpec, render_cover, variant_for)
+    ACCENT, NAVY, BLUE_PALE, CoverSpec, render_cover, variant_for)
 from booklet_gen.webapp.covers import SAMPLES  # noqa: E402
 
 STATIC = Path("booklet_gen/webapp/static/img")
@@ -142,18 +142,27 @@ def build_share_card(front: Image.Image) -> None:
         p.close()
         c.drawPath(p, stroke=0, fill=1)
 
+        # The publisher lockup, which is the cover's lockup at 30/24 scale
+        # rather than a second arrangement of the same words. cover.py's
+        # render_cover sets FOLIO at 24pt bold, the accent "AI" one word space
+        # after it, and "practice booklets" in the same bold face at 11.5pt on
+        # a baseline 19pt below. Those three ratios are what is reproduced
+        # here; the tagline used to be regular weight at a size of its own.
         mark = BRAND / "mark-512.png"
         if mark.is_file():
             c.drawImage(str(mark), 72, H - 150, width=64, height=64,
                         mask="auto", preserveAspectRatio=True)
+        wm = 30.0
+        scale = wm / 24.0
         c.setFillColor(HexColor("#FFFFFF"))
-        c.setFont("Helvetica-Bold", 30)
+        c.setFont("Helvetica-Bold", wm)
         c.drawString(150, H - 116, "FOLIO")
-        c.setFillColor(BLUE_PALE)
-        c.drawString(150 + c.stringWidth("FOLIO ", "Helvetica-Bold", 30),
+        c.setFillColor(ACCENT)
+        c.drawString(150 + c.stringWidth("FOLIO", "Helvetica-Bold", wm) + 7 * scale,
                      H - 116, "AI")
-        c.setFont("Helvetica", 15)
-        c.drawString(150, H - 138, "practice booklets")
+        c.setFillColor(BLUE_PALE)
+        c.setFont("Helvetica-Bold", 11.5 * scale)
+        c.drawString(150 + scale, H - 116 - 19 * scale, "practice booklets")
 
         c.setFillColor(HexColor("#FFFFFF"))
         c.setFont("Helvetica-Bold", 46)

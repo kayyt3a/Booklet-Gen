@@ -45,6 +45,7 @@ except ImportError:
 
 from booklet_gen.webapp import create_app                        # noqa: E402
 from booklet_gen.webapp import db                                # noqa: E402
+from booklet_gen.visuals.cover import ACCENT_HEX                 # noqa: E402
 
 def _free_port() -> int:
     """A port nothing else is holding right now.
@@ -249,6 +250,50 @@ with sync_playwright() as pw:
         scroll = page.evaluate("document.documentElement.scrollWidth")
         check(scroll <= width, "the page does not scroll sideways",
               f"{width}px viewport, {scroll}px document")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe header wears the same wordmark as the booklet cover")
+    print("-" * 62)
+    # There were three FolioAI lockups in circulation. The cover the customer
+    # is handed (booklet_gen/visuals/cover.py) sets FOLIO in a bold grotesque,
+    # tints the AI with ACCENT, and stacks "practice booklets" underneath,
+    # flush with the F. The header set the name in Georgia, a serif, tinted the
+    # AI a grey-blue of its own, and ran the tagline inline beside it. A
+    # customer sees both inside one session.
+    #
+    # Colour is compared against cover.py's own constant rather than a literal,
+    # so moving the brand blue moves both or fails here.
+    _r, _g, _b = (int(ACCENT_HEX[i:i + 2], 16) for i in (1, 3, 5))
+    for width in (390, 1440):
+        ctx, page = open_page(width)
+        page.goto(BASE + "/")
+        page.wait_for_load_state("networkidle")
+        name = text_boxes(page, ".brandName")[0]
+        tag = text_boxes(page, ".brandTag")[0]
+        check(tag["y"] >= name["bottom"] - 3,
+              f"{width}px: the tagline is stacked under the wordmark",
+              f"wordmark ends at y={name['bottom']:.0f}, tagline starts at "
+              f"y={tag['y']:.0f}")
+        check(abs(tag["x"] - name["x"]) <= 1.5,
+              f"{width}px: and starts at the same edge as the F",
+              f"{name['x']:.1f} against {tag['x']:.1f}")
+        faces = page.eval_on_selector_all(
+            ".brandName, .brandTag",
+            "els => els.map(e => getComputedStyle(e).fontFamily)")
+        check(len(set(faces)) == 1,
+              f"{width}px: both lines of the lockup are one typeface",
+              str(sorted(set(faces))))
+        # "sans-serif" contains "serif", so the generic goes before the test.
+        stacks = [f.lower().replace("sans-serif", "") for f in faces]
+        check(all("serif" not in s and "georgia" not in s for s in stacks),
+              f"{width}px: and it is the cover's grotesque, not the page serif",
+              faces[0][:60])
+        ink = page.eval_on_selector(".brandName em",
+                                    "e => getComputedStyle(e).color")
+        check(ink == f"rgb({_r}, {_g}, {_b})",
+              f"{width}px: the AI carries the cover's accent blue",
+              f"{ink}, cover uses {ACCENT_HEX}")
         ctx.close()
 
     # -----------------------------------------------------------------------
