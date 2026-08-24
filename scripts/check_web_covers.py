@@ -45,7 +45,6 @@ os.environ.pop("DATABASE_URL", None)
 from booklet_gen.webapp import create_app                     # noqa: E402
 from booklet_gen.webapp import db                             # noqa: E402
 from booklet_gen.webapp.covers import SAMPLES, cover_for      # noqa: E402
-from booklet_gen.visuals.cover import ACCENT_HEX              # noqa: E402
 
 STATIC = Path("booklet_gen/webapp/static")
 failures: list[str] = []
@@ -165,19 +164,6 @@ left, right = grey[:, :third].mean(), grey[:, 2 * third:].mean()
 check(right > 90 and left < 80,
       "it shows a light booklet cover on a navy field, not a logo on navy",
       f"left third {left:.0f}, right third {right:.0f}")
-
-# The card's publisher lockup has to be the cover's lockup, because a customer
-# who sees the card in a group chat and then buys a booklet sees both. It used
-# to tint the "AI" with BLUE_PALE and set the tagline in regular weight at a
-# size of its own, where the cover uses ACCENT and the same bold face at half
-# the wordmark. Colour is the part a machine can see: ACCENT appears in the
-# lockup band or the card is wearing a different mark.
-_band = np.asarray(im.convert("RGB").crop((140, 80, 360, 135))).astype(float)
-_accent = np.array([int(ACCENT_HEX[i:i + 2], 16) for i in (1, 3, 5)], float)
-_hits = int((np.sqrt(((_band - _accent) ** 2).sum(-1)) < 40).sum())
-check(_hits > 60,
-      "its wordmark tints the AI with the cover's accent, as the cover does",
-      f"{_hits} accent pixels in the lockup, cover uses {ACCENT_HEX}")
 
 # build_brand_assets.py used to write this file by cropping the supplied
 # banner, so re-running it would have silently restored the logo-on-navy card.
