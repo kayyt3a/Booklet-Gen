@@ -163,6 +163,13 @@ footer{
 }
 footer a{color:var(--muted);font-weight:600}
 .footerLinks{display:flex;gap:var(--s3)}
+/* The identity block: the name on its own line, then what the product is and
+ * where it comes from, then the contact details, which sit on one row and wrap
+ * as a group rather than running into the policy links. */
+.footerId{display:flex;flex-direction:column;gap:var(--s1);min-width:0}
+.footerName{font-weight:700;color:var(--ink)}
+.footerContact{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s3)}
+.footerContact a{text-decoration:underline}
 .navForm{margin:0}
 .navForm button{
   width:auto;margin:0;padding:var(--s2) var(--s2);background:transparent;border-radius:6px;

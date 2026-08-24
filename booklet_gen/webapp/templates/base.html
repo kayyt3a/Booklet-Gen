@@ -91,8 +91,29 @@
     {% endwith %}
     {% block body %}{% endblock %}
   </main>
+  {# A trading name and three links is thin for a page about to take an
+     Australian parent's card. Everything below comes from public._business(),
+     the same source Terms, Privacy and Support render from, so the footer can
+     never state an identity those pages contradict.
+
+     Nothing here is invented. The business number and the postal address are
+     printed only when the deployment actually sets FOLIO_BUSINESS_NUMBER and
+     FOLIO_BUSINESS_ADDRESS, and the number is printed bare, exactly as
+     terms.html and privacy.html print it, because the variable is documented
+     as an ABN or whichever other business number applies and labelling it
+     "ABN" here would be this page's own guess. A fabricated detail on a page
+     taking payments is worse than a missing one. #}
   <footer>
-    <span>FolioAI, practice booklets for Years 1 to 10.</span>
+    <div class="footerId">
+      <span class="footerName">{{ business.name }}</span>
+      <span>Practice booklets for Years 1 to 10, from {{ business.country }}.</span>
+      <span class="footerContact">
+        <a href="mailto:{{ business.email }}">{{ business.email }}</a>
+        {% if business.phone %}<span>{{ business.phone }}</span>{% endif %}
+        {% if business.number %}<span>{{ business.number }}</span>{% endif %}
+        {% if business.address %}<span>{{ business.address }}</span>{% endif %}
+      </span>
+    </div>
     <span class="footerLinks">
       <a href="{{ url_for('public.support') }}">Support</a>
       <a href="{{ url_for('public.privacy') }}">Privacy</a>

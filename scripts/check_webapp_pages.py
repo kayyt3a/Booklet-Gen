@@ -26,6 +26,7 @@ os.environ.pop("DATABASE_URL", None)
 from booklet_gen.webapp import create_app                        # noqa: E402
 from booklet_gen.webapp import db                                # noqa: E402
 from booklet_gen.webapp.commerce import products                 # noqa: E402
+from booklet_gen.webapp.public import _business                  # noqa: E402
 from booklet_gen.programs import (                               # noqa: E402
     EXAM_PROGRAMS,
     PROGRAMS,
@@ -298,6 +299,56 @@ check(b"two business days" in support and b"not usable" in support,
       "support gives a response target and quality path")
 check(b"first name or nickname only" in privacy and b"accounting records" in privacy,
       "privacy copy minimises child data and explains residual legal records")
+
+# ---------------------------------------------------------------------------
+print("\nEvery page carries the identity of the business taking the money")
+print("-" * 62)
+# The footer used to be a trading name and three links, which is thin for an
+# Australian parent about to enter a card. It now carries what the legal pages
+# already state, from the same source they read: public._business(). The point
+# of checking it here is that the two can never disagree, and that nothing in
+# the footer is invented.
+
+
+def footer_of(path: str) -> str:
+    m = re.search(r"<footer>(.*?)</footer>", client.get(path).data.decode(), re.S)
+    return " ".join(re.sub(r"<[^>]+>", " ", m.group(1)).split()) if m else ""
+
+
+_biz = _business()
+for path in ("/", "/pricing", "/support", "/login"):
+    foot = footer_of(path)
+    check(_biz["name"] in foot and _biz["email"] in foot
+          and _biz["country"] in foot,
+          f"{path}: the footer names the business, its country and its email",
+          foot[:90])
+# The same address the legal pages give, not a second one nobody monitors.
+for path in ("/support", "/privacy", "/terms"):
+    page = client.get(path).data.decode()
+    addresses = set(re.findall(r"mailto:([^\"'>\s]+)", page))
+    check(addresses == {_biz["email"]},
+          f"{path} gives the one contact address the footer gives",
+          f"page offers {sorted(addresses)}")
+# Nothing invented: with no ABN and no postal address configured, the footer
+# states neither, and does not leave the separators of an empty one behind.
+_ABN = "ABN 12 345 678 901"
+_ADDR = "PO Box 9, Perth WA 6000"
+check(_ABN not in footer_of("/") and _ADDR not in footer_of("/"),
+      "with no business number configured, the footer states none")
+_saved = {k: os.environ.get(k) for k in
+          ("FOLIO_BUSINESS_NUMBER", "FOLIO_BUSINESS_ADDRESS")}
+os.environ["FOLIO_BUSINESS_NUMBER"] = _ABN
+os.environ["FOLIO_BUSINESS_ADDRESS"] = _ADDR
+try:
+    _identified = footer_of("/")
+finally:
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+check(_ABN in _identified and _ADDR in _identified,
+      "and prints both the moment the deployment sets them", _identified[:120])
 
 # ---------------------------------------------------------------------------
 print("\nEvery page tells the same truth about how long files are kept")

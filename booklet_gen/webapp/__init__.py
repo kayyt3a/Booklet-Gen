@@ -236,6 +236,16 @@ def create_app() -> Flask:
     app.jinja_env.globals["cover_samples"] = _cover_samples
     app.template_filter("cover_for")(cover_for)
 
+    # Who is taking the money, available to every template rather than only to
+    # the three pages public.py renders. The site footer needs it, and reading
+    # it from the same place Terms, Privacy and Support read it is what stops
+    # the footer stating an identity the legal pages contradict. Flask reapplies
+    # the caller's own context over a processor's, so public.py's explicit
+    # `business=` argument still wins on those three pages.
+    from .public import _business
+
+    app.context_processor(lambda: {"business": _business()})
+
     from .admin import bp as admin_bp, is_admin
     from .auth import bp as auth_bp
     from .payments import bp as payments_bp
