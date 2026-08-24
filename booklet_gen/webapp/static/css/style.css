@@ -603,6 +603,15 @@ select{max-width:18rem}
 }
 .closerInner{max-width:44ch;margin-inline:auto}
 .closer .muted{margin-bottom:var(--s5)}
+/* The two prices, side by side on a laptop and stacked on a phone. They are
+ * rendered from commerce.products(), so this styles a list whose length is the
+ * catalogue's, not two hardcoded rows. */
+.closerPrice{
+  display:flex;justify-content:center;flex-wrap:wrap;gap:var(--s2) var(--s5);
+  margin:0 0 var(--s3);font-size:var(--t-small);color:var(--muted);
+}
+.closerPrice strong{color:var(--navy);font-size:var(--t-body)}
+.closer .muted.closerNote{margin-bottom:var(--s5)}
 .btn.wide{width:auto;padding:var(--s3) var(--s6);margin-top:0}
 
 /* The four product lines, straight from programs.py. */

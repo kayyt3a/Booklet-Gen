@@ -25,6 +25,7 @@ os.environ.pop("DATABASE_URL", None)
 
 from booklet_gen.webapp import create_app                        # noqa: E402
 from booklet_gen.webapp import db                                # noqa: E402
+from booklet_gen.webapp.commerce import products                 # noqa: E402
 from booklet_gen.programs import (                               # noqa: E402
     EXAM_PROGRAMS,
     PROGRAMS,
@@ -120,6 +121,45 @@ check(b"for the rest of the week" in body,
 check(b"sample-page.png" in body,
       "it shows a real page out of a booklet, not just a description")
 check(b"No credit card" in body, "it says what signing up costs")
+
+
+# ---------------------------------------------------------------------------
+print("\nThe landing page says what a booklet costs, before the fold")
+print("-" * 62)
+# "First booklet free" appeared above the fold and no number did, so a parent
+# deciding whether this was worth an account had to leave the page for Pricing
+# to find out whether the second booklet was five dollars or fifty. The figures
+# come from commerce.products(), never typed into the template, because a typed
+# price drifts the day FOLIO_PRICE_SINGLE_AUD changes and then the shop front
+# quotes something Checkout does not charge.
+catalog = products()
+_hero_html = body.decode().split('<section class="coverBand"', 1)[0]
+check(f"A${catalog['single'].display_price}" in _hero_html,
+      "the price of one booklet is in the hero, above everything else",
+      f"looking for A${catalog['single'].display_price}")
+for key, p in catalog.items():
+    check(f"A${p.display_price}".encode() in body,
+          f"the page quotes the catalogue price of the {p.label}",
+          f"A${p.display_price}")
+# Nothing on the page may name a price the catalogue does not sell.
+_quoted = set(re.findall(r"A\$\s*([0-9]+(?:\.[0-9]{2})?)", body.decode()))
+_real = {p.display_price for p in catalog.values()}
+check(_quoted and _quoted <= _real,
+      "and quotes no figure the catalogue does not carry",
+      f"page says {sorted(_quoted)}, catalogue holds {sorted(_real)}")
+# Rendered, not written out: move the price and the page has to move with it.
+_saved_price = os.environ.get("FOLIO_PRICE_SINGLE_AUD")
+os.environ["FOLIO_PRICE_SINGLE_AUD"] = "6.50"
+try:
+    _repriced = client.get("/").data
+finally:
+    if _saved_price is None:
+        os.environ.pop("FOLIO_PRICE_SINGLE_AUD", None)
+    else:
+        os.environ["FOLIO_PRICE_SINGLE_AUD"] = _saved_price
+check(b"A$6.50" in _repriced and b"A$5.00" not in _repriced,
+      "and the figure follows the catalogue when the price changes",
+      "repriced to 6.50")
 
 sample = client.get("/static/img/sample-page.png")
 check(sample.status_code == 200 and len(sample.data) > 20_000,
