@@ -1239,7 +1239,17 @@ class BookletPipeline:
                 question=q, verified=self._trusted(q, r.verified),
                     validator_notes=r.notes,
                 image_path=str(img) if img else None, image_attribution=attr))
-        return out
+        # The warm-up is written by the question generator from the same prompt
+        # as the practice, so it is held to the same budget. Its floor is half
+        # of itself rather than the four a subtopic keeps: the year band sized
+        # this part at three or four questions and none of them is spare, so a
+        # part that would lose more than half of itself keeps them all and says
+        # so instead. A heading with one question under it is a fault the
+        # parent can see, and the child still cannot read the question.
+        return self._hold_reading_load(out, subject, year_level,
+                                       keep_at_least=(len(out) + 1) // 2,
+                                       kind="practice",
+                                       where="Warm-up Recap")
 
     def _process_subtopic(self, subject, year_level, topic_name, subtopic,
                           seen=None, passage_quota=2,
@@ -1753,6 +1763,18 @@ class BookletPipeline:
                 # being eaten from the top down, exactly the "easy item late in
                 # the list" the generator prompt warns against.
                 candidates = fresh.questions[slot:] or fresh.questions
+                # Prefer the candidates that fit the year's reading budget.
+                # Free: it is a filter over a batch that has already been paid
+                # for, and it strictly REDUCES the number of candidates sent
+                # for single-question validation below. Falls back to the whole
+                # list when none of them fit, because a question that is too
+                # long still beats no question at all, and the set-level guard
+                # after this loop is what deals with the leftovers.
+                from .agents import reading_load
+                fitting = [c for c in candidates
+                           if not reading_load.over_budget(
+                               c.question, year_level, subject)]
+                candidates = fitting or candidates
                 for cand in candidates:
                     if self._norm_q(cand.question) in seen:
                         continue
@@ -1818,6 +1840,16 @@ class BookletPipeline:
                 image_path=str(image_path) if image_path else None,
                 image_attribution=image_attr,
             ))
+        # Held to the year's reading budget before the caller splits the set
+        # into Class Work and Homework, so the drop lands on the whole set and
+        # not on whichever half a long question happened to fall in. The floor
+        # is the classwork promise: four questions under every mini-lesson.
+        results = self._hold_reading_load(
+            results, subject, year_level, keep_at_least=n_classwork,
+            kind="practice", where=subtopic.name)
+        # After the drop, never before: a passage whose only questions have
+        # gone must not be handed on, or the booklet prints a page of reading
+        # with nothing under it.
         self._collect_passages(results, pool, passages_out)
         return results
 
@@ -1936,7 +1968,71 @@ class BookletPipeline:
                 image_path=str(image_path) if image_path else None,
                 image_attribution=image_attr,
             ))
-        return results
+        # The Final Challenge has a budget of its own, looser than the
+        # practice one because its questions are multi-step by design. Its own
+        # prompt is explicit that harder never means longer to read, and a
+        # cumulative question is exactly where that slips. Half of itself is
+        # the floor, as for the warm-up and for the same reason: the year band
+        # sized this part and nothing here is spare.
+        return self._hold_reading_load(results, subject, year_level,
+                                       keep_at_least=(len(results) + 1) // 2,
+                                       kind="challenge",
+                                       where="Final Challenge")
+
+    @staticmethod
+    def _hold_reading_load(items, subject, year_level, keep_at_least, kind,
+                           where):
+        """Drop the questions that read too long for the year, and say so.
+
+        The maths prompts set a per-year word budget on a question, because a
+        Year 1 booklet shipped a 39-word question and Year 1 was carrying about
+        seventy per cent of Year 7's reading load. Nothing measured whether the
+        model kept to it, so a model that ignored the budget produced the same
+        booklet as before with nothing failing anywhere.
+
+        Deterministic and free: no API call, no extra validation, and the
+        batched judge above is untouched. It runs on the set that has already
+        been generated and graded, which is the only place the cost of
+        enforcing this is zero.
+
+        Dropping rather than shortening, for the reason every other guard here
+        drops: the answer key was written against this wording, and a question
+        trimmed to fit may no longer ask what its key answers. Dropping rather
+        than regenerating, because a regeneration is a whole extra call per
+        subtopic aimed at a model that has just demonstrated it is not reading
+        the instruction, and the customer is waiting.
+
+        What cannot be dropped is kept and logged at warning level. That is the
+        honest outcome rather than the tidy one: the booklet goes out with a
+        long question in it, and the log says which part, at what length,
+        against what budget. Making the number smaller by printing a smaller
+        booklet is not a fix.
+        """
+        from .agents import reading_load
+
+        kept, dropped = reading_load.hold_to_budget(
+            items, year_level, subject, keep_at_least=keep_at_least, kind=kind,
+            text_of=lambda vq: vq.question.question)
+        for vq in dropped:
+            log.info("pipeline.drop_over_long_question",
+                     extra={"subject": subject, "where": where, "kind": kind,
+                            "reason": reading_load.over_budget(
+                                vq.question.question, year_level, subject, kind),
+                            "question": vq.question.question[:70]})
+        stayed = [vq for vq in kept
+                  if reading_load.over_budget(vq.question.question, year_level,
+                                              subject, kind)]
+        if stayed:
+            log.warning(
+                "pipeline.reading_load_over_budget",
+                extra={"subject": subject, "where": where, "kind": kind,
+                       "year_level": year_level, "kept_over_budget": len(stayed),
+                       "of": len(kept),
+                       "longest": max(reading_load.word_count(vq.question.question)
+                                      for vq in stayed),
+                       "budget": reading_load.max_words(year_level, kind),
+                       "reason": "the practice floor would break if they went"})
+        return kept
 
     @staticmethod
     def _trusted(q, verified: bool) -> bool:
