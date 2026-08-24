@@ -79,6 +79,22 @@ class Question(BaseModel):
     question: str
     answer: str
     working: str
+    # Which subject engine wrote this question. Stamped by the pipeline after
+    # generation, never read from the model: the program decides which engine
+    # runs, so the engine's own name is the only honest answer and a model that
+    # returned "Maths" here would be overruled anyway.
+    #
+    # A section carries `SubtopicOutput.subject`, so inside Class Work this is
+    # a convenience. The Warm-up Recap and the Final Challenge have no section
+    # around them: on a NAPLAN booklet both are generated once per subject and
+    # merged into one flat list, so without this field nothing downstream can
+    # say which half of the product a challenge question belongs to. The cover
+    # guard (`BookletPipeline._honest_subject_display`) needs exactly that to
+    # describe the whole booklet rather than only its sections.
+    #
+    # Optional, because Question is also the parse target for the exam
+    # generator and for every check that builds one by hand.
+    subject: Optional[str] = None
     # Set when the question asks about a Passage; the formatter uses it to
     # place the reading before the questions and to avoid reprinting it.
     passage_id: Optional[str] = None

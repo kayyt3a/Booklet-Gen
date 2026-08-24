@@ -318,7 +318,8 @@ class BookletPipeline:
         # not be able to name a subject that is not inside it whatever happens
         # three steps upstream.
         subject_display = self._honest_subject_display(
-            subject_display, subjects, all_sections)
+            subject_display, subjects, all_sections,
+            loose_questions=[*all_recap, *all_challenge])
         t = self._timing(all_sections, all_challenge, all_recap)
         return BookletData(
             subject=subject_display,
@@ -681,7 +682,8 @@ class BookletPipeline:
         )
 
     @staticmethod
-    def _honest_subject_display(subject_display, subjects, sections) -> str:
+    def _honest_subject_display(subject_display, subjects, sections,
+                                loose_questions=()) -> str:
         """The cover line, narrowed to the subjects the booklet really holds.
 
         `subject_display` is a fixed string chosen from the program before a
@@ -700,20 +702,31 @@ class BookletPipeline:
         better served by a booklet correctly labelled as the half that
         generated than by no booklet at all, and the error log is what tells
         support the other half went missing.
+
+        `loose_questions` is the Warm-up Recap and the Final Challenge: every
+        question in the booklet that has no section around it. They are counted
+        because narrowing the cover is a claim about the WHOLE booklet, and
+        those two parts are generated per subject and merged into one flat
+        list. A NAPLAN booklet whose sections came out maths-only but whose
+        Final Challenge still holds five literacy items was covered
+        "Mathematics", printed over English questions, which is the same defect
+        this guard exists to prevent, pointing the other way.
         """
         declared = [s for s in subjects if s]
         if len(declared) < 2:
             return subject_display
         present = {s.subject for s in sections}
+        present.update(vq.question.subject for vq in loose_questions)
         missing = [s for s in declared if s not in present]
         if not missing:
             return subject_display
         kept = [s for s in declared if s in present]
+        narrowed = " and ".join(kept) or subject_display
         log.error("pipeline.subject_missing_from_booklet",
                   extra={"declared": declared, "missing": missing,
                          "cover_was": subject_display,
-                         "cover_now": " and ".join(kept) or subject_display})
-        return " and ".join(kept) or subject_display
+                         "cover_now": narrowed})
+        return narrowed
 
     @staticmethod
     def _floor_questions(section) -> int:
@@ -1204,6 +1217,10 @@ class BookletPipeline:
                 log.info("pipeline.drop_absurd_quantity_recap",
                          extra={"subject": subject, "reason": absurd})
                 continue
+            # Attribute the warm-up to the engine that wrote it. The recap has
+            # no section around it, so this is the only record of which half of
+            # a two-subject booklet a question came from.
+            q.subject = subject
             out.append(ValidatedQuestion(
                 question=q, verified=self._trusted(q, r.verified),
                     validator_notes=r.notes,
@@ -1773,6 +1790,12 @@ class BookletPipeline:
                 log.info("pipeline.drop_duplicate",
                          extra={"subject": subject, "subtopic": subtopic.name})
                 continue
+            # Stamped here as well as on the loose questions, so subject
+            # attribution is a property of every question in the booklet rather
+            # than of the two parts that happened to need it first. A section
+            # carries the same value on SubtopicOutput.subject; agreeing with
+            # itself costs nothing and disagreeing would be a bug worth seeing.
+            q.subject = subject
             results.append(ValidatedQuestion(
                 question=q,
                 verified=self._trusted(q, result.verified),
@@ -1886,6 +1909,11 @@ class BookletPipeline:
             # broken or figureless does not block a sound one later.
             if not seen.add(norm):
                 continue
+            # Same attribution the recap gets, and for the same reason: a
+            # NAPLAN booklet runs this once per subject and merges the two sets
+            # into one Final Challenge, after which nothing else in the booklet
+            # can tell a numeracy item from a literacy one.
+            q.subject = subject
             results.append(ValidatedQuestion(
                 question=q,
                 verified=self._trusted(q, result.verified),
