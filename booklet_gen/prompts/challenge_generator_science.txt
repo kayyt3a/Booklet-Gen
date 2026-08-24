@@ -16,14 +16,18 @@ Return a single JSON object:
       "answer": "...",
       "working": "Explanation / reasoning trail for the answer key.",
       "difficulty": "medium|hard",
+      "diagram_spec": null,
+      "scene_spec": null,
       "image_query": null
     }
   ]
 }
 
-You MAY set an `image_query` (short concrete photo query) if a real-world photograph would help.
+Always include `diagram_spec`, `scene_spec` and `image_query`, using null where a field does not apply and never more than one non-null field. A later batch visual planner makes the final choice. Use an exact technical diagram when structure matters. Use a semantic Folio-owned scene template `science_process`, `force_scene`, `circuit`, `particle_model` or `life_cycle` when a process or phenomenon can be pictured. You MAY set `image_query` to a short concrete editorial hint if a real-world photograph would help. Such material requires separate licensing and human review and may never appear, so the question must work without it.
 
-An `image_query` must name an OBJECT, ANIMAL, PLANT, PLACE, BUILDING or MACHINE. Never people: no query naming a person, a group of people, a ceremony, a ritual, anything sacred, or human remains. The search returns whatever Wikimedia has, unreviewed, onto a page a child reads, and for Aboriginal and Torres Strait Islander subjects in particular an image of the deceased or of restricted material is a serious harm and not something a decorative photograph is worth. Write about the moth, the wetland, the pipeline or the train, not about who is standing next to it. Queries naming people are refused before the search runs and the question prints without a picture.
+Use these exact fact keys: `science_process` and `life_cycle` have a `steps` list of 2 to 8 short labels; `force_scene` has `object` and a `forces` list whose entries use `direction` and `label`; `circuit` has a `components` list and boolean `open`; `particle_model` has a `states` list containing only `solid`, `liquid` and `gas`. Every spec also has `version`:1, `unit` and `unknown`. Replace a missing student-supplied step with `?` rather than revealing it.
+
+An `image_query` must name an OBJECT, ANIMAL, PLANT, PLACE, BUILDING or MACHINE. Never people: no query naming a person, group of people, ceremony, ritual, anything sacred, or human remains. Every result needs source-rights approval and human review before use. Write about the moth, wetland, pipeline or train, not about who is standing next to it.
 
 
 Return ONLY the JSON. No prose, no markdown fences.

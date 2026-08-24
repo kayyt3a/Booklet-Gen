@@ -21,6 +21,7 @@ it.
 """
 import inspect
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -38,7 +39,8 @@ def ok(msg):
 print("\nA JOB CAN NEVER RUN TWICE, WHATEVER EACH SIDE BELIEVES")
 
 import os  # noqa: E402
-S = "/tmp/claude-0/-home-user-Booklet-Gen/bd3ebbb5-2acb-556d-9e4a-d748ead9e9ef/scratchpad"
+_temp_dir = tempfile.TemporaryDirectory(prefix="folio-dispatch-")
+S = _temp_dir.name
 os.environ.setdefault("FOLIO_DB", f"{S}/dispatch_check.sqlite")
 Path(os.environ["FOLIO_DB"]).unlink(missing_ok=True)
 

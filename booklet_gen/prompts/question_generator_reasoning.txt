@@ -47,14 +47,19 @@ Return a single JSON object:
       "question": "...",
       "answer": "...",
       "working": "Explain the pattern/rule and how to spot it, this is the answer-key explanation.",
-      "difficulty": "easy|medium|hard"
+      "difficulty": "easy|medium|hard",
+      "diagram_spec": null,
+      "scene_spec": null,
+      "image_query": null
     }
   ]
 }
 
 `working` must explain the TRICK, what a student should notice, and why the obvious-looking approach is a trap if there is one. This is what makes the answer key actually teach the skill, not just state the answer.
 
-No diagrams for Verbal Reasoning. Quantitative Reasoning questions may occasionally suit a simple visual (e.g. a number line for a pattern), leave `diagram_spec` out unless it is clearly necessary; most reasoning questions are pure text.
+Always include `diagram_spec`, `scene_spec` and `image_query`, using null where a field does not apply and never more than one non-null field. A later batch visual planner makes the final choice. Quantitative Reasoning may use an exact diagram such as a number line. Spatial or logic reasoning may use a Folio-owned `reasoning_sequence` or `logic_grid` scene. Verbal Reasoning is usually text-only. `image_query` is only an editorial hint and is normally null. Never encode the answer or hidden rule in any visual field.
+
+`reasoning_sequence` uses `steps` objects containing `shape`, `count` and `rotation`; shapes are `circle`, `square`, `triangle`, `star`, `diamond` or `?`. `logic_grid` uses string lists `rows` and `columns`, plus a `marks` list whose objects contain logical `row`, `column` and `mark` values. Every spec also has `template`, `version`:1, `unit` and `unknown`. Include clue marks only, never the solved grid. Replace a student-supplied sequence step with `?`.
 
 Calibrate wording complexity to the year level, but calibrate the underlying arithmetic/vocabulary difficulty CONSERVATIVELY, one to two years below what the wording complexity might suggest.
 - Calibrate reading level by counting, not by feel. Average about 12 to 15 words a sentence for Years 3 to 6 and no sentence over 22; Years 1 to 2 shorter again, Years 7 and up may run a little longer. At most one subordinate clause in a sentence. A student who cannot read the sentence cannot reach the thinking it is asking for.

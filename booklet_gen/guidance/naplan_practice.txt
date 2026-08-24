@@ -143,6 +143,37 @@ images or wording of a released or remembered prompt.
   sentence craft, editing and audience awareness. Do not imply that a short
   response is equivalent to completing a full writing task.
 
+PURPOSEFUL VISUALS
+
+Plan visuals across the whole subtopic as one batch. Classify each worked,
+guided, practice, homework and challenge item as required, strong, helpful or
+text-only. A picture earns its space only when it carries information, shows a
+method, reduces reading load or makes an abstract relationship concrete.
+Decorative mascots do not count as learning visuals.
+
+- Use exact technical diagrams for number lines, place value, fraction bars,
+  arrays, algorithms, geometry, graphs, clocks, scales and text structure.
+- Use original Folio-owned contextual scenes for situations such as similar
+  trees and shadows, a ladder against a wall, labelled shelves, ribbon against
+  a ruler, race progress, shopping, equal groups, scoreboards and gardens.
+- Use timelines, science processes and reasoning sequences only when the
+  sequence itself is being taught or assessed.
+- Every inherently visual topic must have a visual. A worked example that can
+  be pictured should normally have one. Across visualisable practice items,
+  prefer meaningful coverage over a quota of decorative pictures.
+- Keep visuals age-appropriate. Year 3 may be warm and illustrative, Years 5
+  and 7 should be cleaner, and Year 9 should look restrained and technical.
+- A visual may show only facts stated in the item. It must never reveal an
+  answer, a derived value or the reasoning the student is meant to discover.
+  Store an unknown value as null and label it only `x` or `?`.
+- Contextual scene specifications contain semantic facts only. They must not
+  prescribe coordinates, colours, fonts, pixels or drawing commands.
+- An external-image query is an editorial hint, not permission or a delivery
+  promise. Any source image needs separate rights approval and human review,
+  and no question may depend on it appearing.
+- Every label must remain clear when printed on A4 in greyscale. Keep each
+  visual beside the item it supports and do not split it from the question.
+
 QUALITY AND REVIEW
 
 Before accepting an item, check that it is original, solvable, age-appropriate,

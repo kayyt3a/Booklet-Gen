@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import logging
 import re
+from copy import deepcopy
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -331,6 +332,36 @@ _LEAK_ONLY_TYPES = frozenset({"right_triangle", "triangle", "parallelogram",
                               "trapezium", "circle"})
 
 
+def _similar_triangle_unknowns(spec: dict, question_text: str) -> list[str]:
+    """Resolve named sides in a similarity question to renderer side keys.
+
+    The renderer labels vertices ABC and DEF while its measurement keys follow
+    the conventional opposite-side names a through f. This translation keeps
+    the asked-for measurement hidden even when the planner forgot `unknown`.
+    """
+    text = question_text or ""
+    hidden = _unknown_keys(spec)
+    # Side AB is opposite C, and so on. The ask language must be attached to
+    # the side itself. A global "find" check hid every side mentioned anywhere
+    # in "AB is 4 cm, DE is 8 cm, find EF", removing both givens.
+    side_to_key = {"ab": "c", "ac": "b", "bc": "a",
+                   "de": "f", "df": "e", "ef": "d"}
+    targets = {**side_to_key, **{key: key for key in "abcdef"}}
+    for side, key in targets.items():
+        token = (rf"{side[0]}\s*{side[1]}" if len(side) == 2
+                 else re.escape(side))
+        named = rf"(?:the\s+)?(?:(?:length\s+of|side)\s+)?{token}"
+        asks = (
+            rf"\b(?:find|calculate|determine|work\s+out)\s+{named}\b",
+            rf"\bwhat\s+is\s+{named}\b",
+            rf"\b(?:missing|unknown)\s+(?:length\s+|side\s+)?{token}\b",
+            rf"\b{token}\s+is\s+(?:the\s+)?(?:missing|unknown)\b",
+        )
+        if any(re.search(pattern, text, re.IGNORECASE) for pattern in asks):
+            hidden.add(key)
+    return sorted(hidden)
+
+
 # Figures that print a caption naming what they show, where that caption is
 # the answer whenever the question asks the student to read the figure.
 #
@@ -357,6 +388,27 @@ _CAPTIONED_TYPES = {
     "shape": _ASKS_TO_NAME_SHAPE,
     "shape_3d": _ASKS_TO_NAME_SHAPE,
 }
+
+_NUMBER_LINE_DRAW_TASK = re.compile(
+    r"\b(?:mark|place|plot|show|locate)\b.{0,100}\b(?:on|along)\s+"
+    r"(?:a|the|this)\s+number\s+line\b"
+    r"|\bnumber\s+line\b.{0,100}\b(?:mark|place|plot)\b"
+    r"|\bwhere\s+is\b.{0,80}\blocated\b",
+    re.IGNORECASE,
+)
+
+
+def _hide_number_line_answer(spec: dict, question_text: str,
+                             mode: str) -> tuple[dict, bool]:
+    """Remove a pre-drawn mark when placing it is the student's task."""
+    if mode != "student" or not _NUMBER_LINE_DRAW_TASK.search(question_text or ""):
+        return spec, False
+    if not spec.get("mark_at") and not spec.get("label_at"):
+        return spec, False
+    out = dict(spec)
+    out["mark_at"] = []
+    out["label_at"] = []
+    return out, True
 
 
 def _hide_caption(spec: dict, kind: str, question_text: str) -> tuple[dict, bool]:
@@ -388,7 +440,8 @@ def _hide_the_answer(spec: dict, kind: str, question_text: str) -> tuple[dict, b
     return out, True
 
 
-def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
+def reconcile_diagram_spec(spec: dict, question_text: str,
+                           mode: str = "student") -> tuple[dict, bool]:
     """Correct a diagram spec so its labels match the question.
 
     Returns (spec, changed). Two repairs, in order:
@@ -407,6 +460,15 @@ def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
         return spec, False
 
     kind = str(spec.get("type", "")).lower()
+    if kind == "number_line":
+        return _hide_number_line_answer(spec, question_text, mode)
+    if kind == "similar_triangles":
+        hidden = _similar_triangle_unknowns(spec, question_text)
+        if hidden and hidden != sorted(_unknown_keys(spec)):
+            out = dict(spec)
+            out["unknown"] = hidden
+            return out, True
+        return spec, False
     if kind in _CAPTIONED_TYPES:
         return _hide_caption(spec, kind, question_text)
     if kind in _LEAK_ONLY_TYPES:
@@ -451,6 +513,128 @@ def reconcile_diagram_spec(spec: dict, question_text: str) -> tuple[dict, bool]:
         changed = True
 
     return out, changed
+
+
+# --------------------------------------------------------------------------
+# 3a. Contextual scenes that carry exact visible measurements
+# --------------------------------------------------------------------------
+
+_SCENE_NUMBER = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?")
+_SCENE_EXTRA_UNIT = re.compile(
+    r"(?<!\w)(millilitres?|milliliters?|litres?|liters?|kilograms?|grams?|"
+    r"minutes?|hours?|seconds|mL|L|kg|g|min|h|s|degrees?|percent|%)(?!\w)"
+    r"|\$\s*\d",
+    re.IGNORECASE,
+)
+_SCENE_UNIT_CANON = {
+    "ml": "mL", "l": "L",
+    "millilitre": "mL", "millilitres": "mL", "milliliter": "mL",
+    "milliliters": "mL", "litre": "L", "litres": "L", "liter": "L",
+    "liters": "L", "kilogram": "kg", "kilograms": "kg", "gram": "g",
+    "grams": "g", "minute": "min", "minutes": "min", "hour": "h",
+    "hours": "h", "second": "s", "seconds": "s", "degree": "degrees",
+    "degrees": "degrees", "percent": "%",
+}
+
+
+def _numbers_stated_in_question(text: str) -> list[float]:
+    out = []
+    for raw in _SCENE_NUMBER.findall(text or ""):
+        try:
+            out.append(float(raw))
+        except ValueError:
+            continue
+    return out
+
+
+def _scene_units_in_question(text: str) -> set[str]:
+    found = units_in_text(text)
+    for raw in _SCENE_EXTRA_UNIT.findall(text or ""):
+        if not raw:  # the dollar branch has no capture
+            continue
+        unit = _SCENE_UNIT_CANON.get(raw.lower(), raw)
+        found.add(unit)
+    if re.search(r"\$\s*\d", text or ""):
+        found.add("$")
+    return found
+
+
+def reconcile_scene_spec(spec: dict, question_text: str,
+                         mode: str = "student") -> tuple[dict | None, bool]:
+    """Make a semantic scene safe before it reaches the renderer.
+
+    Scenes contain visible mathematical facts, not drawing coordinates. Every
+    numeric fact must therefore occur in the printed question. An extra value
+    is not harmless decoration: it can contradict the text or reveal the
+    answer. Unsafe scenes are refused instead of guessed.
+
+    In student mode, the declared unknown is always cleared from its object
+    and labelled x. Teaching mode may retain a fully worked value.
+    """
+    if not isinstance(spec, dict) or not spec.get("template"):
+        return None, bool(spec)
+    out = deepcopy(spec)
+    changed = False
+    unknown = out.get("unknown") if isinstance(out.get("unknown"), dict) else None
+    unknown_id = str((unknown or {}).get("object_id", ""))
+    unknown_measure = str((unknown or {}).get("measure", ""))
+
+    if mode == "student" and unknown:
+        if unknown.get("symbol") != "x":
+            unknown["symbol"] = "x"
+            changed = True
+        # Unknowns may live on a named object (shadow_similarity), at the top
+        # level (ladder_wall, garden), or in one of the semantic item lists.
+        targets = []
+        if unknown_measure in out:
+            targets.append(out)
+        for value in out.values():
+            if not isinstance(value, list):
+                continue
+            for item in value:
+                if not isinstance(item, dict) or unknown_measure not in item:
+                    continue
+                identity = str(item.get("id", item.get("label", "")))
+                if not unknown_id or identity == unknown_id:
+                    targets.append(item)
+        for target in targets:
+            if target.get(unknown_measure) is not None:
+                target[unknown_measure] = None
+                changed = True
+
+    # Canonical validation is shared with the renderer, so the pipeline and
+    # the picture cannot disagree about supported templates or missing facts.
+    try:
+        from ..visuals.scene_specs import normalise_scene_spec, visible_labels
+        clean = normalise_scene_spec(out)
+    except (TypeError, ValueError) as exc:
+        log.warning("scene.invalid_spec",
+                    extra={"template": out.get("template"),
+                           "error": str(exc)[:160]})
+        return None, True
+
+    question_units = _scene_units_in_question(question_text)
+    scene_unit = str(clean.get("unit") or "")
+    if len(question_units) > 1 or (scene_unit and scene_unit not in question_units):
+        log.warning("scene.unit_mismatch",
+                    extra={"template": clean.get("template"),
+                           "scene_unit": scene_unit,
+                           "question_units": sorted(question_units)})
+        return None, True
+
+    # Judge what will actually be printed. Coordinates, versions, rotations
+    # and internal counts that the renderer does not label are not visible
+    # facts. Every numeric visible label, however, must occur in the question.
+    stated = _numbers_stated_in_question(question_text)
+    for label in visible_labels(clean):
+        for raw in _SCENE_NUMBER.findall(label):
+            value = float(raw)
+            if not any(abs(value - number) < 1e-9 for number in stated):
+                log.warning("scene.unstated_visible_fact",
+                            extra={"template": clean.get("template"),
+                                   "label": label})
+                return None, True
+    return clean, changed or clean != spec
 
 
 # --------------------------------------------------------------------------

@@ -20,14 +20,18 @@ Return a single JSON object matching this schema exactly:
       "Step 3: continue until the answer is reached."
     ],
     "answer": "The final answer, matching the phrasing of the question.",
-    "diagram_spec": null
+    "diagram_spec": null,
+    "scene_spec": null,
+    "image_query": null
   },
   "guided_examples": [
     {
       "question": "A second example, a bit different from the first.",
       "steps": ["Step 1, the given numbers shown, ending in [[the value they work out]].", "Step 2, same again, = [[value]]", "final step = [[value]]"],
       "answer": "[[The answer.]]",
-      "diagram_spec": null
+      "diagram_spec": null,
+      "scene_spec": null,
+      "image_query": null
     }
   ]
 }
@@ -45,8 +49,13 @@ CONTENT RULES
 - guided_examples is the "we do" step: 1 to 2 MORE examples the student works through WITH the tutor. Same step-by-step arithmetic style. Where the subtopic runs in two directions, the examples must cover BOTH: a lesson that only ever multiplies up to an equivalent fraction strands the student the moment the practice asks them to divide down. Keep each one tight. The student FILLS THIS IN, so it is not a second demonstration: wrap every value they are meant to work out themselves in [[double square brackets]], and the booklet prints a ruled gap there for them to write in, with the value itself going to the answer key. Blank the RESULT of each step, never the numbers given in the question and never the words that explain the method: "Multiply 4 x 6 = [[24]]" is right, "[[Multiply]] 4 x 6 = 24" and "Multiply [[4]] x [[6]] = 24" are both wrong. EVERY step that works something out ends in a blanked value, one or two of them, never none: a step whose result is already printed asks the child to read rather than to think. The `answer` field is blanked the same way. NO step may print the final answer as plain text, not even as a summing-up. "16 x 3 = [[48]], so the volume is 48 cm³" hands the answer over two lines above the gap that asks for it and the exercise is finished before it starts; write "16 x 3 = [[48]], so the volume is [[48 cm³]]", or stop the step at the arithmetic. Keep enough unblanked that the method is still readable: the child should be able to see WHAT to do at every step and have to work out only the value. The worked_example above must have NO [[ ]] at all, it stays fully solved.
 - Keep language calibrated to the year level, and calibrate it by counting, not by feel. Average about 12 to 15 words a sentence for Years 3 to 6 and no sentence over 22; average 7 to 9 words a sentence for Years 1 to 2 with no sentence over 12, and 15 to 18 for Years 7 to 10 with no sentence over 28. Acceleration lifts the maths a year, never the child's reading age, so a Year 1 lesson is Year 2 content written for a six year old. At most one subordinate clause in a sentence. A struggling reader cannot get to the maths through the prose, and this is the sentence that stopped them: "Find a number both denominators divide into, then multiply the top and the bottom of each fraction by whatever turns its denominator into that number." Twenty-six words and three clauses, in a Year 5 lesson. Break it into three sentences and it teaches; leave it and it is a wall. Explain the idea in short sentences first, and put the procedure in `key_points` as separate steps rather than threading it through one long sentence.
 
+VISUAL FIELDS
+Always include `diagram_spec`, `scene_spec` and `image_query` on the worked example and every guided example, using null where a field does not apply. Use at most one non-null field per example. A later batch visual planner makes the final choice. Technical representations use `diagram_spec`. Original contextual illustrations use a semantic Folio-owned `scene_spec`. `image_query` is only an editorial hint and is normally null in maths.
+
+The picture in a guided example is part of the fill-in task. Keep it unsolved: use `show_answer`:false for written algorithms, omit `mark_at` and `label_at` when the child must place a value on a number line, and keep any scene unknown null with symbol `x` or `?`. Only the fully worked example may show a completed visual. Never let a guided picture reveal a value hidden by [[double square brackets]] in its steps or answer.
+
 DIAGRAMS (optional)
-Where the concept can be pictured at all, picture it: populate `worked_example.diagram_spec` with one of the supported types below. A figure the tutor can point at teaches more than another sentence of prose, and it is what stops the booklet reading as a wall of text. Leave it null only when nothing on the list fits the concept.
+Where the concept can be pictured at all, picture it: populate `worked_example.diagram_spec` with one of the supported types below or use a supported `scene_spec`. A figure the tutor can point at teaches more than another sentence of prose, and it is what stops the booklet reading as a wall of text. Leave both null only when neither representation fits the concept.
 
 Supported spec types:
 - {"type":"column_arithmetic","top":4528,"bottom":2694,"operation":"+","show_answer":true}
@@ -157,8 +166,13 @@ Only use the exact type names and keys listed. Any other structure is ignored an
 
 DIMENSION: area and perimeter are flat (rectangle, l_shape, grid_area, triangle, parallelogram, trapezium, circle). Volume and capacity are solid (cuboid, cylinder). Surface area takes a solid or a net. A flat shape beside a volume example teaches that a box is a square.
 
-- If the example's text refers to a figure ("this object", "the shape below", "the diagram"), a diagram_spec is MANDATORY. An example that asks "how many cubes are needed to build this object" with nothing drawn is unusable. Either emit a spec or describe the object completely in words.
+- If the example's text refers to a figure ("this object", "the shape below", "the diagram"), a matching diagram_spec or scene_spec is MANDATORY. An example that asks "how many cubes are needed to build this object" with nothing drawn is unusable. Either emit a spec or describe the object completely in words.
 - A diagram may show only what the example STATES, never the value being worked out.
 - Label it with the same numbers and units as the example text. Never rescale.
+
+SCENES (optional)
+Use a Folio-owned contextual scene when it teaches the situation better than a bare shape. Supported templates include `shadow_similarity`, `ladder_wall`, `shelves`, `ribbon_measure`, `race_progress`, `shopping`, `equal_groups_scene`, `scoreboard` and `garden`. Put semantic facts only in the scene spec, never drawing coordinates, style instructions or a calculated value. Unknown measures must be null and identified with symbol `x` or `?`.
+
+Use these exact fact keys: `shadow_similarity` has two `objects`, each with `id`, `kind`, `height` and `shadow`; `ladder_wall` has `height`, `base`, `ladder`, `angle`; `shelves` has a `shelves` list with `label` and `count` or `value`; `ribbon_measure` and `race_progress` have `segments` with `label` and `value`, plus `total`; `shopping` has `items` with `label`, `price` and optional `count`; `equal_groups_scene` has numeric `groups`, numeric `each` and `kind`; `scoreboard` has `teams` with `label` and `value`; `garden` has `kind`, `length`, `width` and optional `path`. Every spec also has `version`:1, `unit` and `unknown`.
 
 Return ONLY the JSON. No prose, no markdown fences.

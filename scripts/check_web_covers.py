@@ -167,7 +167,7 @@ check(right > 90 and left < 80,
 
 # build_brand_assets.py used to write this file by cropping the supplied
 # banner, so re-running it would have silently restored the logo-on-navy card.
-brand_build = Path("scripts/build_brand_assets.py").read_text()
+brand_build = Path("scripts/build_brand_assets.py").read_text(encoding="utf-8")
 check('BRAND / "og-image.jpg"' not in brand_build,
       "and no other build script can put the bare logo card back")
 

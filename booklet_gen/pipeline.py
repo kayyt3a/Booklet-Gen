@@ -11,6 +11,7 @@ from .agents.challenge_generator import ChallengeGeneratorAgent
 from .agents.exam_generator import ExamGeneratorAgent
 from .agents.intro_writer import IntroWriterAgent
 from .agents.llm_judge import LLMJudgeValidator
+from .agents.visual_planner import VisualPlannerAgent, apply_visual_plan
 from .agents.outline_parser import OutlineParserAgent
 from .agents.question_generator import (QuestionGeneratorAgent, passage_quotas,
                                         wants_passages)
@@ -175,6 +176,7 @@ class BookletPipeline:
         self._sympy = SympyValidator()
         self._reasoning = ReasoningValidator()
         self._judge = LLMJudgeValidator(self._client)
+        self._visual_planner = VisualPlannerAgent(self._client)
         self._max_generation_attempts = max_generation_attempts
         self._max_workers = max(1, max_workers)
         self._n_challenge = challenge_questions
@@ -630,12 +632,21 @@ class BookletPipeline:
                 subject, year_level, name, calc, marks,
                 topic_focus=topic_focus, reference_chunks=chunks,
             )
+            self._plan_question_visuals(
+                subject, year_level, "Practice examination", name,
+                draft.questions,
+            )
             verdicts = self._validate_many(
                 "Mathematics", year_level, draft.questions, chunks,
             )
             kept: list[ValidatedQuestion] = []
             for q, r in zip(draft.questions, verdicts):
                 image_path, image_attr = self._resolve_visual(q)
+                from .visual_policy import requires_rendered_visual
+                if requires_rendered_visual(q) and not image_path:
+                    log.info("pipeline.exam.drop_required_visual",
+                             extra={"section": name})
+                    continue
                 orphan = self._orphan_figure(q.question, image_path)
                 if orphan:
                     log.info("pipeline.exam.drop_missing_figure",
@@ -1204,17 +1215,20 @@ class BookletPipeline:
             log.warning("pipeline.recap_failed", extra={"error": str(e)[:200]})
             return []
         picked = qs.questions[:n_recap]
+        self._plan_question_visuals(
+            subject, year_level, "Warm-up Recap", name, picked,
+        )
         verdicts = self._validate_many(subject, year_level, picked, reference_chunks)
         out: list[ValidatedQuestion] = []
         for q, r in zip(picked, verdicts):
             if self._reasoning_reject(subject, q):
                 continue
-            # A warm-up that asks something the booklet asks again later is a
-            # spoiler, not spaced retrieval.
-            if not seen.add(self._norm_q(q.question)):
-                log.info("pipeline.drop_duplicate_recap", extra={"subject": subject})
-                continue
             img, attr = self._resolve_visual(q)
+            from .visual_policy import requires_rendered_visual
+            if requires_rendered_visual(q) and not img:
+                log.info("pipeline.drop_required_visual_recap",
+                         extra={"subject": subject})
+                continue
             orphan = self._orphan_figure(q.question, img)
             if orphan:
                 log.info("pipeline.drop_missing_figure_recap",
@@ -1235,6 +1249,11 @@ class BookletPipeline:
             # no section around it, so this is the only record of which half of
             # a two-subject booklet a question came from.
             q.subject = subject
+            # Claim only after visual and content guards, so a broken warm-up
+            # does not block a sound practice question with the same wording.
+            if not seen.add(self._norm_q(q.question)):
+                log.info("pipeline.drop_duplicate_recap", extra={"subject": subject})
+                continue
             out.append(ValidatedQuestion(
                 question=q, verified=self._trusted(q, r.verified),
                     validator_notes=r.notes,
@@ -1285,6 +1304,8 @@ class BookletPipeline:
             subject, year_level, topic_name, subtopic, chunks, teaching, seen,
             passages, passage_quota=passage_quota,
         )
+        if teaching is not None:
+            teaching = self._drop_orphan_examples(teaching, subtopic.name)
         total = len(validated)
         failed = sum(1 for v in validated if not v.verified)
         failure_rate = failed / total if total else 0.0
@@ -1488,26 +1509,9 @@ class BookletPipeline:
                 extra={"subject": subject, "subtopic": subtopic.name, "error": str(e)[:200]},
             )
             return None
-        # Render diagrams for the worked example and each guided ("we do") example.
-        for ex in [teaching.worked_example, *teaching.guided_examples]:
-            spec = ex.diagram_spec
-            if not spec:
-                continue
-            from .visuals import render_diagram
-            from .agents.consistency import reconcile_diagram_spec
-            spec, fixed = reconcile_diagram_spec(spec, ex.question)
-            if fixed:
-                log.info("pipeline.example_diagram_corrected",
-                         extra={"type": spec.get("type")})
-                ex.diagram_spec = spec
-            try:
-                path = render_diagram(spec)
-            except Exception as e:
-                log.warning("pipeline.example_diagram_failed", extra={"error": str(e)[:200]})
-                path = None
-            if path:
-                ex.image_path = str(path)
-        return self._drop_orphan_examples(teaching, subtopic.name)
+        # Visuals are planned together with the final question set later, so
+        # teaching and practice share one subtopic-level planner call.
+        return teaching
 
     def _drop_orphan_examples(self, teaching, subtopic_name: str):
         """Remove teaching examples that point at a figure that was not drawn.
@@ -1586,8 +1590,9 @@ class BookletPipeline:
     ) -> list[ValidationResult]:
         """Validate a whole set at once. Local checks (sympy, reasoning) run
         per question for free; every question that still needs the LLM judge is
-        graded in a SINGLE batched call instead of one call each. Falls back to
-        per-question judging if the batch call fails."""
+        graded in a SINGLE batched call instead of one call each. A failed
+        batch fails closed. It never expands into a hidden per-question retry
+        path, which would multiply validation cost and quota usage."""
         key = subject.strip().lower()
         is_maths = key in {"mathematics", "maths", "math"}
         is_reasoning = key in {"reasoning", "verbal reasoning", "quantitative reasoning"}
@@ -1600,7 +1605,11 @@ class BookletPipeline:
                 # Conclusive either way (proved right, proved wrong) is final.
                 # Inconclusive, including a match against only part of the
                 # question, is handed to the judge in the batched call below.
-                if r.conclusive:
+                if r.conclusive and not r.verified:
+                    results[i] = r
+                elif r.conclusive and not (
+                        q.diagram_spec or getattr(q, "scene_spec", None)
+                        or q.image_query):
                     results[i] = r
                 else:
                     needs_judge.append(i)
@@ -1617,10 +1626,9 @@ class BookletPipeline:
             batch_qs = [questions[i] for i in needs_judge]
             judged = self._judge.validate_batch(subject, year_level, batch_qs,
                                                 reference_chunks, passages=passages)
-            if judged is None:  # batch failed: fall back to individual grading
-                judged = [self._judge.validate(subject, year_level, q, reference_chunks,
-                                               passages=passages)
-                          for q in batch_qs]
+            if judged is None:
+                judged = [ValidationResult(False, "llm-judge batch failed")
+                          for _ in batch_qs]
             for slot, i in enumerate(needs_judge):
                 r = judged[slot]
                 if is_maths and not r.verified:
@@ -1636,6 +1644,42 @@ class BookletPipeline:
                    "judged": len(needs_judge)},
         )
         return out
+
+    def _plan_question_visuals(self, subject: str, year_level: str,
+                               topic: str, subtopic: str,
+                               questions: list[Question]) -> None:
+        """Plan one final question batch without exposing answers or working."""
+        if not questions:
+            return
+        planner = getattr(self, "_visual_planner", None)
+        from .visual_policy import visual_planner_enabled
+        if planner is not None and visual_planner_enabled():
+            plans = planner.plan(subject, year_level, topic, subtopic, questions)
+            apply_visual_plan(questions, plans)
+        elif planner is not None:
+            log.info("pipeline.visual_planner_disabled",
+                     extra={"subject": subject, "subtopic": subtopic})
+        # Deterministic fixtures and older embedded callers may not install a
+        # planner. Required visual families still receive their policy floor,
+        # and exact arithmetic forms receive a formal diagram even if a model
+        # omitted one.
+        from .visual_policy import (deterministic_diagram_spec,
+                                    deterministic_priority, stronger_priority)
+        for q in questions:
+            q.visual_priority = stronger_priority(
+                q.visual_priority,
+                deterministic_priority(q.question, subject, subtopic),
+            )
+            fallback = deterministic_diagram_spec(
+                q.question, subject, subtopic,
+            )
+            if fallback and not q.diagram_spec and not q.scene_spec:
+                q.diagram_spec = fallback
+                q.image_query = None
+                q.visual_priority = "required"
+                q.visual_reason = q.visual_reason or (
+                    "the assessed method is a formal visual layout"
+                )
 
     @staticmethod
     def _norm_q(text: str) -> str:
@@ -1701,10 +1745,8 @@ class BookletPipeline:
         results: list[ValidatedQuestion] = []
         if seen is None:
             seen = _SeenQuestions()
-        # Passages from every call this subtopic makes, not just the first: a
-        # regenerated question below arrives from a fresh call and brings its
-        # own reading, and a question whose passage was not pooled would print
-        # asking about text that is not in the booklet.
+        # Passages generated for this subtopic. A question whose passage was
+        # not pooled would print asking about text that is not in the booklet.
         pool: dict[str, Passage] = {}
         # Where the caller will cut Class Work from Homework, passed to the
         # generator as a hint so an English set can group its passage questions
@@ -1728,81 +1770,24 @@ class BookletPipeline:
         qs = pooled(self._generator.generate(
             subject, year_level, topic_name, subtopic, reference_chunks, teaching,
             classwork_count=cut_at, passage_quota=passage_quota, count=count))
-        # Validate the whole set in one batched judge call up front; per-question
-        # regeneration below still uses the single-question path.
-        initial = self._validate_many(subject, year_level, qs.questions,
-                                      reference_chunks, passages=pool)
-        for slot, (q, result) in enumerate(zip(qs.questions, initial)):
-            retry_count = 0
-            # Regenerate while the question fails validation OR duplicates one we
-            # already accepted. On each retry we pull a fresh BATCH and scan all
-            # of its questions for the best non-duplicate, taking only the first
-            # question (the old behaviour) produced repeated questions whenever
-            # the model favoured the same opener.
-            while (not result.verified or self._norm_q(q.question) in seen) \
-                    and retry_count < self._max_generation_attempts - 1:
-                retry_count += 1
-                log.info(
-                    "pipeline.regenerate_single",
-                    extra={"subject": subject, "subtopic": subtopic.name,
-                           "retry": retry_count,
-                           "reason": result.notes if not result.verified else "duplicate"},
-                )
-                fresh = pooled(self._generator.generate(
-                    subject, year_level, topic_name, subtopic, reference_chunks,
-                    teaching, classwork_count=cut_at,
-                    passage_quota=passage_quota, count=count,
-                ))
-                best_q, best_result = None, None
-                # Start at this question's OWN position in the fresh set, not
-                # at the top. The generator is told to sort a set easiest to
-                # hardest, so scanning from index 0 replaced a failed hard
-                # question with the easiest question the model can write, and
-                # dropped it into a late slot. Hard questions fail validation
-                # more often than easy ones, so the ramp the prompt builds was
-                # being eaten from the top down, exactly the "easy item late in
-                # the list" the generator prompt warns against.
-                candidates = fresh.questions[slot:] or fresh.questions
-                # Prefer the candidates that fit the year's reading budget.
-                # Free: it is a filter over a batch that has already been paid
-                # for, and it strictly REDUCES the number of candidates sent
-                # for single-question validation below. Falls back to the whole
-                # list when none of them fit, because a question that is too
-                # long still beats no question at all, and the set-level guard
-                # after this loop is what deals with the leftovers.
-                from .agents import reading_load
-                fitting = [c for c in candidates
-                           if not reading_load.over_budget(
-                               c.question, year_level, subject)]
-                candidates = fitting or candidates
-                for cand in candidates:
-                    if self._norm_q(cand.question) in seen:
-                        continue
-                    cand_result = self._validate(subject, year_level, cand,
-                                                 reference_chunks, passages=pool)
-                    # Prefer a verified non-duplicate; otherwise keep the first
-                    # non-duplicate as a fallback.
-                    if cand_result.verified:
-                        best_q, best_result = cand, cand_result
-                        break
-                    if best_q is None:
-                        best_q, best_result = cand, cand_result
-                if best_q is not None:
-                    q, result = best_q, best_result
+        # Dedupe and run deterministic guards before planning. The generator's
+        # own structured-output retries may still run, but there is deliberately
+        # no post-verdict regeneration because that would require another judge
+        # call for this subtopic. Unverified questions remain honestly marked.
+        selected: list[Question] = []
+        selected_norms: set[str] = set()
+        for q in qs.questions:
+            norm = self._norm_q(q.question)
+            if norm in seen or norm in selected_norms:
+                log.info("pipeline.drop_duplicate_candidate",
+                         extra={"subject": subject, "subtopic": subtopic.name})
+                continue
             # A reasoning question the deterministic checker can prove is
             # broken (unsolvable cipher/sequence) must never appear, so drop it
             # rather than show an unsolvable question, even without a check mark.
             if self._reasoning_reject(subject, q):
                 log.info("pipeline.drop_broken",
-                         extra={"subject": subject, "subtopic": subtopic.name,
-                                "reason": result.notes})
-                continue
-            image_path, image_attr = self._resolve_visual(q)
-            orphan = self._orphan_figure(q.question, image_path)
-            if orphan:
-                log.info("pipeline.drop_missing_figure",
-                         extra={"subject": subject, "subtopic": subtopic.name,
-                                "phrase": orphan})
+                         extra={"subject": subject, "subtopic": subtopic.name})
                 continue
             self_answering = self._self_answering(q)
             if self_answering:
@@ -1816,11 +1801,95 @@ class BookletPipeline:
                          extra={"subject": subject, "subtopic": subtopic.name,
                                 "reason": absurd})
                 continue
+            selected.append(q)
+            selected_norms.add(norm)
+
+        # This is the only visual planner call for this final subtopic. It sees
+        # teaching and practice question text, never answers or working. A
+        # light Question proxy lets the same safe merge rules apply to worked
+        # examples without expanding the public planner schema.
+        teaching_pairs = []
+        if teaching is not None:
+            examples = [(teaching.worked_example, "teaching")]
+            examples.extend((example, "guided")
+                            for example in teaching.guided_examples)
+            for example, visual_mode in examples:
+                proxy = Question(
+                    question=example.question,
+                    answer="",
+                    working="",
+                    diagram_spec=example.diagram_spec,
+                    scene_spec=example.scene_spec,
+                    image_query=example.image_query,
+                )
+                teaching_pairs.append((example, proxy, visual_mode))
+        final_questions = selected
+        planning_items = [proxy for _, proxy, _ in teaching_pairs] + final_questions
+        self._plan_question_visuals(
+            subject, year_level, topic_name, subtopic.name, planning_items,
+        )
+        for example, proxy, visual_mode in teaching_pairs:
+            example.diagram_spec = proxy.diagram_spec
+            example.scene_spec = proxy.scene_spec
+            example.image_query = proxy.image_query
+            example.answer_image_path = None
+            if visual_mode == "guided" and example.diagram_spec:
+                answer_example = example.model_copy(deep=True)
+                if answer_example.diagram_spec.get("type") in {
+                    "column_arithmetic", "long_multiplication", "short_division",
+                }:
+                    answer_example.diagram_spec["show_answer"] = True
+                try:
+                    answer_path, _ = self._resolve_visual(
+                        answer_example, mode="teaching",
+                    )
+                except Exception as exc:
+                    log.warning("pipeline.example_answer_visual_failed",
+                                extra={"error": str(exc)[:200]})
+                    answer_path = None
+                example.answer_image_path = str(answer_path) if answer_path else None
+            if example.diagram_spec and example.diagram_spec.get("type") in {
+                "column_arithmetic", "long_multiplication", "short_division",
+            }:
+                example.diagram_spec = dict(example.diagram_spec)
+                example.diagram_spec["show_answer"] = visual_mode == "teaching"
+            try:
+                path, attribution = self._resolve_visual(
+                    example, mode=visual_mode,
+                )
+            except Exception as exc:
+                log.warning("pipeline.example_visual_failed",
+                            extra={"error": str(exc)[:200]})
+                path, attribution = None, None
+            example.image_path = str(path) if path else None
+            example.image_attribution = attribution
+
+        final_verdicts = self._validate_many(
+            subject, year_level, final_questions, reference_chunks, passages=pool,
+        )
+        coverage_items: list[ValidatedQuestion] = []
+        for q, result in zip(selected, final_verdicts):
+            image_path, image_attr = self._resolve_visual(q)
+            coverage_items.append(ValidatedQuestion(
+                question=q, verified=False,
+                image_path=str(image_path) if image_path else None,
+            ))
+            from .visual_policy import requires_rendered_visual
+            if requires_rendered_visual(q) and not image_path:
+                log.info("pipeline.drop_required_visual",
+                         extra={"subject": subject, "subtopic": subtopic.name,
+                                "reason": q.visual_reason or "required by policy"})
+                continue
+            orphan = self._orphan_figure(q.question, image_path)
+            if orphan:
+                log.info("pipeline.drop_missing_figure",
+                         extra={"subject": subject, "subtopic": subtopic.name,
+                                "phrase": orphan})
+                continue
             # The one atomic claim, made only once the question is going to be
             # kept. Losing it means a concurrent subtopic wrote the same text
-            # first while we were retrying; the retry loop above is
-            # best-effort, this is the guarantee. Claiming after the drops
-            # above matters: a question discarded for a missing figure must
+            # first while other subtopics were being built. Claiming after the
+            # drops above matters: a question discarded for a missing figure must
             # not block a sound one with the same text later.
             if not seen.add(self._norm_q(q.question)):
                 log.info("pipeline.drop_duplicate",
@@ -1836,7 +1905,7 @@ class BookletPipeline:
                 question=q,
                 verified=self._trusted(q, result.verified),
                 validator_notes=result.notes,
-                retry_count=retry_count,
+                retry_count=0,
                 image_path=str(image_path) if image_path else None,
                 image_attribution=image_attr,
             ))
@@ -1851,6 +1920,17 @@ class BookletPipeline:
         # gone must not be handed on, or the booklet prints a page of reading
         # with nothing under it.
         self._collect_passages(results, pool, passages_out)
+        from .visual_policy import rendered_visual_coverage, visual_coverage_policy
+        coverage = rendered_visual_coverage(coverage_items)
+        policy = visual_coverage_policy(coverage_items)
+        logger = log.info if policy.met else log.warning
+        logger("pipeline.visual_coverage",
+               extra={"subject": subject, "subtopic": subtopic.name,
+                      "rendered": coverage.rendered, "total": coverage.total,
+                      "eligible_rate": coverage.eligible_rate,
+                      "required_rate": coverage.required_rate,
+                      "target": policy.target,
+                      "shortfall": policy.shortfall})
         return results
 
     @staticmethod
@@ -1925,6 +2005,10 @@ class BookletPipeline:
                          extra={"subject": subject})
                 continue
             candidates.append(q)
+        self._plan_question_visuals(
+            subject, year_level, "Final Challenge",
+            "; ".join(subtopic for _, subtopic in covered), candidates,
+        )
         verdicts = self._validate_many(subject, year_level, candidates,
                                        reference_chunks)
 
@@ -1935,6 +2019,11 @@ class BookletPipeline:
             # regeneration would cost another full-set call. Just record the
             # verification status.
             image_path, image_attr = self._resolve_visual(q)
+            from .visual_policy import requires_rendered_visual
+            if requires_rendered_visual(q) and not image_path:
+                log.info("pipeline.drop_required_visual_challenge",
+                         extra={"subject": subject})
+                continue
             orphan = self._orphan_figure(q.question, image_path)
             if orphan:
                 log.info("pipeline.drop_missing_figure_challenge",
@@ -2105,15 +2194,28 @@ class BookletPipeline:
         from .agents.consistency import implausible_magnitude
         return implausible_magnitude(text or "")
 
-    def _resolve_visual(self, q):
-        """Return (path, attribution) for whichever optional visual the LLM asked for."""
+    def _resolve_visual(self, q, mode: str = "student"):
+        """Render one reconciled visual in student or teaching mode.
+
+        The mode is controlled by the pipeline, never by model output. Student
+        algorithm diagrams always have answers suppressed. Teaching examples
+        may show their completed method.
+        """
+        safety_mode = "student" if mode in {"student", "guided"} else "teaching"
+        render_profile = "teaching" if mode in {"teaching", "guided"} else "student"
         if q.diagram_spec:
             from .visuals import render_diagram
             from .agents.consistency import reconcile_diagram_spec
+            from .visual_policy import student_safe_spec
+            safe = student_safe_spec(q.diagram_spec, mode=safety_mode)
+            if safe != q.diagram_spec:
+                q.diagram_spec = safe
             # Models often emit a scaled-down spec so the shape draws nicely
             # and forget the labels are what the student reads, producing a
             # 4cm x 2cm x 1cm drawing beside a 40cm x 20cm x 10cm question.
-            spec, fixed = reconcile_diagram_spec(q.diagram_spec, q.question)
+            spec, fixed = reconcile_diagram_spec(
+                q.diagram_spec, q.question, mode=safety_mode,
+            )
             if fixed:
                 log.info("pipeline.diagram_corrected",
                          extra={"type": spec.get("type")})
@@ -2135,11 +2237,41 @@ class BookletPipeline:
                     log.info("pipeline.diagram",
                              extra={"type": q.diagram_spec.get("type")})
                     return path, None
-        if q.image_query:
+        scene_spec = getattr(q, "scene_spec", None)
+        if scene_spec:
+            from .visuals import render_scene
+            from .agents.consistency import reconcile_scene_spec
+            scene_spec, fixed = reconcile_scene_spec(
+                scene_spec, q.question, mode=safety_mode,
+            )
+            if scene_spec is None:
+                log.warning("pipeline.scene_rejected",
+                            extra={"template": q.scene_spec.get("template")})
+                q.scene_spec = None
+            else:
+                if fixed:
+                    q.scene_spec = scene_spec
+                    log.info("pipeline.scene_corrected",
+                             extra={"template": scene_spec.get("template")})
+                try:
+                    path = render_scene(scene_spec, profile=render_profile)
+                except TypeError:
+                    # Backward compatibility for a one-argument fixture.
+                    path = render_scene(scene_spec)
+                except Exception as exc:
+                    log.warning("pipeline.scene_failed",
+                                extra={"error": str(exc)[:200]})
+                    path = None
+                if path:
+                    log.info("pipeline.scene",
+                             extra={"template": scene_spec.get("template")})
+                    return path, None
+        image_query = getattr(q, "image_query", None)
+        if image_query:
             from .visuals import fetch_image
-            path, attr = fetch_image(q.image_query)
+            path, attr = fetch_image(image_query)
             if path:
-                log.info("pipeline.image", extra={"query": q.image_query, "attr": attr})
+                log.info("pipeline.image", extra={"query": image_query, "attr": attr})
                 return path, attr
-            log.info("pipeline.image_missed", extra={"query": q.image_query})
+            log.info("pipeline.image_missed", extra={"query": image_query})
         return None, None

@@ -1017,6 +1017,13 @@ MAX_IMG_WIDTH = 7.5 * cm
 MAX_IMG_HEIGHT = 4.8 * cm
 WE_IMG_WIDTH = 6 * cm
 WE_IMG_HEIGHT = 4 * cm
+# Context scenes carry several labelled relationships and need more horizontal
+# room than a single abstract shape. The renderer uses these exact print boxes
+# when sizing its type, so labels remain readable without looking oversized.
+SCENE_IMG_WIDTH = 12 * cm
+SCENE_IMG_HEIGHT = 6.2 * cm
+WE_SCENE_IMG_WIDTH = 9 * cm
+WE_SCENE_IMG_HEIGHT = 5 * cm
 
 
 def _image_reader(path: str | None):
@@ -1164,9 +1171,12 @@ def _lesson_flowables(styles, t, year_level: str | None = None) -> list:
         out.append(Paragraph(f"Remember: {_lesson_html(t.mnemonic)}",
                              styles["mnemonic"]))
     if t.key_points:
-        out.append(Spacer(1, 0.15 * cm))
-        for kp in t.key_points:
-            out.append(Paragraph(f"• {_lesson_html(kp)}", styles["key_point"]))
+        points = [Spacer(1, 0.15 * cm)]
+        points.extend(
+            Paragraph(f"• {_lesson_html(kp)}", styles["key_point"])
+            for kp in t.key_points
+        )
+        out.append(KeepTogether(points))
     out.append(Spacer(1, 0.3 * cm))
     paulio = paulio_teaches(year_level)
     out.append(_worked_example_flowable(
@@ -1319,7 +1329,14 @@ def _worked_example_flowable(styles, we: WorkedExample, label: str = "Worked exa
             spec_html = strip_markers(spec_html)
         inner.append(Paragraph(f'"{spec_html}"', style_of("we_specimen")))
         inner.append(Spacer(1, 0.2 * cm))
-    img = _make_image(we.image_path, max_w=WE_IMG_WIDTH, max_h=WE_IMG_HEIGHT)
+    visual_path = we.answer_image_path if reveal and we.answer_image_path \
+        else we.image_path
+    if getattr(we, "scene_spec", None):
+        img = _make_image(visual_path, max_w=WE_SCENE_IMG_WIDTH,
+                          max_h=WE_SCENE_IMG_HEIGHT)
+    else:
+        img = _make_image(visual_path, max_w=WE_IMG_WIDTH,
+                          max_h=WE_IMG_HEIGHT)
     if img is not None:
         inner.append(Spacer(1, 0.15 * cm))
         inner.append(_indented_flowable(img, indent, inner_w))
@@ -1849,7 +1866,11 @@ def _lesson_cond_break(headings: list, lesson: list) -> list:
     it needs 9.89cm, and the worked-example box then moves to the next page on
     its own. Small enough to hide until something repaginates the booklet.
     """
-    needed = min(stack_height(headings + _lesson_opening(lesson)),
+    # Key points are grouped in a KeepTogether so a lone bullet cannot be
+    # stranded. ReportLab reports a sentinel height for that wrapper, so
+    # measure its real contents here or the opening is understated and the
+    # worked-example box can move to the next page by itself.
+    needed = min(stack_height(headings + _unwrap(_lesson_opening(lesson))),
                  _MAX_COND_BREAK)
     return [CondPageBreak(needed)]
 
@@ -1905,7 +1926,9 @@ def part_labels(text: str) -> list[str]:
 # explanation onto a single line, so they do not get one.
 _EXTENDED_RESPONSE_RE = re.compile(
     r"\b(explain|describe|justify|discuss|prove|show that|show why|show your working|"
-    r"draw|sketch|shade|colour|color|plot|label|construct|write (?:a|an|one|two|"
+    r"draw|sketch|shade|colour|color|"
+    r"plot(?=\s+(?:the|a|an|these|those|it|them|\(|-?\d|x\b|y\b))|"
+    r"label|construct|write (?:a|an|one|two|"
     r"three|four|five|\d+) (?:short |more )?"
     r"(?:paragraphs?|sentences?|lines?|stor(?:y|ies))|in your own words)\b",
     re.IGNORECASE)
@@ -1915,7 +1938,8 @@ _EXTENDED_RESPONSE_RE = re.compile(
 # working" belongs here too, because working is laid out down the page rather
 # than along a line.
 _DRAWN_RESPONSE_RE = re.compile(
-    r"\b(draw|sketch|shade|colour|color|plot|label|construct|show your working)\b",
+    r"\b(draw|sketch|shade|colour|color|label|construct|show your working)\b"
+    r"|\bplot(?=\s+(?:the|a|an|these|those|it|them|\(|-?\d|x\b|y\b))",
     re.IGNORECASE)
 
 # "Write two sentences", "write a short paragraph": the question says how much
@@ -2333,7 +2357,11 @@ def _question_flowables(styles, q_num: int, vq: ValidatedQuestion,
     if specimen:
         block.append(Paragraph(f'"{blank_out(_escape(specimen))}"',
                                styles["question_specimen"]))
-    img = _make_image(vq.image_path)
+    if getattr(vq.question, "scene_spec", None):
+        img = _make_image(vq.image_path, max_w=SCENE_IMG_WIDTH,
+                          max_h=SCENE_IMG_HEIGHT)
+    else:
+        img = _make_image(vq.image_path)
     if img is not None:
         block.append(Spacer(1, 0.3 * cm))
         block.append(img)
@@ -4710,9 +4738,20 @@ def image_credits(data: BookletData) -> list[str]:
     which a failed download leaves behind anyway.
     """
     seen, out = set(), []
-    for vq in all_questions(data):
-        credit = (getattr(vq, "image_attribution", None) or "").strip()
-        if not image_is_usable(vq.image_path) or not credit or credit in seen:
+    visual_items = list(data.recap_questions)
+    for section in data.sections:
+        if section.teaching is not None:
+            visual_items.extend([
+                section.teaching.worked_example,
+                *section.teaching.guided_examples,
+            ])
+        visual_items.extend(section.questions)
+    for section in data.sections:
+        visual_items.extend(section.homework_questions)
+    visual_items.extend(data.challenge_questions)
+    for item in visual_items:
+        credit = (getattr(item, "image_attribution", None) or "").strip()
+        if not image_is_usable(item.image_path) or not credit or credit in seen:
             continue
         seen.add(credit)
         out.append(credit)
@@ -4883,7 +4922,11 @@ def _exam_question_block(styles, q_num: int, vq: ValidatedQuestion, body_width: 
     ]))
     block = [row]
 
-    img = _make_image(vq.image_path)
+    if getattr(vq.question, "scene_spec", None):
+        img = _make_image(vq.image_path, max_w=SCENE_IMG_WIDTH,
+                          max_h=SCENE_IMG_HEIGHT)
+    else:
+        img = _make_image(vq.image_path)
     if img is not None:
         block.append(Spacer(1, 0.3 * cm))
         block.append(img)
