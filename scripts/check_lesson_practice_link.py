@@ -344,8 +344,8 @@ def main() -> int:
         "Mathematics", "Year 5", "Decimals", SUBTOPIC, None, None, seen)
     check(len(first) == 1 and len(second) == 0,
           "a question already used by another subtopic is not printed twice")
-    check(len(client.question_turns()) > calls_before + 1,
-          "and the pipeline tried to regenerate a replacement before dropping it")
+    check(len(client.question_turns()) == calls_before + 1,
+          "and duplicate handling does not buy an unvalidated replacement batch")
 
     # Same thing through the concurrent path, which is where the old per-subtopic
     # set was blind.

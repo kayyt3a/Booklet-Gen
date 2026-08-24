@@ -177,6 +177,7 @@ def _normalise_ladder(spec: dict, out: dict) -> None:
 
 
 def _normalise_named_items(spec: dict, out: dict, *, field: str,
+                           allowed_unknowns: set[str],
                            low: int = 2, high: int = 8) -> None:
     rows = _list(spec.get(field), name=field, low=low, high=high)
     clean = []
@@ -198,7 +199,9 @@ def _normalise_named_items(spec: dict, out: dict, *, field: str,
             entry["kind"] = _text(raw.get("kind"), name=f"{field} kind", limit=18)
         clean.append(entry)
     out[field] = clean
-    out["unknown"] = _unknown(spec, {"value", "count", "price", "difference", "total"})
+    # Every item value above is printed. Only a relationship derived from
+    # those visible givens may be unknown in this scene family.
+    out["unknown"] = _unknown(spec, allowed_unknowns)
 
 
 def _normalise_segments(spec: dict, out: dict, field: str = "segments") -> None:
@@ -224,8 +227,12 @@ def _normalise_segments(spec: dict, out: dict, field: str = "segments") -> None:
             raise ValueError(f"{field} do not sum to total")
     out["total"] = total
     out["unknown"] = _unknown(spec, {"segment", "total", "remaining", "value"})
-    if missing and not out["unknown"]:
-        raise ValueError(f"unknown must identify the missing {field} value")
+    if missing:
+        if (not out["unknown"]
+                or out["unknown"]["measure"] not in {"segment", "remaining", "value"}):
+            raise ValueError(f"unknown must identify the missing {field} value")
+    elif out["unknown"] and out["unknown"]["measure"] != "total":
+        raise ValueError(f"a visible {field} value cannot also be unknown")
 
 
 def _normalise_steps(spec: dict, out: dict, field: str = "steps") -> None:
@@ -255,13 +262,19 @@ def normalise_scene_spec(spec: dict) -> dict:
         _normalise_ladder(spec, out)
     elif template in {"shelves", "shopping", "scoreboard"}:
         field = {"shelves": "shelves", "shopping": "items", "scoreboard": "teams"}[template]
-        _normalise_named_items(spec, out, field=field)
+        allowed = {
+            "shelves": {"total", "difference"},
+            "shopping": {"total"},
+            "scoreboard": {"total", "difference"},
+        }[template]
+        _normalise_named_items(spec, out, field=field,
+                               allowed_unknowns=allowed)
     elif template == "equal_groups_scene":
         groups = int(_number(spec.get("groups"), name="groups", maximum=12))
         each = int(_number(spec.get("each"), name="each", zero=True, maximum=20))
         out.update(groups=groups, each=each,
                    kind=_text(spec.get("kind") or "counters", name="kind", limit=18),
-                   unknown=_unknown(spec, {"groups", "each", "total", "remainder"}))
+                   unknown=_unknown(spec, {"total"}))
     elif template in {"ribbon_measure", "race_progress", "timeline"}:
         _normalise_segments(spec, out, "segments")
         out["label"] = _text(spec.get("label") or "", name="label", limit=30, empty=True)
@@ -269,7 +282,16 @@ def normalise_scene_spec(spec: dict) -> dict:
         for key in ("length", "width", "path"):
             out[key] = _maybe_number(spec.get(key), name=key, zero=True)
         out["kind"] = _text(spec.get("kind") or "garden bed", name="kind", limit=22)
-        out["unknown"] = _unknown(spec, {"length", "width", "path", "area", "perimeter"})
+        unknown = _unknown(spec, {"length", "width", "area", "perimeter"})
+        missing = [key for key in ("length", "width") if out[key] is None]
+        if len(missing) > 1:
+            raise ValueError("garden scene needs at least one known dimension")
+        if missing:
+            if not unknown or unknown["measure"] != missing[0]:
+                raise ValueError("unknown must identify the missing garden dimension")
+        elif unknown and unknown["measure"] in {"length", "width"}:
+            raise ValueError("a visible garden dimension cannot also be unknown")
+        out["unknown"] = unknown
     elif template in {"science_process", "life_cycle"}:
         _normalise_steps(spec, out, "steps")
     elif template == "force_scene":
@@ -285,7 +307,9 @@ def normalise_scene_spec(spec: dict) -> dict:
             clean.append({"direction": direction,
                           "label": _text(raw.get("label"), name="force label", limit=22)})
         out["forces"] = clean
-        out["unknown"] = _unknown(spec, {"force", "direction", "resultant"})
+        # Arrow directions and labels are all visible. This scene can ask only
+        # for the resultant derived from those stated forces.
+        out["unknown"] = _unknown(spec, {"resultant"})
     elif template == "circuit":
         components = _list(spec.get("components"), name="components", low=2, high=8)
         allowed = {"cell", "battery", "lamp", "switch", "resistor", "motor", "x", "?"}
@@ -298,7 +322,7 @@ def normalise_scene_spec(spec: dict) -> dict:
             out["components"].append(kind)
         out["open"] = None if "open" in spec and spec.get("open") is None \
             else bool(spec.get("open", False))
-        unknown = _unknown(spec, {"component", "state", "current"})
+        unknown = _unknown(spec, {"component", "state"})
         hidden_components = [kind for kind in out["components"] if kind in {"x", "?"}]
         if unknown and unknown["measure"] == "component":
             if len(hidden_components) != 1 or hidden_components[0] != unknown["symbol"]:
@@ -346,7 +370,14 @@ def normalise_scene_spec(spec: dict) -> dict:
                 "rotation": int(_number(raw.get("rotation", 0), name="rotation",
                                         zero=True, maximum=359)),
             })
-        out["unknown"] = _unknown(spec, {"shape", "count", "rotation"})
+        unknown = _unknown(spec, {"shape"})
+        hidden = [step for step in out["steps"] if step["shape"] == "?"]
+        if unknown:
+            if unknown["symbol"] != "?" or len(hidden) != 1:
+                raise ValueError("a shape unknown needs exactly one ? placeholder")
+        elif hidden:
+            raise ValueError("a reasoning placeholder requires a shape unknown")
+        out["unknown"] = unknown
     elif template == "logic_grid":
         rows = _list(spec.get("rows"), name="rows", low=2, high=6)
         columns = _list(spec.get("columns"), name="columns", low=2, high=6)

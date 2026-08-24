@@ -203,6 +203,76 @@ LEAKING_TEXT_UNKNOWNS = [
 assert all(not validate_scene_spec(spec) for spec in LEAKING_TEXT_UNKNOWNS)
 ok("scene validation refuses textual specs that would print the answer")
 
+SAFE_DERIVED_UNKNOWNS = {
+    "shelves_difference": {
+        "template": "shelves",
+        "shelves": [{"label": "Top", "count": 12},
+                    {"label": "Bottom", "count": 8}],
+        "unknown": {"measure": "difference", "symbol": "?"},
+    },
+    "shopping_total": {
+        "template": "shopping",
+        "items": [{"label": "Book", "price": 4},
+                  {"label": "Pen", "price": 2}],
+        "unknown": {"measure": "total", "symbol": "?"},
+    },
+    "groups_total": {
+        "template": "equal_groups_scene", "groups": 4, "each": 3,
+        "unknown": {"measure": "total", "symbol": "?"},
+    },
+    "garden_width": {
+        "template": "garden", "unit": "m", "length": 8, "width": None,
+        "unknown": {"measure": "width", "symbol": "x"},
+    },
+}
+assert all(validate_scene_spec(spec)
+           for spec in SAFE_DERIVED_UNKNOWNS.values())
+ok("derived and explicitly hidden numeric unknowns remain supported")
+
+LEAKING_NUMERIC_UNKNOWNS = [
+    {"template": "shelves",
+     "shelves": [{"label": "Top", "count": 12},
+                 {"label": "Bottom", "count": 8}],
+     "unknown": {"measure": "count", "symbol": "?"}},
+    {"template": "shopping",
+     "items": [{"label": "Book", "price": 4},
+               {"label": "Pen", "price": 2}],
+     "unknown": {"measure": "price", "symbol": "?"}},
+    {"template": "scoreboard",
+     "teams": [{"label": "Blue", "value": 24},
+               {"label": "Gold", "value": 19}],
+     "unknown": {"measure": "value", "symbol": "?"}},
+    {"template": "equal_groups_scene", "groups": 4, "each": 3,
+     "unknown": {"measure": "each", "symbol": "?"}},
+    {"template": "ribbon_measure",
+     "segments": [{"value": 12}, {"value": None}],
+     "unknown": {"measure": "total", "symbol": "?"}},
+    {"template": "ribbon_measure",
+     "segments": [{"value": 12}, {"value": 8}],
+     "unknown": {"measure": "segment", "symbol": "?"}},
+    {"template": "garden", "length": 8, "width": 5,
+     "unknown": {"measure": "width", "symbol": "x"}},
+    {"template": "garden", "length": 8, "width": None,
+     "unknown": {"measure": "area", "symbol": "x"}},
+    {"template": "force_scene", "object": "box",
+     "forces": [{"direction": "right", "label": "8 N"}],
+     "unknown": {"measure": "direction", "symbol": "?"}},
+    {"template": "circuit", "components": ["cell", "lamp"],
+     "unknown": {"measure": "current", "symbol": "?"}},
+    {"template": "reasoning_sequence",
+     "steps": [{"shape": "circle", "count": 1, "rotation": 0},
+               {"shape": "square", "count": 2, "rotation": 0},
+               {"shape": "triangle", "count": 3, "rotation": 0}],
+     "unknown": {"measure": "count", "symbol": "?"}},
+    {"template": "reasoning_sequence",
+     "steps": [{"shape": "circle", "count": 1, "rotation": 0},
+               {"shape": "square", "count": 2, "rotation": 0},
+               {"shape": "?", "count": 3, "rotation": 0}]},
+]
+assert all(not validate_scene_spec(spec)
+           for spec in LEAKING_NUMERIC_UNKNOWNS)
+ok("scene validation refuses numeric unknowns that remain visibly answered")
+
 invalid = [
     {"template": "shadow_similarity", "unit": "m", "objects": [
         {"id": "a", "kind": "tree", "height": 6, "shadow": 4},

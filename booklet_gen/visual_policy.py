@@ -8,6 +8,7 @@ coverage is measured from render results rather than optimistic JSON specs.
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass
 from typing import Iterable
@@ -15,6 +16,8 @@ from typing import Iterable
 
 PRIORITIES = ("required", "strong", "helpful", "text-only")
 VISUAL_KINDS = ("diagram", "scene", "image", "none")
+VISUAL_PLANNER_ENV = "FOLIO_VISUAL_PLANNER_ENABLED"
+_FALSE_ENV_VALUES = frozenset({"0", "false", "no", "off"})
 
 # These questions cannot be answered as written without the visual.
 _FIGURE_DEPENDENT = re.compile(
@@ -96,6 +99,18 @@ class CoveragePolicyResult:
     @property
     def met(self) -> bool:
         return self.shortfall == 0
+
+
+def visual_planner_enabled(environ=None) -> bool:
+    """Return whether the optional LLM planner should run.
+
+    Deterministic figure requirements and generator-authored specs remain
+    active when the planner is disabled. This switch is an operational brake
+    for model latency or cost incidents, not a way to ship missing figures.
+    """
+    source = os.environ if environ is None else environ
+    value = str(source.get(VISUAL_PLANNER_ENV, "1")).strip().lower()
+    return value not in _FALSE_ENV_VALUES
 
 
 def deterministic_priority(question_text: str, subject: str = "",

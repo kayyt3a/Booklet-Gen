@@ -90,7 +90,7 @@ def _gated_paths(filename: str, guard: str, url_prefix: str = "") -> list[str]:
     `@guard`, read from the source rather than the running app, because a
     route that is gated but whose decorator this regex cannot see is exactly
     the kind of drift a hand-typed Disallow list would never catch either."""
-    src = (WEBAPP / filename).read_text()
+    src = (WEBAPP / filename).read_text(encoding="utf-8")
     pattern = re.compile(
         r'@bp\.route\(\s*"([^"]*)"[^\n]*\)\s*\n\s*@' + re.escape(guard) + r'\b')
     return [url_prefix + m.group(1) for m in pattern.finditer(src)]

@@ -2,6 +2,7 @@
 
     PYTHONPATH=. python scripts/check_visual_planning.py
 """
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -27,7 +28,8 @@ from booklet_gen.visual_policy import (deterministic_diagram_spec,
                                        deterministic_priority,
                                        rendered_visual_coverage,
                                        student_safe_spec,
-                                       visual_coverage_policy)
+                                       visual_coverage_policy,
+                                       visual_planner_enabled)
 from booklet_gen.visuals import diagrams
 
 _diagram_cache = tempfile.TemporaryDirectory(prefix="folio-visual-planning-")
@@ -227,6 +229,39 @@ ok("strong visual sets expose a deterministic failure below half coverage")
 print("\nA REQUIRED VISUAL THAT DOES NOT RENDER CANNOT SHIP")
 from booklet_gen.agents.validator import ValidationResult  # noqa: E402
 from booklet_gen.pipeline import BookletPipeline, _SeenQuestions  # noqa: E402
+
+
+print("\nTHE PLANNER HAS A SAFE OPERATIONAL KILL SWITCH")
+assert visual_planner_enabled({})
+for value in ("0", "false", "FALSE", "no", "off"):
+    assert not visual_planner_enabled({"FOLIO_VISUAL_PLANNER_ENABLED": value})
+
+
+class UnexpectedPlanner:
+    def plan(self, *args, **kwargs):
+        raise AssertionError("disabled visual planner was called")
+
+
+disabled_pipe = BookletPipeline.__new__(BookletPipeline)
+disabled_pipe._visual_planner = UnexpectedPlanner()
+disabled_question = Question(
+    question="Calculate 582 - 246.", answer="336", working="582 - 246 = 336",
+)
+old_switch = os.environ.get("FOLIO_VISUAL_PLANNER_ENABLED")
+os.environ["FOLIO_VISUAL_PLANNER_ENABLED"] = "0"
+try:
+    disabled_pipe._plan_question_visuals(
+        "Mathematics", "Year 4", "Subtraction", "Written algorithms",
+        [disabled_question],
+    )
+finally:
+    if old_switch is None:
+        os.environ.pop("FOLIO_VISUAL_PLANNER_ENABLED", None)
+    else:
+        os.environ["FOLIO_VISUAL_PLANNER_ENABLED"] = old_switch
+assert disabled_question.diagram_spec
+assert disabled_question.diagram_spec["type"] == "column_arithmetic"
+ok("the kill switch skips model calls but keeps deterministic required diagrams")
 
 
 class OneQuestionGenerator:

@@ -150,6 +150,7 @@ GEMINI_API_KEY=<secret>
 DATABASE_URL=<Supabase session-pooler URL>
 FOLIO_REQUIRE_POSTGRES=1
 FOLIO_PUBLIC_URL=https://folio-45rh.onrender.com
+FOLIO_VISUAL_PLANNER_ENABLED=1
 FOLIO_BUSINESS_NAME=<registered business or trading name>
 FOLIO_BUSINESS_COUNTRY=Australia
 FOLIO_BUSINESS_NUMBER=<ABN or other applicable business number>

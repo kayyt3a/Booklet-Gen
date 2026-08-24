@@ -1652,9 +1652,13 @@ class BookletPipeline:
         if not questions:
             return
         planner = getattr(self, "_visual_planner", None)
-        if planner is not None:
+        from .visual_policy import visual_planner_enabled
+        if planner is not None and visual_planner_enabled():
             plans = planner.plan(subject, year_level, topic, subtopic, questions)
             apply_visual_plan(questions, plans)
+        elif planner is not None:
+            log.info("pipeline.visual_planner_disabled",
+                     extra={"subject": subject, "subtopic": subtopic})
         # Deterministic fixtures and older embedded callers may not install a
         # planner. Required visual families still receive their policy floor,
         # and exact arithmetic forms receive a formal diagram even if a model
@@ -1741,10 +1745,8 @@ class BookletPipeline:
         results: list[ValidatedQuestion] = []
         if seen is None:
             seen = _SeenQuestions()
-        # Passages from every call this subtopic makes, not just the first: a
-        # regenerated question below arrives from a fresh call and brings its
-        # own reading, and a question whose passage was not pooled would print
-        # asking about text that is not in the booklet.
+        # Passages generated for this subtopic. A question whose passage was
+        # not pooled would print asking about text that is not in the booklet.
         pool: dict[str, Passage] = {}
         # Where the caller will cut Class Work from Homework, passed to the
         # generator as a hint so an English set can group its passage questions
@@ -1768,76 +1770,18 @@ class BookletPipeline:
         qs = pooled(self._generator.generate(
             subject, year_level, topic_name, subtopic, reference_chunks, teaching,
             classwork_count=cut_at, passage_quota=passage_quota, count=count))
-        # Validate the whole set in one batched judge call up front; per-question
-        # regeneration below still uses the single-question path.
-        initial = self._validate_many(subject, year_level, qs.questions,
-                                      reference_chunks, passages=pool)
-        selected: list[tuple[Question, ValidationResult, int]] = []
+        # Dedupe and run deterministic guards before planning. The generator's
+        # own structured-output retries may still run, but there is deliberately
+        # no post-verdict regeneration because that would require another judge
+        # call for this subtopic. Unverified questions remain honestly marked.
+        selected: list[Question] = []
         selected_norms: set[str] = set()
-        for slot, (q, result) in enumerate(zip(qs.questions, initial)):
-            retry_count = 0
-            # Regenerate while the question fails validation OR duplicates one we
-            # already accepted. On each retry we pull a fresh BATCH and scan all
-            # of its questions for the best non-duplicate, taking only the first
-            # question (the old behaviour) produced repeated questions whenever
-            # the model favoured the same opener.
-            while (
-                (
-                    not result.verified
-                    or self._norm_q(q.question) in seen
-                    or self._norm_q(q.question) in selected_norms
-                )
-                and retry_count < self._max_generation_attempts - 1
-            ):
-                retry_count += 1
-                log.info(
-                    "pipeline.regenerate_single",
-                    extra={"subject": subject, "subtopic": subtopic.name,
-                           "retry": retry_count,
-                           "reason": result.notes if not result.verified else "duplicate"},
-                )
-                fresh = pooled(self._generator.generate(
-                    subject, year_level, topic_name, subtopic, reference_chunks,
-                    teaching, classwork_count=cut_at,
-                    passage_quota=passage_quota, count=count,
-                ))
-                best_q, best_result = None, None
-                # Start at this question's OWN position in the fresh set, not
-                # at the top. The generator is told to sort a set easiest to
-                # hardest, so scanning from index 0 replaced a failed hard
-                # question with the easiest question the model can write, and
-                # dropped it into a late slot. Hard questions fail validation
-                # more often than easy ones, so the ramp the prompt builds was
-                # being eaten from the top down, exactly the "easy item late in
-                # the list" the generator prompt warns against.
-                candidates = fresh.questions[slot:] or fresh.questions
-                # Prefer the candidates that fit the year's reading budget.
-                # Free: it is a filter over a batch that has already been paid
-                # for, and it strictly REDUCES the number of candidates sent
-                # for single-question validation below. Falls back to the whole
-                # list when none of them fit, because a question that is too
-                # long still beats no question at all, and the set-level guard
-                # after this loop is what deals with the leftovers.
-                from .agents import reading_load
-                fitting = [c for c in candidates
-                           if not reading_load.over_budget(
-                               c.question, year_level, subject)]
-                candidates = fitting or candidates
-                for cand in candidates:
-                    norm = self._norm_q(cand.question)
-                    if norm in seen or norm in selected_norms:
-                        continue
-                    cand_result = self._validate(subject, year_level, cand,
-                                                 reference_chunks, passages=pool)
-                    # Prefer a verified non-duplicate; otherwise keep the first
-                    # non-duplicate as a fallback.
-                    if cand_result.verified:
-                        best_q, best_result = cand, cand_result
-                        break
-                    if best_q is None:
-                        best_q, best_result = cand, cand_result
-                if best_q is not None:
-                    q, result = best_q, best_result
+        for q in qs.questions:
+            norm = self._norm_q(q.question)
+            if norm in seen or norm in selected_norms:
+                log.info("pipeline.drop_duplicate_candidate",
+                         extra={"subject": subject, "subtopic": subtopic.name})
+                continue
             # A reasoning question the deterministic checker can prove is
             # broken (unsolvable cipher/sequence) must never appear, so drop it
             # rather than show an unsolvable question, even without a check mark.
@@ -1857,12 +1801,7 @@ class BookletPipeline:
                          extra={"subject": subject, "subtopic": subtopic.name,
                                 "reason": absurd})
                 continue
-            norm = self._norm_q(q.question)
-            if norm in seen or norm in selected_norms:
-                log.info("pipeline.drop_duplicate_candidate",
-                         extra={"subject": subject, "subtopic": subtopic.name})
-                continue
-            selected.append((q, result, retry_count))
+            selected.append(q)
             selected_norms.add(norm)
 
         # This is the only visual planner call for this final subtopic. It sees
@@ -1884,7 +1823,7 @@ class BookletPipeline:
                     image_query=example.image_query,
                 )
                 teaching_pairs.append((example, proxy, visual_mode))
-        final_questions = [q for q, _, _ in selected]
+        final_questions = selected
         planning_items = [proxy for _, proxy, _ in teaching_pairs] + final_questions
         self._plan_question_visuals(
             subject, year_level, topic_name, subtopic.name, planning_items,
@@ -1925,8 +1864,11 @@ class BookletPipeline:
             example.image_path = str(path) if path else None
             example.image_attribution = attribution
 
+        final_verdicts = self._validate_many(
+            subject, year_level, final_questions, reference_chunks, passages=pool,
+        )
         coverage_items: list[ValidatedQuestion] = []
-        for q, result, retry_count in selected:
+        for q, result in zip(selected, final_verdicts):
             image_path, image_attr = self._resolve_visual(q)
             coverage_items.append(ValidatedQuestion(
                 question=q, verified=False,
@@ -1946,9 +1888,8 @@ class BookletPipeline:
                 continue
             # The one atomic claim, made only once the question is going to be
             # kept. Losing it means a concurrent subtopic wrote the same text
-            # first while we were retrying; the retry loop above is
-            # best-effort, this is the guarantee. Claiming after the drops
-            # above matters: a question discarded for a missing figure must
+            # first while other subtopics were being built. Claiming after the
+            # drops above matters: a question discarded for a missing figure must
             # not block a sound one with the same text later.
             if not seen.add(self._norm_q(q.question)):
                 log.info("pipeline.drop_duplicate",
@@ -1964,7 +1905,7 @@ class BookletPipeline:
                 question=q,
                 verified=self._trusted(q, result.verified),
                 validator_notes=result.notes,
-                retry_count=retry_count,
+                retry_count=0,
                 image_path=str(image_path) if image_path else None,
                 image_attribution=image_attr,
             ))

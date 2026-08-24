@@ -134,7 +134,9 @@ ok("asking for EF hides only EF and leaves the stated AB and DE visible")
 
 print("\nTHE PROMPTS CAN ACTUALLY ASK FOR IT")
 
-prompt = Path("booklet_gen/prompts/question_generator_maths.txt").read_text()
+prompt = Path("booklet_gen/prompts/question_generator_maths.txt").read_text(
+    encoding="utf-8",
+)
 assert "similar_triangles" in prompt, (
     "a renderer no prompt names is one no customer will ever see")
 assert "scale" in prompt and "unknown" in prompt

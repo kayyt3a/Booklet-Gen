@@ -1866,7 +1866,11 @@ def _lesson_cond_break(headings: list, lesson: list) -> list:
     it needs 9.89cm, and the worked-example box then moves to the next page on
     its own. Small enough to hide until something repaginates the booklet.
     """
-    needed = min(stack_height(headings + _lesson_opening(lesson)),
+    # Key points are grouped in a KeepTogether so a lone bullet cannot be
+    # stranded. ReportLab reports a sentinel height for that wrapper, so
+    # measure its real contents here or the opening is understated and the
+    # worked-example box can move to the next page by itself.
+    needed = min(stack_height(headings + _unwrap(_lesson_opening(lesson))),
                  _MAX_COND_BREAK)
     return [CondPageBreak(needed)]
 
