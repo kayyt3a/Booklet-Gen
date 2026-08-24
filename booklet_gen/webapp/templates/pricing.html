@@ -1,13 +1,42 @@
 {% extends "base.html" %}
-{% from "_motifs.html" import book, check %}
+{% from "_motifs.html" import check %}
 {% block title %}Pricing - FolioAI{% endblock %}
 {% block description %}Buy FolioAI booklet credits. Start with one free personalised practice booklet, then pay only when you need another.{% endblock %}
+{% block extra_head %}
+{# Real prices, read from the same `products` the page itself renders, so this
+   can never quote a figure the page does not also charge. No aggregateRating
+   or review field: FolioAI collects private feedback, not public reviews, and
+   there is nothing honest to put here. #}
+{% set offers = [] %}
+{% for key, product in products.items() %}
+  {% set _ = offers.append({
+      "@type": "Offer",
+      "name": product.label,
+      "price": product.display_price,
+      "priceCurrency": "AUD",
+      "availability": "https://schema.org/InStock",
+      "url": public_url('payments.pricing'),
+  }) %}
+{% endfor %}
+{% set product_data = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "name": "FolioAI booklet credits",
+    "description": "Printable Years 1 to 10 practice booklets: a mini-lesson, a worked example, practice questions, a cumulative Final Challenge, and a verified answer key.",
+    "brand": {"@type": "Brand", "name": "FolioAI"},
+    "offers": offers,
+} %}
+<script type="application/ld+json">{{ product_data|tojson }}</script>
+{% endblock %}
 {% block body %}
 <section class="pricingIntro">
   <img class="paulioIntro" src="{{ url_for('static', filename='img/paulio/paulio-billing.png') }}"
        alt="Paulio holding a receipt and a checked-off booklet">
   <div class="paulioBubble">Let&rsquo;s find the right plan for you.</div>
-  <span class="motifRow ink-navy">{{ book(28) }}</span>
+  {# No icon between the bubble and the heading. The book glyph that sat here
+     already means "NAPLAN Practice" in the product menu and serves as
+     empty-state wallpaper elsewhere, so a third, unlabelled appearance above
+     the price list taught a visitor that it means nothing. #}
   <h1>Simple, pay-as-you-go pricing</h1>
   <p class="sub">Create an account and your first booklet is included. After
     that, buy only what you need. There is no subscription.</p>
@@ -49,6 +78,21 @@
     </article>
   {% endfor %}
 </div>
+
+{# What a credit actually buys, shown rather than described. The page took
+   money for a "printable PDF with a worked answer key" without ever showing
+   one. #}
+<section class="card coverSide">
+  <img class="coverShot" src="{{ url_for('static', filename=cover_samples[0].file) }}"
+       width="760" height="1075" alt="{{ cover_samples[0].alt }}">
+  <div>
+    <h2>One credit, one booklet like this</h2>
+    <p class="sub">Every booklet is written for the year level, subject and
+      student you pick, and the cover carries their name. Inside: a mini-lesson,
+      a worked example, class work, homework split into sittings, and an answer
+      key with the working shown.</p>
+  </div>
+</section>
 
 <div class="card pricingFinePrint">
   <h2>What a credit covers</h2>

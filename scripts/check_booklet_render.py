@@ -35,6 +35,7 @@ from typing import List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pymupdf                                                  # noqa: E402
 import pypdf                                                    # noqa: E402
 from pydantic import BaseModel, Field                           # noqa: E402
 from reportlab.lib import colors                                # noqa: E402
@@ -44,6 +45,7 @@ from reportlab.lib.units import cm                              # noqa: E402
 from booklet_gen import schemas as S                            # noqa: E402
 from booklet_gen.formatter import (                             # noqa: E402
     CHROME_MARGIN, HOMEWORK_MIN_START_CM, MULTIPLY, PAGE_MARGIN,
+    _CHALLENGE_MIN_START_CM,
     SPELLING_TEST_SPACES,
     _escape, _lesson_html, _make_styles, _prettify_fractions, _register_fonts,
     answer_line_labels, answer_unit, written_response_rules,
@@ -600,8 +602,38 @@ BODY_TOP = A4[1] - PAGE_MARGIN
 BODY_BOTTOM = PAGE_MARGIN
 
 
+def ink_lows(path) -> list:
+    """The lowest mark on each page, drawn or typed, in ReportLab coordinates.
+
+    Text alone stopped being a fair measure of how far down the page a booklet
+    reaches the moment every question got a drawn working panel. A question
+    with four ruled writing lines puts its last WORDS three centimetres above
+    the foot of the room it was actually given, and a squared panel is ink with
+    no text in it at all, so a text-only tail calls a page abandoned when the
+    child has in fact been handed space right down to the margin.
+
+    Read with pymupdf rather than pypdf because the drawn paths are what is
+    being measured here, and pypdf gives no geometry for those.
+    """
+    doc = pymupdf.open(str(path))
+    out = []
+    for page in doc:
+        h = page.rect.height
+        ys = []
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    ys.append(h - span["bbox"][3])
+        for drawing in page.get_drawings():
+            ys.append(h - drawing["rect"].y1)
+        ys = [y for y in ys if BODY_BOTTOM < y < BODY_TOP]
+        out.append(min(ys) if ys else BODY_TOP)
+    doc.close()
+    return out
+
+
 def read(path):
-    """(page texts, lowest body y per page, (text, y) runs, bold runs, rules)."""
+    """(page texts, lowest body mark per page, (text, y) runs, bold runs, rules)."""
     reader = pypdf.PdfReader(str(path))
     texts, lows, runs, bolds, rules = [], [], [], [], []
 
@@ -628,7 +660,7 @@ def read(path):
             data_ = b""
         # Every horizontal rule the tables draw is a "moveto lineto stroke".
         rules.append(len(re.findall(rb"\bl\s+S\b", data_)))
-    return texts, lows, runs, bolds, rules
+    return texts, ink_lows(path), runs, bolds, rules
 
 
 def key_page(pages) -> int:
@@ -647,20 +679,37 @@ check(not (tmp / "booklet-student.pdf").exists(),
       "render_pdf writes one file and no second copy")
 check("Answers &" in text or "Worked Solutions" in text, "the key is present")
 check(key_start > 0, "the key is at the back", f"key starts on page {key_start + 1}")
-# Printed double-sided, sheet n carries pages 2n-1 and 2n. If the key starts on
-# an even page it is the back of the last page the student wrote on, and the
-# first thing on the key is the spelling dictation list this booklet takes
-# deliberate trouble to keep out of the child's hands. Turning the sheet over
-# handed it straight back.
-check((key_start + 1) % 2 == 1,
-      "and starts on the front of a fresh sheet, not the back of the last one",
-      f"page {key_start + 1}")
+# Printed double-sided, sheet n carries pages 2n-1 and 2n. No page of the
+# answer key may be the back of a page the student wrote on: the first thing in
+# the key is the spelling dictation list this booklet takes deliberate trouble
+# to keep out of the child's hands, and turning the sheet over handed it
+# straight back.
+#
+# This used to be asserted as "the key starts on an odd page", because the
+# device that guaranteed it was a blank verso inserted when the student half
+# ended on an odd one. The half-title in front of the key does that job now:
+# the student half ends on page N, the divider takes N+1 and the key starts at
+# N+2, which is never on N's sheet whatever parity N has. So the assertion is
+# now the invariant itself rather than one way of satisfying it, and the key
+# is allowed to start on the back of the divider.
+def sheet_of(page_number: int) -> int:
+    return (page_number + 1) // 2
+
+
+answers_start = next(i for i, p in enumerate(pages) if "Answers &" in p) + 1
+last_written = key_start                    # 1-based: the page before the divider
+check(sheet_of(answers_start) > sheet_of(last_written),
+      "and no page of the key is the back of a page the student wrote on",
+      f"the last written page is {last_written} and the answers start on "
+      f"{answers_start}, both on sheet {sheet_of(answers_start)}")
+check(pages[key_start].count("Worked Solutions") == 1
+      and "for whoever is marking" in pages[key_start].lower(),
+      "the key opens on a half-title that says who the rest is for")
 blank_versos = [i + 1 for i, p in enumerate(pages) if "intentionally blank" in p]
-check(all(b == key_start for b in blank_versos),
-      "any blank verso sits immediately before the key and nowhere else",
-      str(blank_versos))
-check(len(blank_versos) <= 1, "and there is at most one of them",
-      str(blank_versos))
+check(not blank_versos,
+      "and no sheet is spent on a page that says it is intentionally blank",
+      f"blank pages at {blank_versos}. The divider does that job now and says "
+      "something while it does it")
 for q in ("Homework 0.0", "Question 0.0", "Subtopic 4"):
     check(q in question_text, f"the questions come first ({q})")
 
@@ -692,8 +741,16 @@ print("\nVerification marks")
 work_text = "\n".join(question_pages[1:])
 check(TICK not in work_text and "verified" not in work_text,
       "no verification mark beside an unattempted question")
-check(key_text.count(TICK) == n_questions,
-      "one mark per answer in the key", f"{key_text.count(TICK)} of {n_questions}")
+# The answer pages only. The half-title in front of them prints one tick as a
+# legend, over the sentence saying what a tick means, which is the whole reason
+# that page exists.
+answer_pages_text = "\n".join(pages[answers_start - 1:])
+check(answer_pages_text.count(TICK) == n_questions,
+      "one mark per answer in the key",
+      f"{answer_pages_text.count(TICK)} of {n_questions}")
+check(pages[key_start].count(TICK) == 1,
+      "and the divider prints one, as the legend for what it means",
+      f"{pages[key_start].count(TICK)} ticks on the divider")
 
 print("\nNotation in the rendered PDF")
 check("*" not in text, "no asterisk anywhere in the booklet")
@@ -741,8 +798,15 @@ check(_escape("2/12 = 1/6") in key_text and _escape("10/12 = 5/6") in key_text,
 # Read in order, not into a dict keyed by the printed number: numbering now
 # restarts at each reading and each subtopic, so several answers print as "3"
 # and keying by the number would silently collapse them.
+#
+# The tick and the page reference are set in their own right-aligned column
+# now, so that they line up down the page instead of trailing whatever length
+# the answer happened to be. That puts them in a separate text run from the
+# answer, which is why this reads across the line break (re.S) rather than
+# expecting "1. Answer: 67 (p2)" on one extracted line.
 refs = [(int(n), int(p)) for n, p in
-        re.findall(r"^(\d+)\. Answer:.*?\(p(\d+)\)", key_text, re.MULTILINE)]
+        re.findall(r"^(\d+)\. Answer:.*?\(p(\d+)\)", key_text,
+                   re.MULTILINE | re.DOTALL)]
 check(len(refs) == n_questions, "every answer carries a page reference",
       f"{len(refs)} of {n_questions}")
 wrong = []
@@ -932,8 +996,15 @@ if boundary_section:
     n, part = boundary_section
     # From the Homework band on: the Class Work half lists the same subtopic
     # names higher up the booklet.
-    hw_text = aligned_text[aligned_text.index("Split into"):]
-    check(hw_text.index(f"Session {n} of") < hw_text.index(f"Part {part}"),
+    # Line by line, not by substring. The topic opener lists every subtopic in
+    # the topic as a contents line, so "Part 3" appears there too, pages above
+    # the session band; what this is about is where the HEADING is.
+    hw_lines = aligned_text[aligned_text.index("Split into"):].splitlines()
+    band_line = next((i for i, ln in enumerate(hw_lines)
+                      if ln.strip().startswith(f"Session {n} of")), 10 ** 6)
+    head_line = next((i for i, ln in enumerate(hw_lines)
+                      if ln.strip() == f"Part {part}"), -1)
+    check(band_line < head_line,
           "the session band sits above the subtopic heading it starts on",
           f"session {n} / Part {part}")
 
@@ -1052,39 +1123,165 @@ print("\nPage fill")
 # worked while the sign-off happened to be last: inserting the blank verso
 # pushed it one page in and the check started failing on a page it had never
 # been about.
+FRONT_MATTER_HEADINGS = ("Contents", "How to use this booklet")
+
+
+def is_front_matter(page: str) -> bool:
+    """The contents page and the page addressed to the adult.
+
+    Both are designed short pages. The contents lists a booklet's parts and
+    topics, and the how-to page is a dozen lines of prose; the white under
+    either is the shape of the page rather than questions that failed to pack.
+    Recognised by their headings, not by their position, so they stay
+    recognised wherever the front matter puts them.
+    """
+    return any(h in page.splitlines() for h in FRONT_MATTER_HEADINGS)
+
+
 def _exempt_pages(pages_, stop: int) -> set[int]:
     out = {0}
     for i, page in enumerate(pages_[:stop]):
-        if "intentionally blank" in page or "Marked by:" in page:
+        if ("intentionally blank" in page or "Marked by:" in page
+                or is_front_matter(page)):
             out.add(i)
     return out
 
 
-def page_fill(pages_, lows_, label):
-    """Worst tail of blank space on the question pages, ignoring part breaks."""
+# Both part breaks are preceded by a small spacer in the story, which is part
+# of the hole the break leaves and is not covered by the threshold itself.
+_PART_BREAK_SLACK_CM = 0.6
+
+
+# The tinted fill of a worked-example box. A page that opens with a mini-lesson
+# is recognised by having one of these near its top.
+_WE_BOX_FILL = (0.957, 0.969, 0.984)
+
+
+def lesson_openings(path) -> dict:
+    """{page index: height in cm of the mini-lesson that opens that page}.
+
+    A mini-lesson has to arrive on one page with its own worked example: the
+    box is a Table and cannot split, so a lesson that starts at the foot of a
+    page leaves its heading, its introduction and its key points above five
+    centimetres of white with the example overleaf. The formatter therefore
+    moves the whole lesson to the next page when it does not fit, which is
+    right, and which necessarily leaves the foot of the page before it short.
+
+    How short is allowed to be is not a constant. It is exactly how tall the
+    lesson turned out to be, which varies by several centimetres with the
+    number of steps the model wrote. So it is measured off the page the lesson
+    actually landed on: from the top of the type area to the bottom of the
+    first worked-example box.
+    """
+    doc = pymupdf.open(str(path))
+    out = {}
+    for i, page in enumerate(doc):
+        boxes = [d["rect"] for d in page.get_drawings()
+                 if d.get("fill") and max(abs(a - b) for a, b in
+                                          zip(d["fill"], _WE_BOX_FILL)) < 0.01
+                 and d["rect"].width > 0.5 * (A4[0] - 2 * PAGE_MARGIN)]
+        if not boxes:
+            continue
+        first = min(boxes, key=lambda r: r.y0)
+        # Near the top: a box further down the page arrived under questions,
+        # so the page did not open with a lesson.
+        if first.y0 - PAGE_MARGIN < 8 * cm:
+            out[i] = (first.y1 - PAGE_MARGIN) / cm
+    doc.close()
+    return out
+
+
+def content_heights(path) -> dict:
+    """{page index: how tall the printed block on that page is, in cm}.
+
+    Top of the highest mark to the bottom of the lowest, ignoring the running
+    head and the page number. Used to judge a break by the size of what moved
+    across it rather than by a constant.
+    """
+    doc = pymupdf.open(str(path))
+    out = {}
+    for i, page in enumerate(doc):
+        ys = []
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                if "".join(s["text"] for s in line["spans"]).strip():
+                    ys += [line["bbox"][1], line["bbox"][3]]
+        for drawing in page.get_drawings():
+            ys += [drawing["rect"].y0, drawing["rect"].y1]
+        for image in page.get_images(full=True):
+            box = page.get_image_bbox(image)
+            ys += [box.y0, box.y1]
+        inside = [y for y in ys
+                  if PAGE_MARGIN + 0.5 * cm < y < A4[1] - PAGE_MARGIN]
+        if inside:
+            out[i] = (max(inside) - min(inside)) / cm
+    doc.close()
+    return out
+
+
+def page_fill(pages_, lows_, label, path=None):
+    """Worst tail of blank space on the question pages, ignoring part breaks.
+
+    Three things are allowed to start on a fresh page rather than squeeze into
+    the foot of the one before: Homework, the Final Challenge and a mini-lesson.
+    Each is measured against its own threshold rather than against a flat 6cm.
+    The Final Challenge used to be missing from this list, so the one break that
+    may legally throw away nine centimetres was judged as if it were an
+    ordinary page, and it passed only for as long as pagination happened to
+    keep it off a boundary.
+
+    The mini-lesson case was added when short questions started being set two to
+    a row. Two-up packing puts more questions on a page, so the room left over
+    when the next lesson does not fit is larger than it was, and a flat 6cm
+    began failing on a break that is doing exactly what it was built to do. The
+    replacement is not a looser number: it is the height of the lesson itself,
+    measured off the page it landed on, so a break still fails if it threw away
+    more room than the lesson needed.
+    """
     stop = key_page(pages_)
     tails = [(low - BODY_BOTTOM) / cm for low in lows_[:stop]]
-    boundary = {i for i in range(stop - 1)
-                if "Homework" in "\n".join(pages_[i + 1].splitlines()[:4])}
+    lessons = lesson_openings(path) if path is not None else {}
+    endings = content_heights(path) if path is not None else {}
+
+    def break_limit(i):
+        """The threshold this page's tail is allowed, or None if it is not a
+        part boundary."""
+        head = "\n".join(pages_[i + 1].splitlines()[:4]) if i + 1 < stop else ""
+        if "Homework" in head:
+            return HOMEWORK_MIN_START_CM + _PART_BREAK_SLACK_CM
+        if "Final Challenge" in head:
+            return _CHALLENGE_MIN_START_CM + _PART_BREAK_SLACK_CM
+        if i + 1 in lessons:
+            return lessons[i + 1] + _PART_BREAK_SLACK_CM
+        # The finish page. The sign-off, the score card, the mascot and the
+        # wordmark travel together onto a page of their own when they do not
+        # fit under the last question, so the page before it is allowed to end
+        # as short as that block is tall, and no shorter.
+        if i + 1 < stop and "Marked by:" in pages_[i + 1]:
+            return endings.get(i + 1, 0.0) + _PART_BREAK_SLACK_CM
+        return None
+
     exempt = _exempt_pages(pages_, stop)
-    worst_b, worst_p = (0, 0.0), (0, 0.0)
+    worst_p = (0, 0.0)
+    over = []
     measured = [(i, t) for i, t in enumerate(tails) if i not in exempt]
     for i, tail in measured:
-        if i in boundary:
-            worst_b = max(worst_b, (i + 1, tail), key=lambda t: t[1])
-        else:
+        limit = break_limit(i)
+        if limit is None:
             worst_p = max(worst_p, (i + 1, tail), key=lambda t: t[1])
+        elif tail > limit:
+            over.append((i + 1, round(tail, 1), limit))
     mean = sum(t for _, t in measured) / max(1, len(measured))
     check(worst_p[1] < 6.0, f"no {label} page abandoned more than 6cm early",
           f"worst is page {worst_p[0]} at {worst_p[1]:.1f}cm")
-    check(worst_b[1] <= HOMEWORK_MIN_START_CM,
+    check(not over,
           f"a {label} part break never throws away more than its threshold",
-          f"worst is page {worst_b[0]} at {worst_b[1]:.1f}cm")
+          str(over))
     check(mean < 4.0, f"{label} pages are worked down the page on average",
           f"mean tail {mean:.1f}cm")
 
 
-page_fill(pages, lows, "booklet")
+page_fill(pages, lows, "booklet", booklet)
 
 print("\nPage fill under stress (200 questions of varied length)")
 import random                                                   # noqa: E402
@@ -1237,8 +1434,8 @@ english = BookletData(
     spelling_list=SpellingList(words=SPELL_LIST),
     spelling_test=SpellingTest(words=SPELL_TEST, from_week=2))
 
-e_pages, e_lows, e_runs, e_bolds, e_rules = read(
-    render_pdf(english, tmp / "english.pdf"))
+e_pdf = render_pdf(english, tmp / "english.pdf")
+e_pages, e_lows, e_runs, e_bolds, e_rules = read(e_pdf)
 e_key_start = key_page(e_pages)
 e_question_pages = e_pages[:e_key_start]
 e_question_text = "\n".join(e_question_pages)
@@ -1251,14 +1448,37 @@ check("show your working" not in e_cover,
 check("symbolically" not in e_cover.lower()
       and "has been checked" in e_cover,
       "and claims the same accuracy check the maths cover does")
-check((e_key_start + 1) % 2 == 1,
-      "the English key also starts on the front of a fresh sheet",
-      f"page {e_key_start + 1}")
+# The same invariant as above, on the booklet where it matters most: this one
+# has a spelling test, so the first thing in its key is the list of words the
+# adult calls out.
+e_answers = next(i for i, p in enumerate(e_pages) if "Answers &" in p) + 1
+check(sheet_of(e_answers) > sheet_of(e_key_start),
+      "no page of the English key is the back of a page the student wrote on "
+      "either, which is the booklet where the dictation list is at stake",
+      f"last written page {e_key_start}, answers from {e_answers}")
 
 
-def page_of(pages_, needle):
-    return next((i for i, p in enumerate(pages_) if needle in p.replace("\n", " ")),
+def page_of(pages_, needle, first: int = 0):
+    return next((i for i, p in enumerate(pages_)
+                 if i >= first and needle in p.replace("\n", " ")),
                 None)
+
+
+def work_starts(pages_) -> int:
+    """The first page of the student's half, past the cover and front matter.
+
+    The contents page names every part and every topic in the booklet, and the
+    how-to page names and explains every part, so a search for "Homework" or
+    "Spelling Test" from page one finds the front matter rather than the band
+    it points at, and everything measured off that index is then measured off
+    an empty slice. Any locator that means "the page the work starts on"
+    begins here instead.
+    """
+    last = 0
+    for i, page in enumerate(pages_):
+        if is_front_matter(page):
+            last = i
+    return last + 1
 
 
 check(len(e_pages) > 3, "the English booklet renders", f"{len(e_pages)} pages")
@@ -1269,8 +1489,12 @@ print("\nPassages on the page")
 # contradict that: what must not happen is the same reading printed once per
 # question inside a single part.
 e_hw_start = next(i for i, p in enumerate(e_question_pages)
-                  if "Homework" in p)
-e_classwork_text = "\n".join(e_question_pages[:e_hw_start + 1]).split("Homework")[0]
+                  if "Homework" in p and i >= work_starts(e_pages))
+# From where the work starts, not from page one: the contents page names the
+# Homework part, and splitting on that word from page one leaves the class work
+# text empty.
+e_classwork_text = "\n".join(
+    e_question_pages[work_starts(e_pages):e_hw_start + 1]).split("Homework")[0]
 e_homework_text = "\n".join(e_question_pages[e_hw_start:])
 for title in ("The Lost Kitten", "Storm at Sea"):
     check(e_classwork_text.count(title) == 1,
@@ -1322,10 +1546,18 @@ check(spelling_test_spaces(english.spelling_test) == 12,
 check(spelling_test_spaces(None) == 0, "no test object means no test page")
 check(spelling_test_spaces(SpellingTest()) == SPELLING_TEST_SPACES,
       "a test with no words chosen still prints its spaces")
-test_page = page_of(e_pages, "Spelling Test")
-list_page = page_of(e_pages, "Spelling List")
-check(test_page == 1, "the test is the first thing after the cover",
-      f"page {test_page + 1 if test_page is not None else None}")
+# Found by the instruction on the test page rather than by its title, because
+# the contents page lists "Spelling Test" too and it comes first.
+test_page = page_of(e_pages, "Someone will read each word out loud")
+list_page = page_of(e_pages, "Spelling List", first=work_starts(e_pages))
+# It is still the first thing the child does. What is now in front of it is the
+# contents, which is addressed to whoever is running the session and holds
+# nothing a child could warm up on, and that is the point of the rule: the
+# dictation has to be answered cold.
+check(test_page == work_starts(e_pages),
+      "the test is the first thing the student is given",
+      f"page {test_page + 1 if test_page is not None else None}, work starts "
+      f"on page {work_starts(e_pages) + 1}")
 check(list_page is not None and list_page < e_key_start,
       "the list is at the back of the booklet, before the key",
       f"list p{list_page}, key p{e_key_start}")
@@ -1384,7 +1616,7 @@ check('"the dog runs"' in e_question_text and '"the dog run"' in e_question_text
 check('"enormous"' in e_question_text and '"big"' in e_question_text,
       "and so do the ones in a key point")
 
-page_fill(e_pages, e_lows, "English")
+page_fill(e_pages, e_lows, "English", e_pdf)
 
 print("\nExam paper (shares these styles)")
 exam = ExamPaper(

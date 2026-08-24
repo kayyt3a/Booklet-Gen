@@ -98,8 +98,7 @@ def main() -> int:
 
     icon = SRC / "icon-square.png"
     mark = SRC / "mark.png"
-    banner = SRC / "banner-dark.png"
-    for f in (icon, mark, banner):
+    for f in (icon, mark):
         if not f.exists():
             print(f"missing {f}", file=sys.stderr)
             return 1
@@ -124,20 +123,14 @@ def main() -> int:
     save(mk, "mark-512.png", (512, 512), colors=128)
     save(mk, "mark-96.png", (96, 96), colors=128)
 
-    # Social preview. 1200x630 is what the major crawlers read.
-    bn = navyfy(Image.open(banner)).convert("RGB")
-    w, h = bn.size
-    target = 1200 / 630
-    if w / h > target:
-        new_w = int(h * target)
-        bn = bn.crop(((w - new_w) // 2, 0, (w + new_w) // 2, h))
-    else:
-        new_h = int(w / target)
-        bn = bn.crop((0, (h - new_h) // 2, w, (h + new_h) // 2))
-    bn = bn.resize((1200, 630), Image.LANCZOS)
-    bn.save(BRAND / "og-image.jpg", quality=86, optimize=True, progressive=True)
-    print(f"  {'og-image.jpg':28} 1200x630  "
-          f"{(BRAND / 'og-image.jpg').stat().st_size / 1024:6.1f} KB")
+    # The social preview used to be built here, by cropping the supplied
+    # banner to 1200x630: the wordmark on navy, correct in every technical
+    # respect and silent about what FolioAI sells. It is now
+    # scripts/build_cover_samples.py's job, because the card it builds is a
+    # booklet cover with the proposition beside it, and the cover has to be
+    # rendered before it can be placed. Nothing here reads or writes
+    # og-image.jpg any more, so re-running this script cannot quietly put the
+    # bare logo back.
     return 0
 
 

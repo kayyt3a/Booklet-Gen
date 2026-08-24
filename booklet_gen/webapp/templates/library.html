@@ -3,7 +3,7 @@
 {% block title %}My booklets - FolioAI{% endblock %}
 {% block body %}
 <div class="card">
-  <div class="paulioRow">
+  <div class="paulioRow pageHead">
     <div class="paulioWith">
       <img class="paulioStd" src="{{ url_for('static', filename='img/paulio/paulio-library.png') }}"
            alt="Paulio carrying a stack of booklets">
@@ -34,6 +34,12 @@
     <ul class="jobs">
       {% for j in jobs %}
         <li class="jobItem">
+          {# A booklet is an object, so the row shows one. The thumbnail is the
+             cover family this booklet's subject and product line would be
+             delivered in (covers.py), not a render of this exact PDF: the file
+             is stored as a blob and nothing rasterises page 1 of it. #}
+          <img class="jobCover" alt=""
+               src="{{ url_for('static', filename=(j.label or '') | cover_for) }}">
           <div class="jobMain">
             <p class="jobTitle">{{ j.label or 'Booklet' }}</p>
             <div class="jobMeta">
@@ -85,7 +91,17 @@
                 <button class="btn secondary small" type="submit">Try again</button>
               </form>
             {% else %}
-              <span class="pill error">Failed</span>
+              {# No stored request, so views.retry would 404 on this one. Rows
+                 like this are real: request_json arrived as a later column
+                 (see db.init_db's migrations), so every job already in the
+                 database when it landed carries NULL, and a failed one falls
+                 here. The slot used to hold a second, identical red "Failed"
+                 pill beside the one in the row's own meta line, which said
+                 nothing the row had not already said and left the customer
+                 with no way forward, under an error message that ends "Please
+                 try again". The way forward is a fresh booklet, so the row
+                 offers that instead of repeating itself. #}
+              <a class="btn secondary small" href="{{ url_for('views.index') }}">Create a new one</a>
             {% endif %}
           {% endif %}
         </li>

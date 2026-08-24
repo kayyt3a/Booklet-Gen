@@ -61,7 +61,12 @@ LOGO_PATH = (Path(__file__).resolve().parent.parent
 # --------------------------------------------------------------------------
 NAVY = HexColor("#00114E")
 NAVY_SOFT = HexColor("#2A3F73")
-ACCENT = HexColor("#6E9EFD")
+# The one accent blue. Kept as a string as well as a colour because the
+# formatter sets the booklet's interior rules in it: the cover and the pages
+# behind it have to be the same blue by construction rather than by two people
+# typing the same six characters.
+ACCENT_HEX = "#6E9EFD"
+ACCENT = HexColor(ACCENT_HEX)
 BLUE_DEEP = HexColor("#4C86EE")
 BLUE_MID = HexColor("#A8C5FC")
 BLUE_PALE = HexColor("#C8DBFD")
@@ -255,6 +260,45 @@ def _wave(c, knots, colour) -> None:
     p.close()
     c.drawPath(p, stroke=0, fill=1)
     c.restoreState()
+
+
+# The three palest wave tones, and the sweeps they are drawn on, for use on an
+# interior page. The interior gets the flattest three of the five: a band at
+# the foot of a front matter page has a fifth of the height the cover gives the
+# same shapes, and the two steepest sweeps become a wall in it.
+#
+# The knots' y values run from 0.042 to 0.43 of a page. They are normalised by
+# a little more than that range, so the highest crest stops short of the top of
+# the band: filled to the very top, the sweep that climbs the right hand side
+# meets the box edge as a straight vertical cut and the band reads as a picture
+# that ran out rather than as a wave.
+INTERIOR_WAVES = ((BLUE_MIST, _SWEEP[2]), (BLUE_FAINT, _SWEEP[3]),
+                  (BLUE_PALE, _SWEEP[4]))
+_INTERIOR_WAVE_RANGE = 0.58
+
+
+def draw_wave_band(c, x: float, y: float, w: float, h: float) -> None:
+    """The cover's page-fold waves, scaled into a box on an interior page.
+
+    Drawn here rather than in the formatter so there is one wave in the
+    product. The interior band is held inside the type area, never bled to the
+    trim: a home printer cannot print to the edge, and a reader who chooses
+    "fit to page" to save the artwork rescales every ruled line the child
+    writes on along with it.
+    """
+    for colour, knots in INTERIOR_WAVES:
+        pts = [(x + u * w, y + min(v / _INTERIOR_WAVE_RANGE, 1.0) * h)
+               for u, v in knots]
+        c.saveState()
+        c.setFillColor(colour)
+        c.setStrokeColor(colour)
+        p = c.beginPath()
+        _smooth(p, pts)
+        p.lineTo(x + w, y)
+        p.lineTo(x, y)
+        p.close()
+        c.drawPath(p, stroke=0, fill=1)
+        c.restoreState()
 
 
 def _text(c, x, y, s, font, size, colour, alpha: float = 1.0) -> float:

@@ -1,0 +1,622 @@
+"""What the site's pages must measure, in a browser, at phone and desktop width.
+
+The other web checks read markup. This one lays the pages out and measures the
+boxes, because the defects it exists to catch are invisible in the HTML and in
+the CSS: an absolutely positioned mark that lands on a sentence only at 390px,
+a tap target that is 31px tall, a card that sits in the left two thirds of its
+own container. Every one of those was found by looking at a screenshot, and a
+screenshot is not something a check can keep looking at.
+
+Widths are 390 and 1440 CSS px: a phone, which is where most of this traffic
+arrives, and a laptop.
+
+This needs Playwright and a Chromium. It is skipped, loudly, where there is no
+browser to drive rather than failing the suite on a machine that was never
+going to run it:
+
+    pip install playwright && playwright install chromium
+    PYTHONPATH=. python scripts/check_web_layout.py
+"""
+from __future__ import annotations
+
+import os
+import re
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+_tmp = Path(tempfile.mkdtemp(prefix="folio-layout-"))
+os.environ["FOLIO_DB"] = str(_tmp / "folio.db")
+os.environ["FOLIO_OUTPUT"] = str(_tmp / "output")
+os.environ["FLASK_SECRET_KEY"] = "l" * 40
+os.environ["FOLIO_JOB_MODE"] = "manual"
+os.environ.pop("DATABASE_URL", None)
+
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    print("\nSKIPPED: Playwright is not installed, so the page layout cannot "
+          "be measured.\n  pip install playwright && playwright install chromium")
+    raise SystemExit(0)
+
+from booklet_gen.webapp import create_app                        # noqa: E402
+from booklet_gen.webapp import db                                # noqa: E402
+from booklet_gen.visuals.cover import ACCENT_HEX                 # noqa: E402
+
+def _free_port() -> int:
+    """A port nothing else is holding right now.
+
+    This used to be a fixed 5177, and the check failed whenever a previous run
+    still had that port in TIME_WAIT: green on its own, red in the suite,
+    which is the fastest way to teach people to ignore a check. Ask the kernel
+    for one instead. FOLIO_LAYOUT_PORT still overrides, for debugging against
+    a server you want to open in your own browser.
+    """
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+PORT = int(os.environ.get("FOLIO_LAYOUT_PORT") or _free_port())
+BASE = f"http://127.0.0.1:{PORT}"
+EMAIL, PASSWORD = "layout@test.com", "correct-horse-battery"
+# A second account with nothing in it, because the empty states are pages too.
+NEW_EMAIL = "layout-new@test.com"
+
+# iOS asks for 44pt, Android for 48dp. 44 is the floor used here.
+TAP_MIN = 44
+
+failures: list[str] = []
+
+
+def check(ok: bool, label: str, detail: str = "") -> None:
+    print(("  PASS  " if ok else "  FAIL  ") + label + (f"   {detail}" if detail else ""))
+    if not ok:
+        failures.append(label)
+
+
+def _launch(pw):
+    """A browser, however this machine happens to have one.
+
+    launch() first, because that is what a normal `playwright install` gives.
+    The fallback covers a preinstalled browser directory whose build number
+    does not match the installed Playwright, which would otherwise skip the
+    check on a machine that does have a Chromium.
+    """
+    try:
+        return pw.chromium.launch()
+    except Exception:
+        root = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers"))
+        for exe in sorted(root.glob("chromium-*/chrome-linux/chrome")):
+            return pw.chromium.launch(executable_path=str(exe))
+        raise
+
+
+# ---------------------------------------------------------------------------
+# A seeded app, served for real: these measurements depend on layout, and a
+# test client does not lay anything out.
+# ---------------------------------------------------------------------------
+app = create_app()
+with app.app_context():
+    uid = db.create_user(EMAIL, PASSWORD)
+    db.create_user(NEW_EMAIL, PASSWORD)
+    db.grant_credits(uid, 4, "fixture", "layout-check")
+    for i, label in enumerate((
+            "Academic Accelerate - Year 5 - Mathematics - Ella",
+            "NAPLAN Practice - Year 5 - Ella",
+            "Academic Accelerate - Year 3 - English - Noah")):
+        job = f"layout-{i}"
+        db.create_job(job, uid, label, units=1)
+        db.finish_job(job, path=str(_tmp / "output" / f"{job}.pdf"))
+        db.save_job_file(job, uid, "folio.pdf", "application/pdf", b"%PDF x")
+    # A job still running, for the progress page's waiting state.
+    db.create_job("layout-running", uid,
+                  "Academic Accelerate - Year 5 - Mathematics - Ella", units=1)
+    # A plan is always ten weeks (programs.TERM_PLAN_WEEKS), so every plan
+    # ends on a two-digit week chip. The ladder is written out here rather
+    # than planned, because planning it would need a live model.
+    db.create_plan(uid, "Ella", "accelerate", "Mathematics", "Year 5", 10,
+                   [{"week": n, "focus": f"Week {n} focus topic"}
+                    for n in range(1, 11)])
+
+threading.Thread(
+    target=lambda: app.run(port=PORT, threaded=True, use_reloader=False),
+    daemon=True).start()
+time.sleep(1.2)
+
+
+def boxes(page, selector: str) -> list[dict]:
+    return page.eval_on_selector_all(selector, """els => els.map(e => {
+        const r = e.getBoundingClientRect();
+        return {x: r.x, y: r.y, w: r.width, h: r.height,
+                right: r.right, bottom: r.bottom,
+                text: (e.textContent || '').trim().slice(0, 24)};
+    })""")
+
+
+def ink_boxes(page, selector: str) -> list[dict]:
+    """Where an element actually puts ink.
+
+    A block paragraph's own box runs the full width of its container even when
+    its text is centred and 300px wide, so measuring element boxes reports an
+    overlap that nobody can see. For anything without a background of its own,
+    this measures the text run instead, via a Range over the element's
+    contents. Elements that paint a background (a button) keep their own box,
+    because there the whole slab is visible.
+    """
+    return page.eval_on_selector_all(selector, """els => els.map(e => {
+        const bg = getComputedStyle(e).backgroundColor;
+        const painted = bg && bg !== 'transparent' &&
+                        !/rgba\\(0,\\s*0,\\s*0,\\s*0\\)/.test(bg);
+        let r = e.getBoundingClientRect();
+        if (!painted) {
+            const range = document.createRange();
+            range.selectNodeContents(e);
+            const rr = range.getBoundingClientRect();
+            if (rr.width > 0) { r = rr; }
+        }
+        return {x: r.x, y: r.y, w: r.width, h: r.height,
+                right: r.right, bottom: r.bottom,
+                text: (e.textContent || '').trim().slice(0, 24)};
+    })""")
+
+
+def text_boxes(page, selector: str) -> list[dict]:
+    """The rectangle the characters occupy, whatever the element paints."""
+    return page.eval_on_selector_all(selector, """els => els.map(e => {
+        const range = document.createRange();
+        range.selectNodeContents(e);
+        const r = range.getBoundingClientRect();
+        return {x: r.x, y: r.y, w: r.width, h: r.height,
+                right: r.right, bottom: r.bottom,
+                text: (e.textContent || '').trim().slice(0, 24)};
+    })""")
+
+
+def box(page, selector: str) -> dict | None:
+    got = boxes(page, selector)
+    return got[0] if got else None
+
+
+def overlap(a: dict, b: dict) -> float:
+    """Area shared by two boxes, in square CSS px."""
+    dx = min(a["right"], b["right"]) - max(a["x"], b["x"])
+    dy = min(a["bottom"], b["bottom"]) - max(a["y"], b["y"])
+    return dx * dy if dx > 0 and dy > 0 else 0.0
+
+
+with sync_playwright() as pw:
+    browser = _launch(pw)
+
+    # One real login per account, kept as a cookie and reused. Logging in
+    # again for every measurement trips the app's own login rate limiter part
+    # way through the run, and the pages after it are then measured signed
+    # out, which is a check quietly measuring the wrong thing.
+    signed_in_state: dict[str, dict] = {}
+
+    def open_page(width: int, height: int = 844, signed_in: bool = False,
+                  email: str = EMAIL):
+        state = None
+        if signed_in:
+            if email not in signed_in_state:
+                ctx = browser.new_context(viewport={"width": width,
+                                                    "height": height})
+                page = ctx.new_page()
+                page.goto(BASE + "/login")
+                page.fill("#email", email)
+                page.fill("#password", PASSWORD)
+                page.click("button[type=submit]")
+                page.wait_for_load_state("networkidle")
+                assert "/login" not in page.url, (
+                    f"the fixture account {email} could not sign in")
+                signed_in_state[email] = ctx.storage_state()
+                ctx.close()
+            state = signed_in_state[email]
+        ctx = browser.new_context(viewport={"width": width, "height": height},
+                                  storage_state=state)
+        return ctx, ctx.new_page()
+
+    # -----------------------------------------------------------------------
+    print("\nNothing decorative sits on the words that sell the product")
+    print("-" * 62)
+    # The hero's F mark is absolutely positioned against the full-bleed hero,
+    # so at 390px it rendered from x=303 to x=413 and landed on top of "Your
+    # first booklet is included. No credit card required." with the full stop
+    # partly under it. That sentence removes a parent's last objection.
+    for width in (390, 1440):
+        ctx, page = open_page(width)
+        page.goto(BASE + "/")
+        page.wait_for_load_state("networkidle")
+        mark = box(page, ".heroMark")
+        line = box(page, ".reassure")
+        # display:none reports a zero box rather than no box at all.
+        shown = mark is not None and mark["w"] > 0
+        if not shown:
+            check(width < 900, "the hero mark is absent where there is no room "
+                               "beside the text column", f"{width}px")
+        else:
+            check(overlap(mark, line) == 0,
+                  "the hero mark is clear of the reassurance line",
+                  f"{width}px, {overlap(mark, line):.0f} sq px shared")
+        # Nothing in the hero may widen the document: the mark is deliberately
+        # cropped by the corner, which only works while it is cropped rather
+        # than scrolled to.
+        scroll = page.evaluate("document.documentElement.scrollWidth")
+        check(scroll <= width, "the page does not scroll sideways",
+              f"{width}px viewport, {scroll}px document")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe header wears the same wordmark as the booklet cover")
+    print("-" * 62)
+    # There were three FolioAI lockups in circulation. The cover the customer
+    # is handed (booklet_gen/visuals/cover.py) sets FOLIO in a bold grotesque,
+    # tints the AI with ACCENT, and stacks "practice booklets" underneath,
+    # flush with the F. The header set the name in Georgia, a serif, tinted the
+    # AI a grey-blue of its own, and ran the tagline inline beside it. A
+    # customer sees both inside one session.
+    #
+    # Colour is compared against cover.py's own constant rather than a literal,
+    # so moving the brand blue moves both or fails here.
+    _r, _g, _b = (int(ACCENT_HEX[i:i + 2], 16) for i in (1, 3, 5))
+    for width in (390, 1440):
+        ctx, page = open_page(width)
+        page.goto(BASE + "/")
+        page.wait_for_load_state("networkidle")
+        name = text_boxes(page, ".brandName")[0]
+        tag = text_boxes(page, ".brandTag")[0]
+        check(tag["y"] >= name["bottom"] - 3,
+              f"{width}px: the tagline is stacked under the wordmark",
+              f"wordmark ends at y={name['bottom']:.0f}, tagline starts at "
+              f"y={tag['y']:.0f}")
+        check(abs(tag["x"] - name["x"]) <= 1.5,
+              f"{width}px: and starts at the same edge as the F",
+              f"{name['x']:.1f} against {tag['x']:.1f}")
+        faces = page.eval_on_selector_all(
+            ".brandName, .brandTag",
+            "els => els.map(e => getComputedStyle(e).fontFamily)")
+        check(len(set(faces)) == 1,
+              f"{width}px: both lines of the lockup are one typeface",
+              str(sorted(set(faces))))
+        # "sans-serif" contains "serif", so the generic goes before the test.
+        stacks = [f.lower().replace("sans-serif", "") for f in faces]
+        check(all("serif" not in s and "georgia" not in s for s in stacks),
+              f"{width}px: and it is the cover's grotesque, not the page serif",
+              faces[0][:60])
+        ink = page.eval_on_selector(".brandName em",
+                                    "e => getComputedStyle(e).color")
+        check(ink == f"rgb({_r}, {_g}, {_b})",
+              f"{width}px: the AI carries the cover's accent blue",
+              f"{ink}, cover uses {ACCENT_HEX}")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe wrapped nav row is not sliced by the header's own edge")
+    print("-" * 62)
+    # At 390 the nav wraps to a second row whose bottom was the header's
+    # bottom. The active link's underline is a 2px rule with 6px rounded ends,
+    # so being cut off at the header edge left a flat orange smudge; the white
+    # "Sign up" pill had 25px of navy above it and 2px below.
+    for path, signed_in in (("/pricing", False), ("/login", False),
+                            ("/library", True)):
+        ctx, page = open_page(390, signed_in=signed_in)
+        page.goto(BASE + path)
+        page.wait_for_load_state("networkidle")
+        header = box(page, "header")
+        rows = boxes(page, ".nav a, .navForm button")
+        wrapped = [r for r in rows if r["h"] > 0]
+        gap = min(header["bottom"] - r["bottom"] for r in wrapped)
+        check(gap >= 6, f"{path}: the nav row clears the header edge",
+              f"{gap:.0f}px below the lowest nav item")
+        pill = box(page, ".navCta")
+        if pill and pill["h"] > 0:
+            below = header["bottom"] - pill["bottom"]
+            # It cannot be centred in a two-row header, and it is not asked to
+            # be: it has to have navy under it rather than the header's edge.
+            check(below >= 8,
+                  f"{path}: the Sign up pill sits in the bar, not on its edge",
+                  f"{below:.0f}px of bar below it")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nAn empty library reads as words, not as words on a drawing")
+    print("-" * 62)
+    # The ghosted book and pencil are 130px line art in a panel about 340px
+    # wide on a phone, so the sentence and the button printed straight over
+    # them. A new account's first screen was its own copy tangled in wallpaper.
+    for width in (390, 1440):
+        ctx, page = open_page(width, signed_in=True, email=NEW_EMAIL)
+        page.goto(BASE + "/library")
+        page.wait_for_load_state("networkidle")
+        motifs = [m for m in boxes(page, ".scatter .s") if m["w"] > 0]
+        words = [w for w in ink_boxes(page, ".empty p, .empty .btn") if w["w"] > 0]
+        check(bool(words), f"{width}px: the empty state still says something",
+              f"{len(words)} text elements")
+        worst = max((overlap(m, w) for m in motifs for w in words), default=0.0)
+        check(worst == 0,
+              f"{width}px: nothing readable sits on the ghosted motifs",
+              f"{len(motifs)} motifs, {worst:.0f} sq px shared")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print(f"\nEverything tappable is at least {TAP_MIN}px tall on a phone")
+    print("-" * 62)
+    for label, signed_in in (("signed out", False), ("signed in", True)):
+        ctx, page = open_page(390, signed_in=signed_in)
+        page.goto(BASE + "/pricing")
+        page.wait_for_load_state("networkidle")
+        for what, selector in (("nav", ".nav a, .navForm button"),
+                               ("footer", "footer a")):
+            targets = [t for t in boxes(page, selector) if t["w"] > 0]
+            shortest = min(targets, key=lambda t: t["h"])
+            check(shortest["h"] >= TAP_MIN,
+                  f"{label}: every {what} target is finger-sized",
+                  f"shortest is {shortest['h']:.0f}px ({shortest['text']})")
+        # Equal boxes around unequal words leave unequal space between the
+        # words, and space between the words is what the eye measures.
+        # The ink, not the boxes: with every item flex:1 the boxes were
+        # flush against each other and looked perfectly even, while the words
+        # inside them were 25, 20, 11, 15 and 16px apart.
+        nav = sorted((t for t in ink_boxes(page, ".nav a, .navForm button")
+                      if t["w"] > 0), key=lambda t: t["x"])
+        gaps = [round(b["x"] - a["right"], 1)
+                for a, b in zip(nav, nav[1:]) if b["x"] >= a["right"] - 1]
+        if len(gaps) >= 3:
+            spread = max(gaps) - min(gaps)
+            check(spread <= 4, f"{label}: the nav items are evenly spaced",
+                  f"gaps {gaps}, spread {spread:.0f}px")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nOn a page someone came to use, the page comes first")
+    print("-" * 62)
+    # Paulio was 220-320px on Create, Study plans, My booklets and Account,
+    # with the page title vertically centred against him. The result: a
+    # library of five booklets whose first row began at y=790 in a 900px
+    # window, and a one-form page whose first control sat 1173px down.
+    for path in ("/", "/plans", "/library", "/account"):
+        for width in (390, 1440):
+            ctx, page = open_page(width, signed_in=True)
+            page.goto(BASE + path)
+            page.wait_for_load_state("networkidle")
+            # Selectors name the row that has always been there, not the
+            # modifier class this fix introduced, so the same measurements
+            # run against the old markup.
+            bear = box(page, ".paulioRow img")
+            card = box(page, ".paulioRow")
+            title = box(page, ".paulioRow h1")
+            check(bear is not None and bear["w"] <= 120,
+                  f"{path} at {width}: the mascot is a margin figure",
+                  f"{bear['w']:.0f}px wide" if bear else "no mascot found")
+            # Top-aligned, not floated in the middle of a tall bear.
+            drop = (title["y"] - card["y"]) if title and card else 999
+            check(drop <= 12,
+                  f"{path} at {width}: the page title starts at the top of "
+                  "its card", f"{drop:.0f}px down")
+            ctx.close()
+
+    ctx, page = open_page(1440, 900, signed_in=True)
+    page.goto(BASE + "/library")
+    page.wait_for_load_state("networkidle")
+    first = box(page, ".jobItem")
+    # 542 with the old header block, in a 900px window: the customer saw a
+    # bear, a speech bubble and the top of one row. 450 leaves the mascot
+    # room to exist and still puts two booklets on the first screen.
+    check(first["y"] < 450, "a returning customer sees their booklets without "
+                            "scrolling", f"first row at y={first['y']:.0f}")
+    ctx.close()
+
+    ctx, page = open_page(390, signed_in=True)
+    page.goto(BASE + "/")
+    page.wait_for_load_state("networkidle")
+    control = box(page, ".programOption label")
+    check(control["y"] < 844, "the create form's first choice is on the first "
+                              "screen", f"y={control['y']:.0f} in an 844px viewport")
+    ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe last row of a ten-week plan looks like the other nine")
+    print("-" * 62)
+    for width in (390, 1440):
+        ctx, page = open_page(width, signed_in=True)
+        page.goto(BASE + "/plans")
+        page.wait_for_load_state("networkidle")
+        chips = boxes(page, ".weekNo")
+        ink = text_boxes(page, ".weekNo")
+        check(len(chips) == 10, f"{width}px: the plan lists ten weeks",
+              f"{len(chips)} chips")
+        widths = {round(c["w"], 1) for c in chips}
+        check(len(widths) == 1, f"{width}px: every week chip is the same size",
+              str(sorted(widths)))
+        clear = min(min(i["x"] - c["x"], c["right"] - i["right"])
+                    for c, i in zip(chips, ink))
+        # The chip has to be visible around its own number. At 1.7em week 10
+        # had 3.5px, so the numeral covered the chip.
+        check(clear >= 5, f"{width}px: the number sits inside its chip",
+              f"tightest is {clear:.1f}px")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nForm fields are one width, not a staircase")
+    print("-" * 62)
+    # On Study plans the three fields ran 288px, then the full 800px card,
+    # then 288px again, because nothing set a select's width and each one took
+    # whatever its container gave it. A dropdown's content is a fixed list, so
+    # there is nothing about it that justifies a different width from the
+    # dropdown above it.
+    for path in ("/plans", "/"):
+        for width in (390, 1440):
+            ctx, page = open_page(width, signed_in=True)
+            page.goto(BASE + path)
+            page.wait_for_load_state("networkidle")
+            # The create form hides the subject dropdown until a product that
+            # has subjects is chosen, and a form with one dropdown in it
+            # cannot be inconsistent with itself.
+            # Set through the DOM rather than clicked: the radio itself is
+            # visually hidden behind its label card, so a real click would
+            # wait for an element that is never going to be visible.
+            page.evaluate("""() => {
+                const r = document.querySelector('#program_accelerate');
+                if (r) { r.checked = true;
+                         r.dispatchEvent(new Event('change', {bubbles:true})); }
+            }""")
+            page.wait_for_timeout(120)
+            # .planGenerate's week picker is deliberately inline, beside its
+            # own button, and is not one of the form's stacked fields.
+            picks = [b for b in boxes(page, "form:not(.planGenerate) select")
+                     if b["w"] > 0]
+            widths = sorted({round(b["w"]) for b in picks})
+            check(len(picks) >= 2 and len(widths) == 1,
+                  f"{path} at {width}: every dropdown is the same width",
+                  f"{len(picks)} dropdowns, widths {widths}")
+            ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe success moment says what succeeded")
+    print("-" * 62)
+    # The done state showed a green circled tick with nothing beside it,
+    # left-aligned under a centred mascot and a centred speech bubble. This is
+    # the moment the customer's money turned into a booklet.
+    for width in (390, 1440):
+        ctx, page = open_page(width, signed_in=True)
+        page.goto(BASE + "/progress/layout-0")
+        page.wait_for_selector("#done", state="visible", timeout=8000)
+        # The union of what the mark's row actually draws, not the row's own
+        # box: a block div spans the card whatever sits inside it, so its box
+        # measured perfectly centred while the tick sat at the left edge.
+        mark = page.eval_on_selector(".doneMark", """e => {
+            const rs = [...e.children].map(c => c.getBoundingClientRect())
+                                      .filter(r => r.width > 0);
+            return {x: Math.min(...rs.map(r => r.x)),
+                    right: Math.max(...rs.map(r => r.right))};
+        }""")
+        words = text_boxes(page, ".doneMark span")
+        bubble = box(page, "#done .paulioBubble")
+        check(bool(words) and words[0]["w"] > 40,
+              f"{width}px: the tick has a sentence beside it",
+              words[0]["text"] if words else "nothing beside it")
+        drift = abs((mark["x"] + mark["right"]) / 2
+                    - (bubble["x"] + bubble["right"]) / 2)
+        check(drift <= 8,
+              f"{width}px: and it is centred like the bubble above it",
+              f"{drift:.0f}px off centre")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe paper plane and its contrail are one object")
+    print("-" * 62)
+    # They were two SVGs in a flex row, each with its own coordinate space and
+    # one of them nudged with a translate, so the dashed trail ended about
+    # 16px left and 7px above the plane's tail, at a different angle. Two
+    # objects near each other, not one thing in motion.
+    #
+    # Measured at the geometry, not the boxes: the end point of the dashed
+    # path and the end point of the plane's spine (its tail) are both exact
+    # points on real SVG paths, in both the old markup and the new.
+    JOIN = """() => {
+        const paths = [...document.querySelectorAll('.flight path')];
+        const pt = (p, len) => {
+            const q = p.getPointAtLength(len);
+            const m = p.getScreenCTM();
+            return {x: q.x * m.a + q.y * m.c + m.e,
+                    y: q.x * m.b + q.y * m.d + m.f};
+        };
+        const trail = paths.find(
+            p => getComputedStyle(p).strokeDasharray !== 'none');
+        const spine = paths.find(
+            p => (p.getAttribute('d') || '').replace(/\\s+/g, '')
+                                            .includes('M284L1318'));
+        if (!trail || !spine) { return null; }
+        const a = pt(trail, trail.getTotalLength());
+        const b = pt(spine, spine.getTotalLength());
+        return {dx: b.x - a.x, dy: b.y - a.y,
+                svgs: document.querySelectorAll('.flight svg').length};
+    }"""
+    for width in (390, 1440):
+        ctx, page = open_page(width, signed_in=True)
+        page.goto(BASE + "/progress/layout-running")
+        page.wait_for_selector(".flight", state="visible", timeout=8000)
+        join = page.evaluate(JOIN)
+        check(join is not None, f"{width}px: the flight motif is drawn")
+        if join:
+            check(abs(join["dx"]) <= 4 and abs(join["dy"]) <= 4,
+                  f"{width}px: the trail ends where the plane begins",
+                  f"{join['dx']:.0f}px across, {join['dy']:.0f}px up")
+        bubble = box(page, "#working .paulioBubble")
+        motif = box(page, ".flight svg")
+        check(overlap(bubble, motif) == 0,
+              f"{width}px: and it does not fly through the speech bubble",
+              f"{overlap(bubble, motif):.0f} sq px shared")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe two price tiers start on the same line")
+    print("-" * 62)
+    # The "Best value" band occupies real height, and the spacer meant to
+    # compensate for it on the other card was an empty block, which generates
+    # no line box: the two tiers' titles sat 20px apart, and every row below
+    # them followed. "A$" was raised to cap height as well, which on a page
+    # taking money makes the currency read as a footnote marker on the price.
+    for width in (390, 1440):
+        ctx, page = open_page(width)
+        page.goto(BASE + "/pricing")
+        page.wait_for_load_state("networkidle")
+        titles = boxes(page, ".priceCard h2")
+        if width >= 700:
+            drift = max(t["y"] for t in titles) - min(t["y"] for t in titles)
+            check(drift <= 1, "both tier titles sit on the same line",
+                  f"{drift:.0f}px apart")
+        # One glyph, one meaning. The book icon means "NAPLAN Practice" in the
+        # product menu and is empty-state wallpaper elsewhere; a third,
+        # unlabelled appearance floating between the speech bubble and the H1
+        # taught a visitor that it means nothing at all.
+        check(not boxes(page, ".pricingIntro svg.motif"),
+              f"{width}px: no unlabelled icon floats above the price list",
+              f"{len(boxes(page, '.pricingIntro svg.motif'))} found")
+        currency = boxes(page, ".price span")
+        amounts = boxes(page, ".price")
+        # Sharing a baseline shows up as sharing a bottom edge, give or take
+        # the descender space of the larger size.
+        gap = max(abs(c["bottom"] - a["bottom"])
+                  for c, a in zip(currency, amounts))
+        check(gap <= 14, f"{width}px: A$ sits on the price's baseline, not "
+                         "above it", f"{gap:.0f}px above the amount's bottom")
+        ctx.close()
+
+    # -----------------------------------------------------------------------
+    print("\nThe pages a cautious parent reads before paying are centred")
+    print("-" * 62)
+    # Support, Privacy and Terms each capped their card at a reading measure
+    # and then gave it no side margins, so at 1440 the card ran x=297 to 828
+    # inside a wrap running 298 to 1141: a 313px void down the right of all
+    # three.
+    for path in ("/support", "/privacy", "/terms"):
+        for width in (390, 1440):
+            ctx, page = open_page(width)
+            page.goto(BASE + path)
+            page.wait_for_load_state("networkidle")
+            card = box(page, ".policyPage")
+            wrap = box(page, "main.wrap")
+            left = card["x"] - wrap["x"]
+            right = wrap["right"] - card["right"]
+            check(abs(left - right) <= 2,
+                  f"{path} at {width}: the card is centred in the page",
+                  f"{left:.0f}px left, {right:.0f}px right")
+            ctx.close()
+
+    browser.close()
+
+# ---------------------------------------------------------------------------
+print("\n" + "-" * 62)
+if failures:
+    print(f"\n{len(failures)} FAILED:")
+    for f in failures:
+        print(f"  - {f}")
+    sys.exit(1)
+print("\nAll checks passed.")

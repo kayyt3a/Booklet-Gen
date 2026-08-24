@@ -35,6 +35,7 @@ from .style import (
     _SHAPE_SIDES,
     _side_rotation,
     _unit_suffix,
+    save_figure,
 )
 
 
@@ -688,8 +689,7 @@ def ruler(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-1.15, 1.45)
     ax.set_aspect("auto")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.08, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.08)
 
 
 def jug(spec: dict, out: Path, f: _Fonts) -> None:
@@ -1181,8 +1181,7 @@ def part_whole(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-0.12, 1.25 if whole is not None else 0.70)
     ax.set_aspect("auto")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.08, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.08)
 
 
 def factor_tree(spec: dict, out: Path, f: _Fonts) -> None:
@@ -1243,8 +1242,7 @@ def factor_tree(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-depth - 0.5, 0.5)
     ax.set_aspect("auto")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.08, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.08)
 
 
 # ---------------------------------------------------------------------------
@@ -1468,8 +1466,7 @@ def factor_pair(spec: dict, out: Path, f: _Fonts) -> None:
 def _save_pixel(fig, out: Path) -> None:
     import matplotlib.pyplot as plt
 
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.10, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.10)
 
 
 RENDERERS = {

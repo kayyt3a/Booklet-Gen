@@ -107,6 +107,7 @@ from typing import Optional
 # the renderer modules below can share them without importing this dispatcher,
 # which imports them. Re-exported here because callers and check scripts reach
 # for `diagrams.DPI`, `diagrams.CACHE_DIR` and friends.
+from .labels import label_text, normalise_spec                    # noqa: F401
 from .style import (                                              # noqa: F401
     ACCENT_COLOR,
     DIAGRAM_PRINT_BOX_PT,
@@ -131,15 +132,30 @@ from .style import (                                              # noqa: F401
     _SHAPE_SIDES,
     _side_rotation,
     log,
+    save_figure,
 )
 
 CACHE_DIR = Path("output/diagrams")
+
+# The cache is keyed on the spec, and the spec alone says nothing about HOW the
+# figure was drawn. So the drawing itself is versioned, and the version is part
+# of the key. Without it a deployed instance with a warm cache keeps serving
+# figures drawn under the old rules for as long as the disk lives: after the
+# background went transparent, every diagram already on disk still had a white
+# rectangle baked into it, and the seam this was meant to remove would have
+# survived in exactly the booklets a paying customer had already generated.
+#
+# Bump this whenever a change alters what a renderer PUTS ON THE PAGE for an
+# unchanged spec. It is also the hook a context-dependent background would hang
+# off, if this ever stops being able to be context-free.
+RENDER_VERSION = 3
 
 
 def _cache_path(spec: dict) -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha1(
-        json.dumps(spec, sort_keys=True, default=str).encode()
+        json.dumps({"v": RENDER_VERSION, "spec": spec},
+                   sort_keys=True, default=str).encode()
     ).hexdigest()[:16]
     return CACHE_DIR / f"{key}.png"
 
@@ -151,6 +167,14 @@ def render_diagram(spec: dict) -> Optional[Path]:
     kind = spec.get("type")
     if not kind:
         return None
+    # The model writes its labels the way it writes everything else, in source
+    # code: "cm^2", "3*4", "sqrt(16)". Every other string in the booklet is put
+    # right by formatter._escape and these never went near it, so a figure
+    # printed a caret under a paragraph that printed an index. See labels.py.
+    #
+    # Before the cache key, not after: "cm^2" and "cm²" draw the same picture
+    # and should be the same file.
+    spec = normalise_spec(spec)
     out = _cache_path(spec)
     if out.exists():
         return out
@@ -238,8 +262,7 @@ def _circle_slices(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-1.15, 1.15)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.05)
 
 
 def _bar_model(spec: dict, out: Path, f: _Fonts) -> None:
@@ -266,8 +289,7 @@ def _bar_model(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-0.1, 0.6)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05)
-    plt.close(fig)
+    save_figure(fig, out, 0.05)
 
 
 _PLAIN_NUMBER = re.compile(r"^-?\d+(?:\.\d+)?$")
@@ -357,8 +379,7 @@ def _number_line(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_xlim(lo - (hi - lo) * 0.05, hi + (hi - lo) * 0.05)
     ax.set_ylim(-0.5, 0.5)
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05)
-    plt.close(fig)
+    save_figure(fig, out, 0.05)
 
 
 def _rectangle(spec: dict, out: Path, f: _Fonts) -> None:
@@ -391,8 +412,7 @@ def _rectangle(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_aspect("equal")
     ax.axis("off")
     _scale_note(ax, spec, f)
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
-    plt.close(fig)
+    save_figure(fig, out, 0.1)
 
 
 def _l_shape(spec: dict, out: Path, f: _Fonts) -> None:
@@ -434,8 +454,7 @@ def _l_shape(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-OW * 0.15, OW * 1.12)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
-    plt.close(fig)
+    save_figure(fig, out, 0.1)
 
 
 def _cuboid(spec: dict, out: Path, f: _Fonts) -> None:
@@ -507,8 +526,7 @@ def _cuboid(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_aspect("equal")
     ax.axis("off")
     _scale_note(ax, spec, f)
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
-    plt.close(fig)
+    save_figure(fig, out, 0.1)
 
 
 def _cylinder(spec: dict, out: Path, f: _Fonts) -> None:
@@ -563,8 +581,7 @@ def _cylinder(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_aspect("equal")
     ax.axis("off")
     _scale_note(ax, spec, f)
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.1)
-    plt.close(fig)
+    save_figure(fig, out, 0.1)
 
 
 def _compare(spec: dict, out: Path, f: _Fonts) -> None:
@@ -708,8 +725,7 @@ def _clock(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-1.12, 1.12)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.05)
 
 
 def _array(spec: dict, out: Path, f: _Fonts) -> None:
@@ -746,8 +762,7 @@ def _array(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-rows + 0.4, 0.6)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.05)
 
 
 def _groups(spec: dict, out: Path, f: _Fonts) -> None:
@@ -788,8 +803,7 @@ def _groups(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-(rows - 1) * 0.55 - 0.55, 0.55)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.05)
 
 
 def _shape(spec: dict, out: Path, f: _Fonts) -> None:
@@ -846,8 +860,7 @@ def _shape(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-1.35 if show_labels else -0.8, 0.8)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.05)
 
 
 def _place_value(spec: dict, out: Path, f: _Fonts) -> None:
@@ -904,8 +917,7 @@ def _place_value(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_ylim(-10 * u - 0.72, 0.3)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.05, transparent=False)
-    plt.close(fig)
+    save_figure(fig, out, 0.05)
 
 
 from . import data as _data_figures            # noqa: E402
@@ -1025,9 +1037,7 @@ def _column_arithmetic(spec: dict, out: Path, f: _Fonts) -> None:
     # away the only place the working goes.
     ax.set_ylim(ans_y - 0.55 if show else rule_y - 0.3, y_mark + 0.6)
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.06,
-                facecolor="white")
-    plt.close(fig)
+    save_figure(fig, out, 0.06)
 
 
 # The multiplication sign the rest of the booklet normalises everything to
@@ -1166,8 +1176,7 @@ def _long_multiplication(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_xlim(x0 - col * 1.9, x0 + (width - 0.3) * col)
     ax.set_ylim(bottom_y, top_y)
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.06, facecolor="white")
-    plt.close(fig)
+    save_figure(fig, out, 0.06)
 
 
 def _short_division(spec: dict, out: Path, f: _Fonts) -> None:
@@ -1258,8 +1267,7 @@ def _short_division(spec: dict, out: Path, f: _Fonts) -> None:
     ax.set_xlim(x0 - col * 2.2, right_x + col * 1.5)
     ax.set_ylim(y_div - 0.8, y_quot + 0.65)
     ax.axis("off")
-    fig.savefig(out, bbox_inches="tight", pad_inches=0.06, facecolor="white")
-    plt.close(fig)
+    save_figure(fig, out, 0.06)
 
 
 _RENDERERS = {

@@ -68,6 +68,13 @@ ok("every band carries white text at AA contrast or better")
 # Most of these are printed on a home mono printer, where a band is only its
 # luminance. Two parts that differ in hue but not in lightness are still one
 # block of grey on paper.
+#
+# This pair is checked here because it is the pair this file was written about.
+# It is not the standard: 0.04 of relative luminance turned out to be about
+# eighteen points out of 255 on the printed page, which measurement showed was
+# not enough. All four bands are held to a floor measured off the rendered PDF
+# in check_part_greyscale.py, and that is the check to change if the floor is
+# ever in question.
 lum = {n: _luminance(c) for n, c in PARTS.items()}
 gap = abs(lum["Homework"] - lum["Final Challenge"])
 assert gap >= 0.04, (
@@ -116,11 +123,18 @@ assert not stranded, (
     "each one takes a full line and the answer looks like it broke.")
 ok("no line in the key is a bare step number")
 
-assert lines[0] == "Subtract Monday's sales:", lines[0]
-# Three numerals dropped out of nine lines. The remaining six are the shape
-# every other part of the key already has: a clause, then its arithmetic.
-assert len(lines) == 6, f"{len(lines)} lines, expected 6: {lines}"
-ok("the same answer now reads as 6 lines rather than 9")
+# This used to assert six lines, with "Subtract Monday's sales:" alone on the
+# first of them. That was the right fix for the defect this section was written
+# about (a bare "1." taking a whole line) and the wrong shape for the key: six
+# lines of four words down a column still read as debug output, because half of
+# them were a label with its value on the next line. `solution_lines` now
+# breaks per STEP, meaning a clause and the arithmetic that resolves it, which
+# is the unit a parent marks against. So the old intent, one line per sentence
+# with the numerals dropped, no longer holds; what carries over from it is that
+# no numeral is stranded and no arithmetic is lost.
+assert lines[0] == "Subtract Monday's sales: 450 - 128 = 322.", lines[0]
+assert len(lines) == 3, f"{len(lines)} lines, expected 3: {lines}"
+ok("the same answer now reads as 3 marked steps rather than 9 fragments")
 
 # The working itself must survive intact: dropping the numerals must not drop
 # the arithmetic beside them.
@@ -134,11 +148,13 @@ kept = solution_lines("Total = 24\nNumber of groups = 4\n24 / 4 = 6")
 assert kept == ["Total = 24", "Number of groups = 4", "24 / 4 = 6"], kept
 ok("a working line that ends in a number is untouched")
 
-# And the ordinary one-step-per-line shape is unchanged.
+# And an ordinary Class Work solution keeps each label with the values it
+# introduces. Split at the colon, as this used to expect, "Compare thousands
+# digits:" and "1, 3, 5." were two lines in a column eight centimetres wide,
+# and the reader had to rejoin them to mark anything.
 plain = solution_lines("Compare thousands digits: 1, 3, 5.\nOrder: 1245, 3245.")
-assert plain == ["Compare thousands digits:", "1, 3, 5.", "Order:",
-                 "1245, 3245."], plain
-ok("a Class Work solution is unchanged")
+assert plain == ["Compare thousands digits: 1, 3, 5.", "Order: 1245, 3245."], plain
+ok("a Class Work solution keeps each label with its own values")
 
 print("\nPAULIO DOES NOT HANG OVER THE LANDING PAGE'S TEXT")
 

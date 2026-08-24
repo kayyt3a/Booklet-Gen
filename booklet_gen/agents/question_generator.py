@@ -325,6 +325,7 @@ class QuestionGeneratorAgent:
         classwork_count: int | None = None,
         allow_passages: bool = True,
         passage_quota: int = 2,
+        count: int | None = None,
     ) -> PassageQuestionSet:
         """Generate a question set for one subtopic.
 
@@ -346,6 +347,13 @@ class QuestionGeneratorAgent:
         0 means write none, and is how the subtopics past the first two are told
         to leave the reading to those.
         """
+        # `count` is how many questions THIS booklet wants from this subtopic.
+        # It arrives per call because it depends on the student's year, which
+        # the agent is constructed long before anyone knows: a Year 1 subtopic
+        # is set six questions and a Year 9 one eight. Falling back to the
+        # constructor's number keeps every existing caller, including the guard
+        # checks, exactly as it was.
+        n = count if count and count > 0 else self._n
         passages_wanted = (allow_passages and wants_passages(subject)
                            and passage_quota > 0)
         system = self._system_prompt(subject)
@@ -356,11 +364,11 @@ class QuestionGeneratorAgent:
             f"Subtopic: {subtopic.name}\n"
             f"Target difficulty: {subtopic.difficulty_hint}\n"
             f"Question types: {', '.join(subtopic.question_types) or 'any suitable'}\n"
-            f"Generate exactly {self._n} questions."
+            f"Generate exactly {n} questions."
         )
         base_user += teaching_block(teaching)
         if passages_wanted:
-            base_user += passage_block(subject, self._n, classwork_count,
+            base_user += passage_block(subject, n, classwork_count,
                                        passage_quota)
         if reference_chunks:
             joined = "\n\n---\n\n".join(reference_chunks)

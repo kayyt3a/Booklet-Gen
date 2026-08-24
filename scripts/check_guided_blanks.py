@@ -174,12 +174,28 @@ ok("a rendered booklet's key names the section and carries its values")
 key_starts = [i for i, page in enumerate(pages)
               if "Answers & Worked Solutions" in page]
 assert key_starts, f"no answer key page found in {len(pages)} pages"
-body = "\n".join(pages[:key_starts[0]])
+# The guided box itself, not the pages it sits on. A bare search across the
+# body reads any "21" as the leaked value, so this failed on the 21st of the
+# month against a booklet that was rendering perfectly: the cover prints the
+# date. Restricting to the page is not enough either, because the footer
+# prints "Page 21" and a subtopic heading prints "about 21 min". The value has
+# to be looked for in the box that would leak it and nowhere else.
+boxes = []
+for page in pages[1:key_starts[0]]:
+    low = page.lower()
+    start = low.find("try one together")
+    if start == -1:
+        continue
+    # The box ends where the practice under it begins; failing that, at the
+    # page footer, which is the last line and is never part of the box.
+    end = low.find("now you try", start)
+    boxes.append(page[start:end if end != -1
+                      else page.rfind("\n", start) or len(page)])
+assert boxes, "the guided example is not in the body of the booklet at all"
+body = "\n".join(boxes)
 answers = "\n".join(pages[key_starts[0]:])
-assert "try one together" in body.lower(), \
-    "the guided example is not in the body of the booklet at all"
 for value in ("21", "81"):
-    assert value not in body, (
+    assert not re.search(rf"(?<!\d){value}(?!\d)", body), (
         f"{value} is printed on the page the child writes on: the guided "
         "example is being rendered as a finished demonstration again, which "
         "is exactly the defect this change removes")

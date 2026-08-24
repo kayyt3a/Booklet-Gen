@@ -25,6 +25,8 @@ os.environ.pop("DATABASE_URL", None)
 
 from booklet_gen.webapp import create_app                        # noqa: E402
 from booklet_gen.webapp import db                                # noqa: E402
+from booklet_gen.webapp.commerce import products                 # noqa: E402
+from booklet_gen.webapp.public import _business                  # noqa: E402
 from booklet_gen.programs import (                               # noqa: E402
     EXAM_PROGRAMS,
     PROGRAMS,
@@ -121,6 +123,45 @@ check(b"sample-page.png" in body,
       "it shows a real page out of a booklet, not just a description")
 check(b"No credit card" in body, "it says what signing up costs")
 
+
+# ---------------------------------------------------------------------------
+print("\nThe landing page says what a booklet costs, before the fold")
+print("-" * 62)
+# "First booklet free" appeared above the fold and no number did, so a parent
+# deciding whether this was worth an account had to leave the page for Pricing
+# to find out whether the second booklet was five dollars or fifty. The figures
+# come from commerce.products(), never typed into the template, because a typed
+# price drifts the day FOLIO_PRICE_SINGLE_AUD changes and then the shop front
+# quotes something Checkout does not charge.
+catalog = products()
+_hero_html = body.decode().split('<section class="coverBand"', 1)[0]
+check(f"A${catalog['single'].display_price}" in _hero_html,
+      "the price of one booklet is in the hero, above everything else",
+      f"looking for A${catalog['single'].display_price}")
+for key, p in catalog.items():
+    check(f"A${p.display_price}".encode() in body,
+          f"the page quotes the catalogue price of the {p.label}",
+          f"A${p.display_price}")
+# Nothing on the page may name a price the catalogue does not sell.
+_quoted = set(re.findall(r"A\$\s*([0-9]+(?:\.[0-9]{2})?)", body.decode()))
+_real = {p.display_price for p in catalog.values()}
+check(_quoted and _quoted <= _real,
+      "and quotes no figure the catalogue does not carry",
+      f"page says {sorted(_quoted)}, catalogue holds {sorted(_real)}")
+# Rendered, not written out: move the price and the page has to move with it.
+_saved_price = os.environ.get("FOLIO_PRICE_SINGLE_AUD")
+os.environ["FOLIO_PRICE_SINGLE_AUD"] = "6.50"
+try:
+    _repriced = client.get("/").data
+finally:
+    if _saved_price is None:
+        os.environ.pop("FOLIO_PRICE_SINGLE_AUD", None)
+    else:
+        os.environ["FOLIO_PRICE_SINGLE_AUD"] = _saved_price
+check(b"A$6.50" in _repriced and b"A$5.00" not in _repriced,
+      "and the figure follows the catalogue when the price changes",
+      "repriced to 6.50")
+
 sample = client.get("/static/img/sample-page.png")
 check(sample.status_code == 200 and len(sample.data) > 20_000,
       "and that sample page is actually served",
@@ -199,6 +240,12 @@ print("-" * 62)
 # is also one more thing that can be slow or gone when a parent first visits.
 OFFSITE = re.compile(
     rb'(?:src|href)\s*=\s*["\'](?!/|\{\{|#|data:|mailto:)[a-zA-Z]+:', re.I)
+# The canonical link is a deliberate exception: it is required to be an
+# absolute, self-referencing URL (booklet_gen/webapp/seo.py, base.html), and
+# it is metadata about this page's own address, not a resource fetched from
+# anywhere. Nothing else on the page is allowed to be absolute, so only this
+# one tag is stripped before the offsite scan runs.
+CANONICAL_LINK = re.compile(rb'<link rel="canonical"[^>]*>')
 pages = [
     "/", "/library", "/account", "/login", "/signup", "/pricing",
     "/support", "/privacy", "/terms", "/forgot-password",
@@ -206,7 +253,7 @@ pages = [
 ]
 for path in pages:
     data = client.get(path, follow_redirects=True).data
-    hits = OFFSITE.findall(data)
+    hits = OFFSITE.findall(CANONICAL_LINK.sub(b"", data))
     check(not hits, f"{path} loads nothing from another host", str(hits[:2]))
 
 check("@import" not in css and "url(http" not in css,
@@ -225,6 +272,43 @@ db.save_job_file("pages-job", uid, "folio.pdf", "application/pdf", b"%PDF fake")
 lib = client.get("/library")
 check(lib.status_code == 200 and b"Ella" in lib.data,
       "the library lists a finished booklet")
+
+# ---------------------------------------------------------------------------
+print("\nA row in My booklets says its state once, and offers a way on")
+print("-" * 62)
+# Two kinds of failed row. The first can be retried; the second cannot, because
+# it has no stored request. That second kind is not hypothetical: request_json
+# arrived as a later column (see db.init_db's migrations), so every job already
+# in the database when it landed carries NULL, and db.create_job, which the
+# fixtures and the older code path use, never writes one either. Its action
+# slot used to hold a second, identical red "Failed" pill beside the one in the
+# row's own meta line: right-aligned on a laptop, left-aligned on a phone, and
+# saying nothing the row had not already said, under an error message that ends
+# "Please try again".
+db.enqueue_job("pages-retryable", uid, "NAPLAN Practice - Year 5 - Ella", 1,
+               {"program": "naplan", "year": "Year 5", "name": "Ella"},
+               reserve_credits=False)
+db.fail_job("pages-retryable", "the model timed out")
+db.create_job("pages-legacy", uid,
+              "Academic Accelerate - Year 3 - English - Noah", units=1)
+db.fail_job("pages-legacy", "the model timed out")
+check(db.get_job("pages-legacy")["request_json"] is None,
+      "a job created without a stored request really has none",
+      "which is what a pre-migration row looks like")
+
+_rows = re.findall(r'<li class="jobItem">(.*?)</li>',
+                   client.get("/library").data.decode(), re.S)
+check(len(_rows) == 3, "the library renders every row", f"{len(_rows)} rows")
+for _row in _rows:
+    _title = re.search(r'class="jobTitle">([^<]*)', _row).group(1).strip()
+    _pills = re.findall(r'<span class="pill [^"]*">([^<]*)</span>', _row)
+    check(len(_pills) == 1, f"{_title[:34]}: one status pill, not two",
+          f"pills: {[p.strip() for p in _pills]}")
+_legacy = next(r for r in _rows if "Noah" in r)
+check("Try again" not in _legacy and "/retry/" not in _legacy,
+      "a row with no stored request offers no retry, which would 404")
+check('href="/"' in _legacy,
+      "but it does offer a way on, rather than a dead red pill")
 acct = client.get("/account")
 check(acct.status_code == 200 and b"Booklets generated" in acct.data,
       "the account page shows usage")
@@ -252,6 +336,56 @@ check(b"two business days" in support and b"not usable" in support,
       "support gives a response target and quality path")
 check(b"first name or nickname only" in privacy and b"accounting records" in privacy,
       "privacy copy minimises child data and explains residual legal records")
+
+# ---------------------------------------------------------------------------
+print("\nEvery page carries the identity of the business taking the money")
+print("-" * 62)
+# The footer used to be a trading name and three links, which is thin for an
+# Australian parent about to enter a card. It now carries what the legal pages
+# already state, from the same source they read: public._business(). The point
+# of checking it here is that the two can never disagree, and that nothing in
+# the footer is invented.
+
+
+def footer_of(path: str) -> str:
+    m = re.search(r"<footer>(.*?)</footer>", client.get(path).data.decode(), re.S)
+    return " ".join(re.sub(r"<[^>]+>", " ", m.group(1)).split()) if m else ""
+
+
+_biz = _business()
+for path in ("/", "/pricing", "/support", "/login"):
+    foot = footer_of(path)
+    check(_biz["name"] in foot and _biz["email"] in foot
+          and _biz["country"] in foot,
+          f"{path}: the footer names the business, its country and its email",
+          foot[:90])
+# The same address the legal pages give, not a second one nobody monitors.
+for path in ("/support", "/privacy", "/terms"):
+    page = client.get(path).data.decode()
+    addresses = set(re.findall(r"mailto:([^\"'>\s]+)", page))
+    check(addresses == {_biz["email"]},
+          f"{path} gives the one contact address the footer gives",
+          f"page offers {sorted(addresses)}")
+# Nothing invented: with no ABN and no postal address configured, the footer
+# states neither, and does not leave the separators of an empty one behind.
+_ABN = "ABN 12 345 678 901"
+_ADDR = "PO Box 9, Perth WA 6000"
+check(_ABN not in footer_of("/") and _ADDR not in footer_of("/"),
+      "with no business number configured, the footer states none")
+_saved = {k: os.environ.get(k) for k in
+          ("FOLIO_BUSINESS_NUMBER", "FOLIO_BUSINESS_ADDRESS")}
+os.environ["FOLIO_BUSINESS_NUMBER"] = _ABN
+os.environ["FOLIO_BUSINESS_ADDRESS"] = _ADDR
+try:
+    _identified = footer_of("/")
+finally:
+    for k, v in _saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+check(_ABN in _identified and _ADDR in _identified,
+      "and prints both the moment the deployment sets them", _identified[:120])
 
 # ---------------------------------------------------------------------------
 print("\nEvery page tells the same truth about how long files are kept")

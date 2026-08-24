@@ -19,7 +19,7 @@ from flask import (
 
 from . import db
 from .auth import login_required
-from .commerce import payments_enabled
+from .commerce import payments_enabled, products
 from .security import enforce_rate_limit
 from ..programs import (
     PROGRAMS, ACCELERATE_SUBJECTS, EXAM_PROGRAMS, EXAM_YEARS,
@@ -121,8 +121,12 @@ def index():
     programs = customer_programs()
     customer_exam_programs = EXAM_PROGRAMS.intersection(programs)
     if not g.user:
+        # The catalogue itself, so the landing page quotes the figure Checkout
+        # charges. A price typed into the template drifts the first time
+        # FOLIO_PRICE_SINGLE_AUD changes and nobody remembers this file.
         return render_template("landing.html", programs=programs,
-                               exam_programs=customer_exam_programs)
+                               exam_programs=customer_exam_programs,
+                               products=products())
     return render_template(
         "generate.html",
         programs=programs, years=YEARS, subjects=ACCELERATE_SUBJECTS,

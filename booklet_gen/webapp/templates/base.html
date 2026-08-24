@@ -15,18 +15,34 @@
      ships with its own navy tile rather than reusing the SVG. #}
   <link rel="apple-touch-icon"
         href="{{ url_for('static', filename='img/brand/apple-touch-icon.png') }}">
+  {# The URL a search engine should treat as this page's real address, and the
+     one it should show in results instead of a query-string variant such as
+     "/?next=/library". Self-referencing by default (every page is its own
+     canonical) is deliberate: it needs no per-template upkeep, and it is
+     correct for every page here because none of them serve the same content
+     under two different paths. #}
+  <link rel="canonical" href="{{ public_base_url() }}{{ request.path }}">
   {# What a parent sees when someone shares Folio into a group chat. Without
      these the card is a bare URL, which reads as a link nobody vouched for. #}
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="FolioAI">
   <meta property="og:title" content="{% block og_title %}{{ self.title() }}{% endblock %}">
   <meta property="og:description" content="{{ self.description() }}">
+  <meta property="og:url" content="{{ public_base_url() }}{{ request.path }}">
   <meta property="og:image"
         content="{{ url_for('static', filename='img/brand/og-image.jpg', _external=True) }}">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {# Organization structured data, sitewide: the standard signal that this
+     domain is the entity named FolioAI, which is what a search on the brand
+     name itself needs to resolve to the site rather than to nothing. No
+     rating or review markup here or anywhere else on the site: FolioAI has
+     no reviews, and fake rating markup is both dishonest and a manual-action
+     risk with search engines. #}
+  <script type="application/ld+json">{{ organization_data()|tojson }}</script>
+  {% block extra_head %}{% endblock %}
 </head>
 {% from "_motifs.html" import mark %}
 <body class="{{ 'signedIn' if g.user else 'signedOut' }}">
@@ -34,9 +50,10 @@
   <header>
     <div class="headerInner">
       <a class="brand" href="{{ url_for('views.index') }}">
-        {{ mark(30) }}
-        <span class="brandName">FOLIO <em>AI</em></span>
-        <span class="brandTag">practice booklets</span></a>
+        {{ mark(38) }}
+        <span class="brandLockup">
+          <span class="brandName">FOLIO <em>AI</em></span>
+          <span class="brandTag">practice booklets</span></span></a>
       <nav class="nav">
         {% if g.user %}
           <a href="{{ url_for('views.index') }}"
@@ -75,8 +92,29 @@
     {% endwith %}
     {% block body %}{% endblock %}
   </main>
+  {# A trading name and three links is thin for a page about to take an
+     Australian parent's card. Everything below comes from public._business(),
+     the same source Terms, Privacy and Support render from, so the footer can
+     never state an identity those pages contradict.
+
+     Nothing here is invented. The business number and the postal address are
+     printed only when the deployment actually sets FOLIO_BUSINESS_NUMBER and
+     FOLIO_BUSINESS_ADDRESS, and the number is printed bare, exactly as
+     terms.html and privacy.html print it, because the variable is documented
+     as an ABN or whichever other business number applies and labelling it
+     "ABN" here would be this page's own guess. A fabricated detail on a page
+     taking payments is worse than a missing one. #}
   <footer>
-    <span>FolioAI, practice booklets for Years 1 to 10.</span>
+    <div class="footerId">
+      <span class="footerName">{{ business.name }}</span>
+      <span>Practice booklets for Years 1 to 10, from {{ business.country }}.</span>
+      <span class="footerContact">
+        <a href="mailto:{{ business.email }}">{{ business.email }}</a>
+        {% if business.phone %}<span>{{ business.phone }}</span>{% endif %}
+        {% if business.number %}<span>{{ business.number }}</span>{% endif %}
+        {% if business.address %}<span>{{ business.address }}</span>{% endif %}
+      </span>
+    </div>
     <span class="footerLinks">
       <a href="{{ url_for('public.support') }}">Support</a>
       <a href="{{ url_for('public.privacy') }}">Privacy</a>

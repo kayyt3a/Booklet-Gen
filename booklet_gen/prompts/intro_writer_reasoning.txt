@@ -25,7 +25,7 @@ Return a single JSON object matching this schema exactly:
   "guided_examples": [
     {
       "question": "A second short example, a different trick of the same type.",
-      "steps": ["Step 1 ... [[what they work out]]", "Step 2 spot the pattern: [[the pattern]]", "reach the answer"],
+      "steps": ["Step 1 ... [[what they work out]]", "Step 2 spot the pattern: [[the pattern]]", "the last step, ending in [[the answer]]"],
       "answer": "[[The answer.]]",
       "diagram_spec": null
     }
@@ -33,7 +33,7 @@ Return a single JSON object matching this schema exactly:
 }
 
 - mnemonic: a short memorable hook when one fits naturally, else null. Do not force it.
-- guided_examples is the "we do" step: 1 to 2 more short examples the student works through WITH the tutor before working alone. The student FILLS THIS IN, so it is not a second demonstration: wrap every value they are meant to work out themselves in [[double square brackets]], and the booklet prints a ruled gap there for them to write in, with the value itself going to the answer key. Mark the RESULT of each step, never the numbers given in the question and never the words that explain the method: "Multiply 4 x 6 = [[24]]" is right, "[[Multiply]] 4 x 6 = 24" and "Multiply [[4]] x [[6]] = 24" are both wrong. Blank 1 to 2 values per step at most, and always blank the final `answer` field the same way. Keep enough unblanked that the method is still readable: the child should be able to see WHAT to do at every step and have to work out only the value. The worked_example above must have NO [[ ]] at all, it stays fully solved.
+- guided_examples is the "we do" step: 1 to 2 more short examples the student works through WITH the tutor before working alone. The student FILLS THIS IN, so it is not a second demonstration: wrap every value they are meant to work out themselves in [[double square brackets]], and the booklet prints a ruled gap there for them to write in, with the value itself going to the answer key. Blank the RESULT of each step, never the letters, numbers or terms the question gives and never the words that explain the method: "Shift each letter back one: [[CAT]]" is right, "[[Shift]] each letter back one: CAT" and "Shift each [[letter]] back [[one]]" are both wrong. EVERY step that works something out ends in a blanked value, one or two of them, never none: a step whose result is already printed asks the child to read rather than to think. The `answer` field is blanked the same way. NO step may print the final answer as plain text, not even as a summing-up. "The rule is add 4, so the next term is [[21]], giving 21" hands the answer over two lines above the gap that asks for it and the exercise is finished before it starts; blank it in both places, or stop the step at the first one. Keep enough unblanked that the method is still readable: the child should be able to see WHAT to do at every step and have to work out only the value. The worked_example above must have NO [[ ]] at all, it stays fully solved.
 
 CONTENT RULES
 - Intro paragraphs: obey the LENGTH LIMITS in the user turn exactly. Explain the TYPE of question and the STRATEGY for spotting the trick, not the underlying arithmetic or vocabulary, which should be simple.

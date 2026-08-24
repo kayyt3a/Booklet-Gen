@@ -21,7 +21,7 @@ from .agents.term_planner import TermPlannerAgent
 from .agents.validator import SympyValidator, ValidationResult
 from . import curriculum
 from .timing import (section_minutes, round_display, round_total,
-                     classwork_section_minutes)
+                     classwork_section_minutes, session_plan)
 from .config import Config, load_config
 from .llm import get_client
 from .rag import Retriever
@@ -30,8 +30,19 @@ from .schemas import (
     SubtopicOutput, SubtopicTeaching, TablesList, ValidatedQuestion,
 )
 
-# A tutoring session runs an hour, so the Class Work half of a booklet has to
-# fit inside one. Anything past this moves to Homework rather than being cut.
+# The longest a Class Work section may ever be, whatever the year level. A
+# tutoring session runs an hour, so this is that hour; anything past it moves to
+# Homework rather than being cut.
+#
+# It is a CEILING now, not the cap itself. `timing.session_plan` sets the cap
+# for the student's year (thirty minutes for a Year 1, sixty for a Year 9) and
+# `_session_cap` takes whichever of the two is smaller, so a deployment that
+# lowers FOLIO_CLASSWORK_CAP_MINUTES still shortens every booklet and no year
+# band can ever raise its own session above the hour.
+#
+# One flat hour for every year is what produced five booklets in a row, Years 1
+# to 9, with fifty-two to fifty-seven minutes of class work each. The hour was
+# never wrong for Year 9. It was applied to a six year old.
 CLASSWORK_CAP_MINUTES = int(os.environ.get("FOLIO_CLASSWORK_CAP_MINUTES", "60"))
 
 # Never teach fewer than this many subtopics in a session, even if the cap
@@ -187,7 +198,9 @@ class BookletPipeline:
         challenge = self._build_challenge(
             outline.subject, outline.year_level, covered, rag_pool, seen,
         )
-        self._fit_classwork_to_cap(sections)
+        # Free-text booklets carry a year level too ("Year 8 maths, fractions"),
+        # so they are sized by it exactly as a program booklet is.
+        self._fit_classwork_to_cap(sections, session_plan(outline.year_level))
         t = self._timing(sections, challenge, recap)
         return BookletData(
             subject=outline.subject,
@@ -230,7 +243,11 @@ class BookletPipeline:
                     f"({', '.join(ACCELERATE_SUBJECTS)}); got {subject!r}"
                 )
             subjects = (norm,)
-            subject_display = norm
+            # Through the program rather than straight off the subject, so one
+            # function decides how a product names a subject on its cover.
+            # Accelerate maps nothing, so this is the engine name it always
+            # was; a product that does have its own word gets it here too.
+            subject_display = program.display_for(norm)
         else:
             subjects = program.subjects
             subject_display = program.subject_display
@@ -286,7 +303,28 @@ class BookletPipeline:
                 )
             )
 
-        self._fit_classwork_to_cap(all_sections)
+        # Sized for the student's year, not for a flat hour. A NAPLAN booklet
+        # merges two subjects into one session, so the cap is applied to the
+        # merged list once, after both halves exist.
+        plan = session_plan(year_level)
+        self._fit_classwork_to_cap(all_sections, plan)
+        log.info("pipeline.session_plan",
+                 extra={"year_level": year_level, "band": plan.band,
+                        "cap": self._session_cap(plan),
+                        "subtopics_taught": sum(1 for s in all_sections if s.questions),
+                        "classwork_questions": sum(len(s.questions) for s in all_sections),
+                        "homework_questions": sum(len(s.homework_questions)
+                                                  for s in all_sections),
+                        "challenge": len(all_challenge),
+                        "recap": len(all_recap)})
+        # Last line of defence on the cover. The trimmer above is now the thing
+        # that keeps both halves of a two-subject booklet, but the cover should
+        # not be able to name a subject that is not inside it whatever happens
+        # three steps upstream.
+        subject_display = self._honest_subject_display(
+            subject_display, subjects, all_sections,
+            loose_questions=[*all_recap, *all_challenge],
+            display_by_subject=program.subject_display_by_subject)
         t = self._timing(all_sections, all_challenge, all_recap)
         return BookletData(
             subject=subject_display,
@@ -649,6 +687,62 @@ class BookletPipeline:
         )
 
     @staticmethod
+    def _honest_subject_display(subject_display, subjects, sections,
+                                loose_questions=(), display_by_subject=None) -> str:
+        """The cover line, narrowed to the subjects the booklet really holds.
+
+        `subject_display` is a fixed string chosen from the program before a
+        single question exists ("Numeracy and Literacy"), while the contents are
+        whatever survived generation and the cap fitter. That gap is the general
+        shape of the defect the subject-aware trimmer fixes: a booklet that says
+        one thing on its cover and contains another, with no error anywhere to
+        say so.
+
+        The trimmer is the fix. This is the guarantee, and it is enforced at the
+        point of printing rather than three steps upstream, so any future path
+        that loses a subject (a subject engine returning nothing, a validator
+        rejecting a whole half) cannot get a false cover past it either.
+
+        It narrows rather than raises. A parent who has paid and waited is
+        better served by a booklet correctly labelled as the half that
+        generated than by no booklet at all, and the error log is what tells
+        support the other half went missing.
+
+        `loose_questions` is the Warm-up Recap and the Final Challenge: every
+        question in the booklet that has no section around it. They are counted
+        because narrowing the cover is a claim about the WHOLE booklet, and
+        those two parts are generated per subject and merged into one flat
+        list. A NAPLAN booklet whose sections came out maths-only but whose
+        Final Challenge still holds five literacy items was covered
+        "Mathematics", printed over English questions, which is the same defect
+        this guard exists to prevent, pointing the other way.
+
+        `display_by_subject` is the product's own word for each subject
+        (`Program.subject_display_by_subject`). Narrowing without it swaps
+        vocabularies as well as scope: a maths-only NAPLAN booklet came out
+        covered "Mathematics" when the product, its menu and the test it
+        practises for all call that half "Numeracy". Telling the truth and
+        speaking the product's language are not a trade. Without a mapping it
+        falls back to the engine names, which is what it did before.
+        """
+        declared = [s for s in subjects if s]
+        if len(declared) < 2:
+            return subject_display
+        present = {s.subject for s in sections}
+        present.update(vq.question.subject for vq in loose_questions)
+        missing = [s for s in declared if s not in present]
+        if not missing:
+            return subject_display
+        words = display_by_subject or {}
+        kept = [s for s in declared if s in present]
+        narrowed = " and ".join(words.get(s) or s for s in kept) or subject_display
+        log.error("pipeline.subject_missing_from_booklet",
+                  extra={"declared": declared, "missing": missing,
+                         "cover_was": subject_display,
+                         "cover_now": narrowed})
+        return narrowed
+
+    @staticmethod
     def _floor_questions(section) -> int:
         """The fewest classwork questions this subtopic can be left with.
 
@@ -672,23 +766,69 @@ class BookletPipeline:
         return len({s.topic for s in in_session})
 
     @staticmethod
-    def _may_drop(in_session) -> bool:
-        """Whether one more subtopic can leave the hour.
+    def _subjects_in_session(in_session) -> Counter:
+        """Subtopics per subject still taught in the session.
 
-        Two floors, and the topic one is not implied by the subtopic one:
-        three subtopics all under "Number" is one topic, not three.
+        Single-subject booklets carry `subject=None` on every section (only
+        `run_program` stamps it), so they land in one bucket and every subject
+        rule below is a no-op for them, which is what we want: Accelerate and
+        Scholarships run one engine and have no breadth to protect.
         """
-        if len(in_session) <= MIN_CLASSWORK_SUBTOPICS:
-            return False
-        if BookletPipeline._topics_in_session(in_session) > MIN_CLASSWORK_TOPICS:
-            return True
-        # At the topic floor, a subtopic may still leave as long as its topic
-        # keeps another one in the session.
-        per_topic = Counter(s.topic for s in in_session)
-        return any(per_topic[s.topic] > 1 for s in in_session)
+        return Counter(s.subject for s in in_session)
 
     @staticmethod
-    def _leaves_the_session(in_session):
+    def _subject_spares(in_session):
+        """Subtopics that can leave without taking their whole subject with them.
+
+        This is the floor the trimmer used not to have. A NAPLAN booklet is two
+        engines merged into one list, and every rule below this line counted
+        subtopics and topics only: three maths subtopics under three maths
+        topics satisfied both floors perfectly while the literacy half, cover
+        billing and all, had been deleted one subtopic at a time.
+        """
+        per_subject = BookletPipeline._subjects_in_session(in_session)
+        if len(per_subject) < 2:
+            return list(in_session)
+        return [s for s in in_session if per_subject[s.subject] > 1]
+
+    @staticmethod
+    def _droppable(in_session, plan=None):
+        """The subtopics that are allowed to leave the session right now.
+
+        Three floors, none implied by another:
+
+        * Subtopic count. A booklet that teaches one thing is not worth a
+          session.
+        * Subject. Every subject the cover names has to survive the trimming
+          with a lesson and practice of its own.
+        * Topic. Three subtopics all under "Number" is one topic, not three.
+
+        The counts come from the year band when there is one, and they are the
+        same three everywhere today. That is on purpose: the pricing page sells
+        both numbers, so a shorter session for a younger student is bought by
+        lowering their cap, never by handing them a narrower booklet than the
+        product promises. `plan` carries them anyway so the decision has a
+        single place to live if the product ever changes.
+        """
+        min_subtopics = plan.min_subtopics if plan else MIN_CLASSWORK_SUBTOPICS
+        min_topics = plan.min_topics if plan else MIN_CLASSWORK_TOPICS
+        if len(in_session) <= min_subtopics:
+            return []
+        candidates = BookletPipeline._subject_spares(in_session)
+        if BookletPipeline._topics_in_session(in_session) <= min_topics:
+            # At the topic floor, a subtopic may still leave as long as its
+            # topic keeps another one in the session.
+            per_topic = Counter(s.topic for s in in_session)
+            candidates = [s for s in candidates if per_topic[s.topic] > 1]
+        return candidates
+
+    @staticmethod
+    def _may_drop(in_session, plan=None) -> bool:
+        """Whether one more subtopic can leave the session."""
+        return bool(BookletPipeline._droppable(in_session, plan))
+
+    @staticmethod
+    def _leaves_the_session(in_session, plan=None):
         """Which subtopic gives up its place in the hour.
 
         It used to be whichever came last, which is not a choice at all, and
@@ -700,32 +840,79 @@ class BookletPipeline:
         ten of the eleven questions, Similes was left with one, and Commas with
         none.
 
-        Two rules, in order.
+        Four rules, in order. Each one only ever chooses between what the rule
+        above it left on the table.
 
-        Breadth first: prefer a subtopic whose topic still has another subtopic
-        in the session. Losing one of two readings costs the child a reading;
-        losing the only grammar subtopic costs them grammar. A booklet that
-        teaches three things is worth more than one that teaches one thing
+        Subject first, and this is a floor rather than a preference, so it
+        lives in `_droppable`: the last subtopic of a subject never leaves. A
+        NAPLAN booklet prints "Numeracy and Literacy" on its cover, and an
+        English subtopic carries a reading passage, so it costs more minutes
+        than any maths subtopic and "drop the longest" chose English every
+        time. Years 3 and 5 shipped with no literacy in them at all.
+
+        Then subject balance: among what may leave, take from whichever subject
+        currently holds the most of the session. Breadth alone would have left
+        one English subtopic against three of maths, which is a booklet sold as
+        two halves and delivered as seven eighths of one. Alternating the drops
+        this way spends the trimming evenly and lands both halves near half the
+        session. It is a no-op on a single-subject booklet, where every
+        candidate belongs to the same subject.
+
+        Then topic breadth, the original rule, now applied inside the subject
+        that was chosen: prefer a subtopic whose topic still has another
+        subtopic in the session. Losing one of two readings costs the child a
+        reading; losing the only grammar subtopic costs them grammar. A booklet
+        that teaches three things is worth more than one that teaches one thing
         thoroughly and two things nominally, and the subtopic that leaves is
         not lost, it is worked at home with its mini-lesson attached.
 
         Then cost: among those, the longest, so one drop frees the most time
         and fewer subtopics have to go.
         """
+        candidates = BookletPipeline._droppable(in_session, plan) or list(in_session)
+
+        # Subject balance. Measured in minutes, not in subtopic count, because
+        # minutes are what the cap is spent in and an English subtopic is worth
+        # about one and a third maths ones.
+        per_subject_minutes: Counter = Counter()
+        for s in in_session:
+            per_subject_minutes[s.subject] += classwork_section_minutes(s)
+        heaviest = max({s.subject for s in candidates},
+                       key=lambda subj: (per_subject_minutes[subj], str(subj)))
+        pool = [s for s in candidates if s.subject == heaviest]
+
+        # Topic breadth, then cost.
         per_topic = Counter(s.topic for s in in_session)
-        shared = [s for s in in_session if per_topic[s.topic] > 1]
-        return max(shared or list(in_session), key=classwork_section_minutes)
+        shared = [s for s in pool if per_topic[s.topic] > 1]
+        return max(shared or pool, key=classwork_section_minutes)
 
     @staticmethod
-    def _fit_classwork_to_cap(sections) -> None:
+    def _session_cap(plan) -> int:
+        """The Class Work cap for this student, in minutes.
+
+        The year band's cap, held under the deployment's ceiling. `plan` is
+        None for callers with no year level (the guard checks drive the fitter
+        directly), and that means the hour, which is what the fitter did before
+        year bands existed.
+        """
+        if plan is None:
+            return CLASSWORK_CAP_MINUTES
+        return min(CLASSWORK_CAP_MINUTES, plan.classwork_cap_minutes)
+
+    @staticmethod
+    def _fit_classwork_to_cap(sections, plan=None) -> None:
         """Move classwork past the time cap into homework, in place.
 
-        A tutoring session is an hour, so the Class Work half has to fit in
-        one. Trimming the printed estimate alone would just make the booklet
-        lie about its own workload, so move the surplus questions into
-        Homework instead, where there is no clock. Longest section first, so
-        the trimming lands on whichever subtopic is overweight rather than
-        flattening every one of them equally.
+        The session has to fit the time the student can actually work for,
+        which `timing.session_plan` sets from their year: thirty minutes for a
+        Year 1, an hour for a Year 9. Trimming the printed estimate alone would
+        just make the booklet lie about its own workload, so move the surplus
+        questions into Homework instead, where there is no clock. Longest
+        section first, so the trimming lands on whichever subtopic is
+        overweight rather than flattening every one of them equally.
+
+        `plan` is optional: without one the cap is the flat hour, which is what
+        this did before year bands existed and what the guard checks exercise.
 
         Every subtopic keeps at least one classwork question: a mini-lesson
         with nothing to try immediately afterwards is worse than a slightly
@@ -741,6 +928,11 @@ class BookletPipeline:
         Wednesday cannot be taught a new method by a box of text, and a parent
         cannot help with one they never saw covered.
 
+        A multi-subject booklet (NAPLAN merges numeracy and literacy into one
+        list before this runs) is trimmed subject by subject rather than
+        cheapest-first: see `_leaves_the_session`. The cover names both halves,
+        so neither half may be trimmed away to make room for the other.
+
         The hour is held in every case but one. A reading and its five
         questions move as a unit and are never split, so an English session
         already down to `MIN_CLASSWORK_SUBTOPICS` readings can only get under
@@ -751,6 +943,8 @@ class BookletPipeline:
         """
         if not sections:
             return
+
+        cap = BookletPipeline._session_cap(plan)
 
         def in_session():
             """Subtopics the tutor actually covers in the hour.
@@ -800,19 +994,21 @@ class BookletPipeline:
         # fall to 48 and waste a quarter of the session. A subtopic that
         # moves keeps its questions as homework practice; only its mini-lesson
         # goes unread in the session.
-        while (leanest() > CLASSWORK_CAP_MINUTES
-               and BookletPipeline._may_drop(in_session())):
-            dropped = BookletPipeline._leaves_the_session(in_session())
+        while (leanest() > cap
+               and BookletPipeline._may_drop(in_session(), plan)):
+            dropped = BookletPipeline._leaves_the_session(in_session(), plan)
             sections.remove(dropped)
             log.info("pipeline.subtopic_dropped",
                      extra={"subtopic": dropped.subtopic,
+                            "subject": dropped.subject,
                             "homework_lost": len(dropped.homework_questions),
-                            "still_over_by": round(total() - CLASSWORK_CAP_MINUTES, 1)})
+                            "cap": cap,
+                            "still_over_by": round(total() - cap, 1)})
 
         # Step 2: thin the practice on what remains.
         # Bounded: each pass moves at least one question and no section goes
         # below one.
-        while total() > CLASSWORK_CAP_MINUTES:
+        while total() > cap:
             # Sections that can give ground without splitting a reading go
             # first, so an English booklet loses a maths-shaped tail or a whole
             # spare reading before any comprehension is broken up.
@@ -848,7 +1044,7 @@ class BookletPipeline:
             log.warning(
                 "pipeline.classwork_over_cap",
                 extra={"minutes": round(total(), 1),
-                       "cap": CLASSWORK_CAP_MINUTES,
+                       "cap": cap,
                        "subtopics": len(in_play),
                        "topics": BookletPipeline._topics_in_session(in_play),
                        "reason": "at the subtopic, topic or practice floor"})
@@ -951,7 +1147,12 @@ class BookletPipeline:
         ambush on question 1, which is where a child decides how this is going
         to go.
         """
-        if self._n_recap <= 0:
+        # The warm-up was already the right length at every year (four to six
+        # minutes on the shipped booklets), so the year band only trims it by a
+        # question in lower primary, where three is a warm-up and four is the
+        # start of a worksheet.
+        n_recap = min(self._n_recap, session_plan(year_level).recap_questions)
+        if n_recap <= 0:
             return []
         from .schemas import Subtopic
         if seen is None:
@@ -1002,7 +1203,7 @@ class BookletPipeline:
         except Exception as e:
             log.warning("pipeline.recap_failed", extra={"error": str(e)[:200]})
             return []
-        picked = qs.questions[:self._n_recap]
+        picked = qs.questions[:n_recap]
         verdicts = self._validate_many(subject, year_level, picked, reference_chunks)
         out: list[ValidatedQuestion] = []
         for q, r in zip(picked, verdicts):
@@ -1030,11 +1231,25 @@ class BookletPipeline:
                 log.info("pipeline.drop_absurd_quantity_recap",
                          extra={"subject": subject, "reason": absurd})
                 continue
+            # Attribute the warm-up to the engine that wrote it. The recap has
+            # no section around it, so this is the only record of which half of
+            # a two-subject booklet a question came from.
+            q.subject = subject
             out.append(ValidatedQuestion(
                 question=q, verified=self._trusted(q, r.verified),
                     validator_notes=r.notes,
                 image_path=str(img) if img else None, image_attribution=attr))
-        return out
+        # The warm-up is written by the question generator from the same prompt
+        # as the practice, so it is held to the same budget. Its floor is half
+        # of itself rather than the four a subtopic keeps: the year band sized
+        # this part at three or four questions and none of them is spare, so a
+        # part that would lose more than half of itself keeps them all and says
+        # so instead. A heading with one question under it is a fault the
+        # parent can see, and the child still cannot read the question.
+        return self._hold_reading_load(out, subject, year_level,
+                                       keep_at_least=(len(out) + 1) // 2,
+                                       kind="practice",
+                                       where="Warm-up Recap")
 
     def _process_subtopic(self, subject, year_level, topic_name, subtopic,
                           seen=None, passage_quota=2,
@@ -1062,6 +1277,10 @@ class BookletPipeline:
         )
         teaching = self._make_teaching(subject, year_level, topic_name, subtopic, chunks)
         passages: list[Passage] = []
+        # How much homework this year level is set on one subtopic. A six year
+        # old cannot be set the week a fourteen year old can, and until tonight
+        # both were set four questions per subtopic and sixteen per booklet.
+        _, n_homework = self._question_budget(year_level)
         validated = self._generate_and_validate(
             subject, year_level, topic_name, subtopic, chunks, teaching, seen,
             passages, passage_quota=passage_quota,
@@ -1090,7 +1309,10 @@ class BookletPipeline:
         validated = self._group_by_passage(validated)
         cut = self._passage_safe_split(validated, self._n_classwork)
         classwork = validated[:cut]
-        homework = validated[cut:]
+        # Held to the year band's budget even when the model wrote more than it
+        # was asked for, which it does often enough to matter: the count in the
+        # prompt is a request, this is the guarantee.
+        homework = validated[cut:cut + n_homework]
         # A guided example that works through a question about one of this
         # section's readings prints above that reading, so it hands over the
         # answer before the student has read a word. Guided examples are
@@ -1440,6 +1662,26 @@ class BookletPipeline:
         det = self._reasoning.validate(q)
         return det is not None and not det.verified
 
+    def _question_budget(self, year_level) -> tuple[int, int]:
+        """(class work, homework) questions to write for one subtopic.
+
+        Class work is the same at every year: MIN_NOW_YOU_TRY is a promise on
+        the pricing page, not a dial. Homework is the year band's, because it
+        is worked alone across a week and that is where a six year old and a
+        fourteen year old genuinely differ.
+
+        Read defensively, for the same reason `_generate_and_validate` reads
+        `_n_classwork` defensively: the guard checks drive both methods on a
+        bare pipeline that sets only the attributes they exercise.
+        """
+        plan = session_plan(year_level)
+        n_classwork = max(1, getattr(self, "_n_classwork", None)
+                          or MIN_NOW_YOU_TRY)
+        configured = getattr(self, "_n_homework", None)
+        n_homework = (plan.homework_per_subtopic if configured is None
+                      else min(configured, plan.homework_per_subtopic))
+        return n_classwork, n_homework
+
     def _generate_and_validate(
         self, subject, year_level, topic_name, subtopic, reference_chunks,
         teaching=None, seen=None, passages_out=None, passage_quota=2,
@@ -1470,6 +1712,13 @@ class BookletPipeline:
         # checks drive this method on a bare pipeline that sets just the
         # attributes they exercise.
         cut_at = getattr(self, "_n_classwork", None)
+        # Ask for exactly what this year level will print. The agent is built
+        # once, before anyone knows whose booklet this is, so the number has to
+        # arrive per call: a Year 1 subtopic is set six questions and a Year 9
+        # one eight, and generating eight everywhere means paying to write and
+        # to validate two that are then thrown away.
+        n_classwork, n_homework = self._question_budget(year_level)
+        count = n_classwork + n_homework
 
         def pooled(question_set):
             for p in getattr(question_set, "passages", None) or []:
@@ -1478,7 +1727,7 @@ class BookletPipeline:
 
         qs = pooled(self._generator.generate(
             subject, year_level, topic_name, subtopic, reference_chunks, teaching,
-            classwork_count=cut_at, passage_quota=passage_quota))
+            classwork_count=cut_at, passage_quota=passage_quota, count=count))
         # Validate the whole set in one batched judge call up front; per-question
         # regeneration below still uses the single-question path.
         initial = self._validate_many(subject, year_level, qs.questions,
@@ -1502,7 +1751,7 @@ class BookletPipeline:
                 fresh = pooled(self._generator.generate(
                     subject, year_level, topic_name, subtopic, reference_chunks,
                     teaching, classwork_count=cut_at,
-                    passage_quota=passage_quota,
+                    passage_quota=passage_quota, count=count,
                 ))
                 best_q, best_result = None, None
                 # Start at this question's OWN position in the fresh set, not
@@ -1514,6 +1763,18 @@ class BookletPipeline:
                 # being eaten from the top down, exactly the "easy item late in
                 # the list" the generator prompt warns against.
                 candidates = fresh.questions[slot:] or fresh.questions
+                # Prefer the candidates that fit the year's reading budget.
+                # Free: it is a filter over a batch that has already been paid
+                # for, and it strictly REDUCES the number of candidates sent
+                # for single-question validation below. Falls back to the whole
+                # list when none of them fit, because a question that is too
+                # long still beats no question at all, and the set-level guard
+                # after this loop is what deals with the leftovers.
+                from .agents import reading_load
+                fitting = [c for c in candidates
+                           if not reading_load.over_budget(
+                               c.question, year_level, subject)]
+                candidates = fitting or candidates
                 for cand in candidates:
                     if self._norm_q(cand.question) in seen:
                         continue
@@ -1565,6 +1826,12 @@ class BookletPipeline:
                 log.info("pipeline.drop_duplicate",
                          extra={"subject": subject, "subtopic": subtopic.name})
                 continue
+            # Stamped here as well as on the loose questions, so subject
+            # attribution is a property of every question in the booklet rather
+            # than of the two parts that happened to need it first. A section
+            # carries the same value on SubtopicOutput.subject; agreeing with
+            # itself costs nothing and disagreeing would be a bug worth seeing.
+            q.subject = subject
             results.append(ValidatedQuestion(
                 question=q,
                 verified=self._trusted(q, result.verified),
@@ -1573,6 +1840,16 @@ class BookletPipeline:
                 image_path=str(image_path) if image_path else None,
                 image_attribution=image_attr,
             ))
+        # Held to the year's reading budget before the caller splits the set
+        # into Class Work and Homework, so the drop lands on the whole set and
+        # not on whichever half a long question happened to fall in. The floor
+        # is the classwork promise: four questions under every mini-lesson.
+        results = self._hold_reading_load(
+            results, subject, year_level, keep_at_least=n_classwork,
+            kind="practice", where=subtopic.name)
+        # After the drop, never before: a passage whose only questions have
+        # gone must not be handed on, or the booklet prints a page of reading
+        # with nothing under it.
         self._collect_passages(results, pool, passages_out)
         return results
 
@@ -1609,13 +1886,19 @@ class BookletPipeline:
     def _build_challenge(
         self, subject, year_level, covered, reference_chunks, seen=None,
     ) -> list[ValidatedQuestion]:
-        if not covered or self._n_challenge <= 0:
+        # The Final Challenge is cumulative and its questions are the longest in
+        # the booklet: five of them cost a Year 1 nineteen minutes on the
+        # shipped booklet, on top of everything else. Three is the lower primary
+        # share of that.
+        n_challenge = min(self._n_challenge,
+                          session_plan(year_level).challenge_questions)
+        if not covered or n_challenge <= 0:
             return []
         if seen is None:
             seen = _SeenQuestions()
         try:
             qs = self._challenger.generate(
-                subject, year_level, covered, self._n_challenge, reference_chunks,
+                subject, year_level, covered, n_challenge, reference_chunks,
             )
         except Exception as e:
             log.warning("pipeline.challenge_failed", extra={"error": str(e)[:200]})
@@ -1632,7 +1915,9 @@ class BookletPipeline:
         # whole booklet: the Final Challenge is meant to combine the skills,
         # not reprint a question already answered in the practice.
         candidates = []
-        for q in qs.questions:
+        # Never more than the year band asked for: the generator is told the
+        # number but a model that returns six would otherwise print six.
+        for q in qs.questions[:n_challenge]:
             if self._norm_q(q.question) in seen:
                 continue
             if self._reasoning_reject(subject, q):
@@ -1670,6 +1955,11 @@ class BookletPipeline:
             # broken or figureless does not block a sound one later.
             if not seen.add(norm):
                 continue
+            # Same attribution the recap gets, and for the same reason: a
+            # NAPLAN booklet runs this once per subject and merges the two sets
+            # into one Final Challenge, after which nothing else in the booklet
+            # can tell a numeracy item from a literacy one.
+            q.subject = subject
             results.append(ValidatedQuestion(
                 question=q,
                 verified=self._trusted(q, result.verified),
@@ -1678,7 +1968,71 @@ class BookletPipeline:
                 image_path=str(image_path) if image_path else None,
                 image_attribution=image_attr,
             ))
-        return results
+        # The Final Challenge has a budget of its own, looser than the
+        # practice one because its questions are multi-step by design. Its own
+        # prompt is explicit that harder never means longer to read, and a
+        # cumulative question is exactly where that slips. Half of itself is
+        # the floor, as for the warm-up and for the same reason: the year band
+        # sized this part and nothing here is spare.
+        return self._hold_reading_load(results, subject, year_level,
+                                       keep_at_least=(len(results) + 1) // 2,
+                                       kind="challenge",
+                                       where="Final Challenge")
+
+    @staticmethod
+    def _hold_reading_load(items, subject, year_level, keep_at_least, kind,
+                           where):
+        """Drop the questions that read too long for the year, and say so.
+
+        The maths prompts set a per-year word budget on a question, because a
+        Year 1 booklet shipped a 39-word question and Year 1 was carrying about
+        seventy per cent of Year 7's reading load. Nothing measured whether the
+        model kept to it, so a model that ignored the budget produced the same
+        booklet as before with nothing failing anywhere.
+
+        Deterministic and free: no API call, no extra validation, and the
+        batched judge above is untouched. It runs on the set that has already
+        been generated and graded, which is the only place the cost of
+        enforcing this is zero.
+
+        Dropping rather than shortening, for the reason every other guard here
+        drops: the answer key was written against this wording, and a question
+        trimmed to fit may no longer ask what its key answers. Dropping rather
+        than regenerating, because a regeneration is a whole extra call per
+        subtopic aimed at a model that has just demonstrated it is not reading
+        the instruction, and the customer is waiting.
+
+        What cannot be dropped is kept and logged at warning level. That is the
+        honest outcome rather than the tidy one: the booklet goes out with a
+        long question in it, and the log says which part, at what length,
+        against what budget. Making the number smaller by printing a smaller
+        booklet is not a fix.
+        """
+        from .agents import reading_load
+
+        kept, dropped = reading_load.hold_to_budget(
+            items, year_level, subject, keep_at_least=keep_at_least, kind=kind,
+            text_of=lambda vq: vq.question.question)
+        for vq in dropped:
+            log.info("pipeline.drop_over_long_question",
+                     extra={"subject": subject, "where": where, "kind": kind,
+                            "reason": reading_load.over_budget(
+                                vq.question.question, year_level, subject, kind),
+                            "question": vq.question.question[:70]})
+        stayed = [vq for vq in kept
+                  if reading_load.over_budget(vq.question.question, year_level,
+                                              subject, kind)]
+        if stayed:
+            log.warning(
+                "pipeline.reading_load_over_budget",
+                extra={"subject": subject, "where": where, "kind": kind,
+                       "year_level": year_level, "kept_over_budget": len(stayed),
+                       "of": len(kept),
+                       "longest": max(reading_load.word_count(vq.question.question)
+                                      for vq in stayed),
+                       "budget": reading_load.max_words(year_level, kind),
+                       "reason": "the practice floor would break if they went"})
+        return kept
 
     @staticmethod
     def _trusted(q, verified: bool) -> bool:

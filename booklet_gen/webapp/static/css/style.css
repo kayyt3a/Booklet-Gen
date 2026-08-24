@@ -48,6 +48,20 @@
   --display:Georgia,"Iowan Old Style",Charter,"Bitstream Charter","Liberation Serif",serif;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
 
+  /* The wordmark, and nothing else. A logotype is not a heading: it is the same
+   * object on the booklet cover and on the site, and it has to be the same
+   * object. booklet_gen/visuals/cover.py draws "FOLIO AI" in Helvetica-Bold,
+   * so this stack lands on Helvetica where it exists and on its clones
+   * everywhere else: Arial on Windows, Liberation or Nimbus Sans on Linux.
+   * Still nothing fetched. Georgia used to sit here, which meant the header
+   * and the cover of the thing being bought were set in two different
+   * typefaces, in the same session, minutes apart.
+   *
+   * --brand-blue is cover.py's ACCENT_HEX, the blue it tints the "AI" with.
+   * The header used a grey-blue of its own. */
+  --wordmark:"Helvetica Neue",Helvetica,Arial,"Liberation Sans","Nimbus Sans",sans-serif;
+  --brand-blue:#6E9EFD; --brand-tag:#B9CDF2;
+
   /* ---- type scale ----
    * Seven steps, each a clear jump from the last. The old sizes ran 11.5, 12.5,
    * 13, 13.5, 14, 14.5, 15, 16.5: eight values inside five points, so no two
@@ -91,18 +105,26 @@ header{
   justify-content:space-between;gap:var(--s3);min-height:64px;flex-wrap:wrap;
 }
 header a{color:#fff;text-decoration:none}
+/* The lockup, laid out as the booklet cover lays it out: the mark, then the
+ * wordmark with "practice booklets" stacked under it and flush with the F. The
+ * tagline used to sit inline beside the name, which is a different lockup from
+ * the one printed on the cover of every booklet the customer buys. Sizes hold
+ * the cover's own ratios: the tagline is about half the wordmark, and the mark
+ * stands as tall as the two lines together. */
 .brand{
-  font-family:var(--display);font-weight:700;letter-spacing:.6px;
-  font-size:var(--t-h2);display:flex;align-items:baseline;gap:var(--s2);
+  font-family:var(--wordmark);font-weight:700;letter-spacing:0;
+  font-size:var(--t-h2);display:flex;align-items:center;gap:var(--s3);
 }
-.brandName em{font-style:normal;color:#93aac6}
+.brandLockup{display:flex;flex-direction:column;justify-content:center}
+.brandName{line-height:1.05}
+.brandName em{font-style:normal;color:var(--brand-blue)}
 /* The mark is now the supplied artwork rather than tokens, so the light-surface
  * variant is a different file (the app-icon tile) rather than a recolour. It
  * only needs its corners rounded to match the tile it was drawn on. */
 .brandMark.onLight{border-radius:22%;display:block}
 .brand .brandTag{
-  font-family:var(--sans);font-weight:500;font-size:var(--t-micro);
-  letter-spacing:.3px;color:#aab8cc;
+  font-family:var(--wordmark);font-weight:700;font-size:var(--t-micro);
+  letter-spacing:0;color:var(--brand-tag);line-height:1.25;
 }
 .brandMark{flex:none;display:block;align-self:center}
 .nav{display:flex;align-items:center;gap:var(--s1);flex-wrap:wrap}
@@ -163,6 +185,13 @@ footer{
 }
 footer a{color:var(--muted);font-weight:600}
 .footerLinks{display:flex;gap:var(--s3)}
+/* The identity block: the name on its own line, then what the product is and
+ * where it comes from, then the contact details, which sit on one row and wrap
+ * as a group rather than running into the policy links. */
+.footerId{display:flex;flex-direction:column;gap:var(--s1);min-width:0}
+.footerName{font-weight:700;color:var(--ink)}
+.footerContact{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s3)}
+.footerContact a{text-decoration:underline}
 .navForm{margin:0}
 .navForm button{
   width:auto;margin:0;padding:var(--s2) var(--s2);background:transparent;border-radius:6px;
@@ -186,7 +215,7 @@ select{
 input:focus,select:focus,textarea:focus{
   outline:none;border-color:var(--navy-l);box-shadow:0 0 0 3px rgba(45,81,131,.13);
 }
-.row{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.row{display:grid;grid-template-columns:repeat(2,minmax(0,18rem));gap:var(--s3)}
 @media (max-width:560px){ .row{grid-template-columns:1fr} }
 
 button,.btn{
@@ -310,9 +339,19 @@ a.link{color:var(--navy);font-weight:600}
  * A control as wide as the card tells the user nothing about what belongs in
  * it, and an 848px box for a first name is the clearest sign a form was
  * generated rather than designed. Width is a label. */
+/* One measure, and every dropdown on the site is set to it. A select was
+ * previously sized by whatever was around it: "Booklet type" ran the full
+ * 800px card, "Year level" was 288px because its row had collapsed to one
+ * column, and "Student name" was 288px because it had been given a width on
+ * purpose. Three widths in one card, in the order wide, narrow, wide, is a
+ * staircase, and it reads as three unrelated controls rather than as one
+ * form. A dropdown's content is a fixed list, so nothing about its content
+ * justifies a different width from the dropdown above it. */
+select{max-width:18rem}
 .fieldName{max-width:18rem}
 .fieldWide{max-width:32rem}
-.formSection .row{max-width:32rem}
+/* The two-up row carries the same measure per column (see .row above), so a
+ * field is the same width whether it stands alone or is paired. */
 /* When the subject select is hidden for a program that has no subject choice,
  * the grid used to leave a half-width hole where it had been. */
 .row:has(> [hidden]){grid-template-columns:minmax(0,18rem)}
@@ -388,14 +427,27 @@ a.link{color:var(--navy);font-weight:600}
 .heroWaves{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
 .heroWaves svg{position:absolute;left:0;right:0;bottom:0;width:100%;height:30%;display:block}
 .heroMark{position:absolute;right:-18px;bottom:-14px;width:150px;transform:rotate(-6deg)}
-@media (max-width:700px){
-  .heroWaves svg{height:22%}
-  .heroMark{width:100px}
+/* The mark only has somewhere to sit when the window is wider than the 560px
+ * text column plus its own width. Below that it landed on the hero's last
+ * line: at 390px it covered the full stop of "Your first booklet is included.
+ * No credit card required.", which is the sentence that answers a parent's
+ * last objection. It is decoration, and it is the same mark already in the
+ * header two inches above, so on a narrow window it goes rather than being
+ * shrunk into a smaller collision. */
+@media (max-width:899px){
+  .heroMark{display:none}
 }
 @media (max-width:700px){
-  /* On a phone the panel is narrow enough that the scatter crowds the words. */
-  .scatter .s6,.scatter .s7,.scatter .s8,.scatter .s2{display:none}
-  .scatter .s{opacity:.38}
+  .heroWaves svg{height:22%}
+}
+@media (max-width:700px){
+  /* Wallpaper only works where there is wall. The motifs are 130px line-art
+   * glyphs and the panel is about 340px wide on a phone, so both the sentence
+   * and the "Create your first booklet" button printed straight over the open
+   * book: the first thing a new account sees was its own copy tangled in a
+   * drawing. Thinning the set out was tried and is not enough, because there
+   * is no corner left that the text does not reach. */
+  .scatter{display:none}
 }
 
 /* ---- paulio ----
@@ -494,6 +546,43 @@ a.link{color:var(--navy);font-weight:600}
   .paulioRow>*{flex-basis:auto}
 }
 
+/* ---- the mascot on a page someone came to use ----
+ * Paulio at 220-320px is right where charm is the job: the landing page, the
+ * wait, the empty state. On Create, Study plans, My booklets and Account he
+ * was the same size, and he was eating the product. On My booklets at 1440 he
+ * stood 230x367 with the page title centred against his midriff, and an
+ * account with five booklets did not reach its first row until y=790 in a 900
+ * px window: a returning customer saw a bear and no booklets. On Create at
+ * 390 the first form control sat about 1.7 screens down a page whose entire
+ * job is one form.
+ *
+ * So on those four pages he is a margin figure at 96px, and the heading is
+ * top-aligned rather than centred against him. He is still there, still
+ * speaking, and the page starts with what the page is for.
+ */
+.pageHead{align-items:flex-start;gap:var(--s5)}
+.pageHead .paulioStd,.pageHead .paulioDesk{width:96px;margin-bottom:var(--s1)}
+.pageHead .paulioBubble{
+  max-width:150px;font-size:var(--t-micro);padding:var(--s1) var(--s2);
+  margin-top:var(--s1);
+}
+.pageHead > *{flex:1 1 240px}
+.pageHead .paulioWith{flex:0 0 auto}
+@media (max-width:700px){
+  /* Beside the heading rather than above it: at 96px he no longer needs a row
+   * of his own, and stacking him would put a bear between the customer and
+   * the first field again, in a smaller size. */
+  .pageHead{flex-direction:row;gap:var(--s4)}
+  /* Basis 0 rather than a width: a 240px basis plus a 78px mascot is 318px of
+   * hypothetical width in a 316px card, so the row wrapped by two pixels and
+   * dropped him onto a line of his own. */
+  .pageHead > *{flex:1 1 0;min-width:0}
+  .pageHead .paulioWith{flex:0 0 auto}
+  .pageHead .paulioStd,.pageHead .paulioDesk{width:78px}
+  .pageHead .paulioBubble{display:none}
+}
+
+
 /* ---- landing ----
  * A band, not a card. Every section of the site used to be the same rounded
  * white rectangle at the same width, so at squint distance the page was four
@@ -543,6 +632,15 @@ a.link{color:var(--navy);font-weight:600}
 }
 .closerInner{max-width:44ch;margin-inline:auto}
 .closer .muted{margin-bottom:var(--s5)}
+/* The two prices, side by side on a laptop and stacked on a phone. They are
+ * rendered from commerce.products(), so this styles a list whose length is the
+ * catalogue's, not two hardcoded rows. */
+.closerPrice{
+  display:flex;justify-content:center;flex-wrap:wrap;gap:var(--s2) var(--s5);
+  margin:0 0 var(--s3);font-size:var(--t-small);color:var(--muted);
+}
+.closerPrice strong{color:var(--navy);font-size:var(--t-body)}
+.closer .muted.closerNote{margin-bottom:var(--s5)}
 .btn.wide{width:auto;padding:var(--s3) var(--s6);margin-top:0}
 
 /* The four product lines, straight from programs.py. */
@@ -572,9 +670,24 @@ a.link{color:var(--navy);font-weight:600}
   /* min-width:0 matters: a flex item defaults to min-width:auto, which for an
    * image is its intrinsic width. At 620px intrinsic that refused to shrink
    * and shoved itself onto its own row under the text. */
-  flex:0 1 320px;width:320px;min-width:0;color:var(--navy);text-align:center;
+  flex:0 1 400px;width:400px;min-width:0;color:var(--navy);text-align:center;
   text-decoration:none;font-size:var(--t-small);font-weight:600;
 }
+/* The shot rendered about 320 CSS px wide, roughly half the width of the page
+ * it photographs, so none of its text was legible: the one picture of the
+ * actual product was a grey blur. It is wider now, and carries a plain
+ * affordance saying it opens full size, because even at 400px an A4 page's
+ * body text cannot be read on a screen. */
+.sampleFrame{display:block;position:relative}
+.zoomChip{
+  position:absolute;right:10px;bottom:18px;
+  display:inline-flex;align-items:center;gap:6px;
+  background:rgba(255,255,255,.96);color:var(--navy);
+  border:1px solid var(--border);border-radius:999px;
+  padding:5px var(--s3);font-size:var(--t-micro);font-weight:700;
+  box-shadow:0 2px 8px rgba(16,30,54,.18);
+}
+.sampleLink:hover .zoomChip{background:#fff;border-color:#c3cfe2}
 .creditBanner{
   display:flex;align-items:center;justify-content:space-between;gap:var(--s4);
   padding:var(--s3) var(--s3);border:1px solid #cfd9e7;border-radius:10px;
@@ -601,6 +714,52 @@ a.link{color:var(--navy);font-weight:600}
 .sampleLink:focus-visible{outline:3px solid rgba(45,81,131,.2);outline-offset:4px;border-radius:10px}
 @media (max-width:700px){
   .sampleLink{flex-basis:auto;width:100%;max-width:360px;margin:0 auto}
+}
+
+/* ---- booklet covers ----
+ * The covers are rendered by the product itself (scripts/build_cover_samples
+ * .py) and shipped as static PNGs. They are shown as objects: a paper edge,
+ * a real shadow, and a slight tilt on the outer two of a fan, because a cover
+ * lying flat and square reads as a screenshot of a file rather than as
+ * something that arrives in a printer tray.
+ */
+.coverShot{
+  display:block;height:auto;border-radius:5px;
+  border:1px solid rgba(16,30,54,.10);
+  box-shadow:0 10px 30px rgba(16,30,54,.16);
+  background:#fff;
+}
+.coverBand{margin:calc(-1 * var(--s5)) 0 var(--s7);text-align:center}
+.coverFan{display:flex;justify-content:center;align-items:flex-end;gap:var(--s6)}
+.coverFan .coverShot{width:250px;max-width:100%}
+.coverFan .coverShot:first-child{transform:rotate(-3.5deg) translateY(6px)}
+.coverFan .coverShot:last-child{transform:rotate(3.5deg) translateY(6px)}
+.coverCaption{
+  margin:var(--s5) auto 0;max-width:46ch;color:var(--muted);font-size:var(--t-small);
+}
+/* Beside a block of text, on pricing. Same stacking rule as .paulioRow: the
+ * text column keeps its measure and the cover moves under it rather than the
+ * two of them sharing a phone's width. */
+.coverSide{display:flex;align-items:center;gap:var(--s6);flex-wrap:wrap}
+.coverSide > div{flex:1 1 300px;min-width:0}
+.coverSide .coverShot{flex:0 0 auto;width:210px}
+.coverSide .sub{margin-bottom:0}
+@media (max-width:700px){
+  /* One cover, big enough that its title and topic line are legible, rather
+   * than three at a third of a phone's width each, where none of them are. */
+  .coverFan{gap:var(--s4)}
+  .coverFan .coverShot{width:min(240px,64vw)}
+  .coverFan .coverShot:first-child,
+  .coverFan .coverShot:last-child{display:none}
+  .coverSide{justify-content:center}
+  .coverSide .coverShot{width:min(220px,58vw)}
+}
+
+/* The cover on a library row, so a returning customer sees their booklets as
+ * things rather than as log lines. */
+.jobCover{
+  flex:none;width:56px;height:auto;display:block;border-radius:3px;
+  border:1px solid var(--border);box-shadow:0 1px 4px rgba(16,30,54,.13);
 }
 
 /* ---- stat tiles (account) ---- */
@@ -687,13 +846,26 @@ main.wrap:has(> .card.narrow){
 /* The band occupies real height, so without a matching spacer the unbadged
  * tier starts higher and every row across the two cards is thrown out of line:
  * exactly the misalignment the shared description height was added to fix. */
+/* The spacer has to contain a line of text, not merely reserve padding: an
+ * empty block generates no line box, so it stood 20px shorter than the band
+ * it was compensating for and the two cards' titles sat 20px apart. A
+ * non-breaking space in the band's own font gives it exactly the band's
+ * height, by the same measurement rather than by a number copied by hand. */
 .priceCard:not(.featured)::before{
-  content:"";display:block;
+  content:"\00a0";display:block;visibility:hidden;
   margin:calc(-1 * var(--s5)) calc(-1 * var(--s5)) var(--s5);
-  padding:var(--s2);font-size:var(--t-micro);line-height:1.2;
+  padding:var(--s2);font-size:var(--t-micro);font-weight:700;letter-spacing:.4px;
 }
+/* Both tiers carry the same border weight, so the featured one's heavier
+ * outline does not shift its contents down by a pixel relative to its
+ * neighbour. */
+.priceCard{border-width:2px}
 .price{font-family:var(--display);color:var(--navy);font-size:var(--t-figure);font-weight:700;margin:var(--s1) 0 var(--s2);letter-spacing:-.5px}
-.price span{font-size:var(--t-lead);vertical-align:top;line-height:2.1;margin-right:var(--s1)}
+/* On the baseline, not raised to cap height. Superscripted, "A$" read as a
+ * footnote marker hung off the price, which on a page taking money is the one
+ * typographic accident to avoid: it looks like there is small print about the
+ * number. It is the same amount, said in one line. */
+.price span{font-size:var(--t-h2);vertical-align:baseline;line-height:1;margin-right:3px}
 .priceFeatures{list-style:none;padding:0;margin:var(--s4) 0 var(--s1);flex:1}
 .priceFeatures li{display:flex;align-items:flex-start;gap:var(--s2);margin:var(--s2) 0;font-size:var(--t-small)}
 .priceFeatures .motif{color:var(--green);flex:none;margin-top:var(--s1)}
@@ -711,7 +883,12 @@ main.wrap:has(> .card.narrow){
   margin:var(--s4) 0;color:var(--navy);
 }
 .balanceCallout strong{font-size:var(--t-h2);margin-right:var(--s1)}
-.policyPage{font-size:var(--t-body);line-height:1.7;max-width:64ch}
+/* Centred in the wrap. The card is capped at a reading measure, which is
+ * right, but it had no side margins, so on a laptop Support, Privacy and
+ * Terms each rendered as a card in the left two thirds of the page with a
+ * 313px void down the right. Those are the three pages a cautious parent
+ * opens before paying. */
+.policyPage{font-size:var(--t-body);line-height:1.7;max-width:64ch;margin-inline:auto}
 .policyPage > p,.policyPage > h2{max-width:720px}
 .policyPage h2{margin-top:var(--s5)}
 .supportGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--s3);margin-top:var(--s5)}
@@ -748,26 +925,68 @@ main.wrap:has(> .card.narrow){
    * hand and was already out of sync. */
   :root{--t-hero:32px; --t-figure:30px; --t-h1:26px; --t-h2:20px; --t-lead:16px}
   header{padding:0 var(--s3)}
+  /* The nav wraps onto a second row here, and that row used to end flush with
+   * the header's bottom edge. Two things sat on that edge: the active link's
+   * orange underline, whose rounded ends were sliced flat so it read as a
+   * smudge rather than as a rule, and the white "Sign up" pill, which had
+   * 25px of navy above it and 2px below. One row of breathing space under the
+   * wrapped nav is the whole fix for both. */
+  .headerInner{padding-bottom:var(--s3)}
   .signedIn .headerInner{padding-top:var(--s2);row-gap:var(--s1)}
   .signedIn .brandTag{display:none}
   .signedIn .nav{
     order:2;width:100%;justify-content:space-between;
     border-top:1px solid rgba(255,255,255,.14);padding:var(--s1) 0 var(--s1);
   }
-  .signedIn .nav a{flex:1;text-align:center;padding:var(--s1) var(--s1);font-size:var(--t-small)}
-  .signedIn .navForm{flex:1}
-  .signedIn .navForm button{width:100%;padding:var(--s1) var(--s1);font-size:var(--t-small)}
+  /* ---- tap targets ----
+   * These were 31px tall signed in and 39px signed out, against a 44px floor
+   * on iOS and 48dp on Android, on the device most of this traffic arrives
+   * from. A link that small is not a small link, it is a link that gets
+   * missed, and the six of them sit side by side so a miss lands on the wrong
+   * page rather than on nothing.
+   *
+   * The gaps between the six were 25, 20, 11, 15 and 16px, because each item
+   * was flex:1 with its label centred inside it: equal boxes around unequal
+   * words leave unequal space between the words, which is what the eye
+   * actually measures. Sized to their labels and spaced apart instead, the
+   * gaps are equal by construction. */
+  .nav a,.navForm button{
+    min-height:44px;display:inline-flex;align-items:center;justify-content:center;
+    padding:0 var(--s2);
+  }
+  .signedIn .nav a,.signedIn .navForm button{
+    flex:none;min-width:44px;padding:0 var(--s1);font-size:var(--t-micro);
+  }
+  .signedIn .navForm{flex:none;display:flex}
+  .signedIn .navForm button{width:auto}
+  /* The underline hangs off the bottom of a 44px box, so it needs the label
+   * near the top of that box rather than centred in it. The log-out button
+   * carries the same offset or it sits half a line above its six neighbours,
+   * which is the sort of thing that reads as a rendering fault. */
+  .signedIn .nav a,.signedIn .navForm button{
+    align-items:flex-start;padding-top:var(--s4);
+  }
+  footer a{min-height:44px;display:inline-flex;align-items:center}
+  .footerLinks{gap:var(--s4)}
   .signedIn .desktopLabel{display:none}
   .signedIn .mobileLabel{display:inline}
   .wrap{margin-top:var(--s4);padding:0 var(--s3)}
   .card{padding:var(--s5) var(--s5)}
   .jobItem{flex-wrap:wrap}
-  .jobMain{flex:1 1 100%}
+  /* Everything but the cover, so the actions wrap to their own line while the
+   * cover stays beside the title it belongs to rather than sitting on a line
+   * of its own with white space beside it. */
+  .jobMain{flex:1 1 calc(100% - 60px)}
+  .jobCover{width:44px}
   .jobItem .rate,.jobItem .btn.small,.jobItem form{margin-left:auto}
   .programGrid{grid-template-columns:1fr}
   .programOption label{min-height:0}
   .heroCta .btn{width:100%}
   .pricingGrid,.supportGrid{grid-template-columns:1fr}
+  /* The tiers are stacked here, so there is no row across them to line up
+   * and the spacer that reserves the "Best value" band's height is just a
+   * blank strip above a heading. */
+  .priceCard:not(.featured)::before{display:none}
   .adminCreditForm{grid-template-columns:1fr}
   .centerCard .btn{width:100%;margin-right:0}
 }
@@ -777,12 +996,22 @@ main.wrap:has(> .card.narrow){
  * percentage would be a number we invented; a moving bar says "still working"
  * without claiming to know how far along it is.
  */
-/* The plane and its trail above the heading, so the wait has something to look
- * at that is not a bar. */
-.flight{display:flex;align-items:center;gap:0;margin-bottom:var(--s4)}
-.flight .motif:last-child{transform:translate(-8px,-7px)}
+/* The plane and its trail above the bar, so the wait has something to look at
+ * that is not a bar. One drawing (see _motifs.html flight()), centred like
+ * the mascot and the bubble above it: it used to be two SVGs in a flex row
+ * with the plane nudged by a translate, which is how the trail ended up
+ * ending 16px short of the plane it belonged to. */
+.flight{display:flex;justify-content:center;margin:var(--s4) 0}
 .ink-green{color:var(--green)}
-.doneMark{margin-bottom:var(--s1)}
+/* The success line. Centred, because the mascot and his bubble directly above
+ * it are centred, and a lone left-aligned tick under two centred things reads
+ * as a leftover rather than as the moment the thing worked. */
+.doneMark{
+  display:flex;align-items:center;justify-content:center;gap:var(--s2);
+  margin:var(--s4) 0 var(--s1);color:var(--green-ink);
+  font-weight:600;font-size:var(--t-body);
+}
+.doneMark .motif{color:var(--green);flex:none}
 
 .bar{height:7px;border-radius:99px;background:#e8edf5;overflow:hidden}
 .bar span{
@@ -884,9 +1113,16 @@ main.wrap:has(> .card.narrow){
   display:flex;gap:var(--s3);align-items:baseline;
   font-size:var(--t-small);color:#4a5568;padding:3px 0;
 }
+/* Sized for two digits, because every plan is ten weeks long and so every
+ * plan ends on a two-digit chip. At 1.7em the numeral 10 was 13.4px of ink in
+ * a 20.4px circle, 3.5px clear on each side, which at this size means the
+ * chip vanishes behind its own number: the last row of every plan looked like
+ * a rendering fault. Tabular figures so the chips are also identical to each
+ * other rather than merely the same size. */
 .weekNo{
-  flex:none;width:1.7em;height:1.7em;border-radius:50%;background:#eef3fc;
+  flex:none;width:2.1em;height:2.1em;border-radius:50%;background:#eef3fc;
   color:var(--navy);font-weight:700;font-size:var(--t-micro);
+  font-variant-numeric:tabular-nums;
   display:inline-flex;align-items:center;justify-content:center;
 }
 .weekFocus{flex:1 1 auto;min-width:0}

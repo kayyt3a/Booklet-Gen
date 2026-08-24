@@ -227,17 +227,39 @@ def create_app() -> Flask:
             return f"{n} day{'s' if n != 1 else ''} ago"
         return datetime.fromtimestamp(int(ts)).strftime("%d %b %Y")
 
+    # The covers a booklet is delivered with, available to every template.
+    # They are the product's strongest asset and they appeared nowhere on the
+    # site, so a visitor could not see what they would be handed until after
+    # they had paid for it. See booklet_gen/webapp/covers.py.
+    from .covers import SAMPLES as _cover_samples, cover_for
+
+    app.jinja_env.globals["cover_samples"] = _cover_samples
+    app.template_filter("cover_for")(cover_for)
+
+    # Who is taking the money, available to every template rather than only to
+    # the three pages public.py renders. The site footer needs it, and reading
+    # it from the same place Terms, Privacy and Support read it is what stops
+    # the footer stating an identity the legal pages contradict. Flask reapplies
+    # the caller's own context over a processor's, so public.py's explicit
+    # `business=` argument still wins on those three pages.
+    from .public import _business
+
+    app.context_processor(lambda: {"business": _business()})
+
     from .admin import bp as admin_bp, is_admin
     from .auth import bp as auth_bp
     from .payments import bp as payments_bp
     from .public import bp as public_bp
+    from .seo import bp as seo_bp, init_seo
     from .views import bp as views_bp
 
     app.jinja_env.globals["is_admin"] = is_admin
+    init_seo(app)
     app.register_blueprint(admin_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(payments_bp)
     app.register_blueprint(public_bp)
+    app.register_blueprint(seo_bp)
     app.register_blueprint(views_bp)
 
     @app.get("/healthz")

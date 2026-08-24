@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_motifs.html" import heroWaves, pencil, book, hexagon, triangle, check %}
+{% from "_motifs.html" import heroWaves, pencil, book, hexagon, triangle, check, magnifier %}
 {% block title %}FolioAI - printable practice booklets for Years 1 to 10{% endblock %}
 {% block body %}
 
@@ -13,7 +13,13 @@
        advertised "plus WACE exams" for weeks while methods_exam was held back
        from the customer menu, so the one thing the eyebrow named was the one
        thing nobody could buy. #}
-    <span class="eyebrow">First booklet free &middot; Years 1 to 10{% if exam_programs %}, plus WACE exams{% endif %}</span>
+    {# And the price, read from commerce.products() rather than typed here, so
+       it cannot quote a figure Checkout does not charge. The eyebrow said
+       "First booklet free" and nothing above the fold said what the second
+       booklet costs, which left a parent to click through to Pricing to learn
+       whether this was five dollars or fifty. #}
+    <span class="eyebrow">First booklet free, then A${{ products['single'].display_price }} &middot;
+      Years 1 to 10{% if exam_programs %}, plus WACE exams{% endif %}</span>
     <h1>Practice booklets your kid will actually finish.</h1>
     {# Only the class work is trimmed to an hour (CLASSWORK_CAP_MINUTES). The
        booklet as a whole is a week of work: one real Year 5 Maths booklet
@@ -32,6 +38,21 @@
   </div>
 </section>
 
+{# The covers, before anything else on the page describes the product. They
+   are rendered by the same code that draws the cover of a bought booklet
+   (scripts/build_cover_samples.py), so this is the object itself rather than
+   an illustration of it. #}
+<section class="coverBand">
+  <div class="coverFan">
+    {% for c in cover_samples[:3] %}
+      <img class="coverShot" src="{{ url_for('static', filename=c.file) }}"
+           width="760" height="1075" alt="{{ c.alt }}">
+    {% endfor %}
+  </div>
+  <p class="coverCaption">Every booklet opens with a cover like this, carrying
+    the student&rsquo;s own name and topic.</p>
+</section>
+
 <section class="sampleBand" id="sample">
   <div class="sample">
     <div class="sampleText">
@@ -48,12 +69,18 @@
     </div>
     <a class="sampleLink" href="{{ url_for('static', filename='img/sample-page.png') }}"
        target="_blank" rel="noopener" aria-label="Open the sample booklet page full size">
-      <img class="sampleShot" width="620" height="877"
-           src="{{ url_for('static', filename='img/sample-page.png') }}"
-           alt="A page from a Year 3 maths booklet: a short division worked
-                through in full, then the same method again with gaps for the
-                student to fill in, then three practice questions with ruled
-                answer lines.">
+      {# The shot cannot be shown at a size where its own text is readable and
+         still fit beside the list, so the link says plainly that it opens
+         bigger rather than leaving a parent to squint at a thumbnail. #}
+      <span class="sampleFrame">
+        <img class="sampleShot" width="620" height="877"
+             src="{{ url_for('static', filename='img/sample-page.png') }}"
+             alt="A page from a Year 3 maths booklet: a short division worked
+                  through in full, then the same method again with gaps for the
+                  student to fill in, then three practice questions with ruled
+                  answer lines.">
+        <span class="zoomChip">{{ magnifier(15) }} Click to enlarge</span>
+      </span>
       <span>Open full-size sample</span>
     </a>
   </div>
@@ -89,6 +116,16 @@
     <h2>Make one and see</h2>
     <p class="muted">Your first booklet is included, and your work is saved so
       you can print it again later.</p>
+    {# The whole catalogue, in the same figures Checkout charges. The eyebrow
+       above the fold carries the entry price; this is where a parent who has
+       read the page finds out what the bundle costs, without having to leave
+       for the Pricing page to do it. #}
+    <p class="closerPrice">
+      {% for key, p in products.items() %}
+        <span>{{ p.label }} <strong>A${{ p.display_price }}</strong></span>
+      {% endfor %}
+    </p>
+    <p class="muted closerNote">Pay only when you want another. No subscription.</p>
     <a class="btn wide" href="{{ url_for('auth.signup') }}">Create a free account</a>
   </div>
 </section>

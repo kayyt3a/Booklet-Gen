@@ -36,12 +36,51 @@
 </svg>
 {%- endmacro %}
 
+{# The plane and the path it has flown, in one drawing.
+   They used to be two SVGs sitting next to each other in a flex row, each
+   with its own coordinate space and one of them nudged into place with a
+   translate. The trail ended about 16px left and 7px above where the plane
+   began, at a different angle, so the wait was watched over by two objects
+   rather than by one object in motion. Drawn together, the trail ends exactly
+   at the plane's tail and runs into it along the plane's own axis, because
+   both are measured in the same viewBox. #}
+{% macro flight(width=170) -%}
+<svg class="motif flightPath" width="{{ width }}" height="{{ (width * 44 / 130) | round | int }}"
+     viewBox="0 0 130 44" fill="none" aria-hidden="true">
+  {# The last segment is a straight run at the plane's own angle (the plane
+     points along (24, -10.5) in its own 32-unit box), so the join is smooth
+     by construction rather than by eye. #}
+  <path class="ink-pale" stroke="currentColor" stroke-width="1.6"
+        stroke-linecap="round" stroke-dasharray="3 5"
+        d="M4 36C14 36 18 18 32 18C46 18 50 34 64 34C76 34 82 30 94 25.4L106 20.4"/>
+  <g class="ink-navy" transform="translate(93 2.4)">
+    <path d="M28 4L4 14.5l9 3.5 3.5 9z" fill="currentColor"/>
+    <path d="M28 4L13 18" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
+{%- endmacro %}
+
 {# The plane's dashed trail. Wide and short, meant to sit under or beside it. #}
 {% macro trail(width=90, cls='') -%}
 <svg class="motif {{ cls }}" width="{{ width }}" height="24" viewBox="0 0 90 24"
      fill="none" stroke="currentColor" stroke-width="1.4"
      stroke-linecap="round" stroke-dasharray="3 5" aria-hidden="true">
   <path d="M2 20C14 20 18 4 30 4s16 16 28 16 16-12 28-12"/>
+</svg>
+{%- endmacro %}
+
+{# A magnifier, for the one place on the site where an image is a link to a
+   bigger copy of itself. The sample booklet page renders too small to read at
+   any width, and a picture that is also a link says so with this or with
+   nothing. #}
+{% macro magnifier(size=20, cls='') -%}
+<svg class="motif {{ cls }}" width="{{ size }}" height="{{ size }}" viewBox="0 0 32 32"
+     fill="none" stroke="currentColor" stroke-width="2.4"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <circle cx="14" cy="14" r="8.5"/>
+  <path d="M20.5 20.5L28 28"/>
+  <path d="M14 10.5v7M10.5 14h7"/>
 </svg>
 {%- endmacro %}
 
