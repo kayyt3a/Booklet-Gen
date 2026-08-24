@@ -272,6 +272,43 @@ db.save_job_file("pages-job", uid, "folio.pdf", "application/pdf", b"%PDF fake")
 lib = client.get("/library")
 check(lib.status_code == 200 and b"Ella" in lib.data,
       "the library lists a finished booklet")
+
+# ---------------------------------------------------------------------------
+print("\nA row in My booklets says its state once, and offers a way on")
+print("-" * 62)
+# Two kinds of failed row. The first can be retried; the second cannot, because
+# it has no stored request. That second kind is not hypothetical: request_json
+# arrived as a later column (see db.init_db's migrations), so every job already
+# in the database when it landed carries NULL, and db.create_job, which the
+# fixtures and the older code path use, never writes one either. Its action
+# slot used to hold a second, identical red "Failed" pill beside the one in the
+# row's own meta line: right-aligned on a laptop, left-aligned on a phone, and
+# saying nothing the row had not already said, under an error message that ends
+# "Please try again".
+db.enqueue_job("pages-retryable", uid, "NAPLAN Practice - Year 5 - Ella", 1,
+               {"program": "naplan", "year": "Year 5", "name": "Ella"},
+               reserve_credits=False)
+db.fail_job("pages-retryable", "the model timed out")
+db.create_job("pages-legacy", uid,
+              "Academic Accelerate - Year 3 - English - Noah", units=1)
+db.fail_job("pages-legacy", "the model timed out")
+check(db.get_job("pages-legacy")["request_json"] is None,
+      "a job created without a stored request really has none",
+      "which is what a pre-migration row looks like")
+
+_rows = re.findall(r'<li class="jobItem">(.*?)</li>',
+                   client.get("/library").data.decode(), re.S)
+check(len(_rows) == 3, "the library renders every row", f"{len(_rows)} rows")
+for _row in _rows:
+    _title = re.search(r'class="jobTitle">([^<]*)', _row).group(1).strip()
+    _pills = re.findall(r'<span class="pill [^"]*">([^<]*)</span>', _row)
+    check(len(_pills) == 1, f"{_title[:34]}: one status pill, not two",
+          f"pills: {[p.strip() for p in _pills]}")
+_legacy = next(r for r in _rows if "Noah" in r)
+check("Try again" not in _legacy and "/retry/" not in _legacy,
+      "a row with no stored request offers no retry, which would 404")
+check('href="/"' in _legacy,
+      "but it does offer a way on, rather than a dead red pill")
 acct = client.get("/account")
 check(acct.status_code == 200 and b"Booklets generated" in acct.data,
       "the account page shows usage")

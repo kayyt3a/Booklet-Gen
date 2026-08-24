@@ -91,7 +91,17 @@
                 <button class="btn secondary small" type="submit">Try again</button>
               </form>
             {% else %}
-              <span class="pill error">Failed</span>
+              {# No stored request, so views.retry would 404 on this one. Rows
+                 like this are real: request_json arrived as a later column
+                 (see db.init_db's migrations), so every job already in the
+                 database when it landed carries NULL, and a failed one falls
+                 here. The slot used to hold a second, identical red "Failed"
+                 pill beside the one in the row's own meta line, which said
+                 nothing the row had not already said and left the customer
+                 with no way forward, under an error message that ends "Please
+                 try again". The way forward is a fresh booklet, so the row
+                 offers that instead of repeating itself. #}
+              <a class="btn secondary small" href="{{ url_for('views.index') }}">Create a new one</a>
             {% endif %}
           {% endif %}
         </li>
