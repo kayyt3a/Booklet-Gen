@@ -958,21 +958,49 @@ def fail_job(job_id: str, error: str,
         _refund_row(cur, row, now)
 
 
+# What a customer sees on a booklet they stopped themselves. A constant
+# because both the cancel route and the library template read it: the row is an
+# ordinary settled-and-refunded 'error', and this is the only thing that
+# distinguishes "you stopped this" from "this broke".
+CANCELLED_MESSAGE = (
+    "You cancelled this booklet before it finished. Your booklet credit was "
+    "returned."
+)
+
+
 def fail_job_if_running(job_id: str, error: str) -> bool:
+    """Settle a queued or running job as failed and refund it. Once.
+
+    Every guard here is load-bearing against a job that is genuinely still
+    generating somewhere else:
+
+    * The row is locked FOR UPDATE on Postgres, where the customer's cancel and
+      the worker's finish_job run in different processes against the same row.
+      Without it both transactions read 'running', and the update below (which
+      is a plain UPDATE ... WHERE id=?) would blindly overwrite a 'done' the
+      worker had just committed, refunding a booklet that was delivered.
+    * The UPDATE repeats the status condition, so even without row locking a
+      job that settled between the read and the write is left alone.
+    * `_refund_row` only runs when this call is the one that moved the status,
+      so a double-clicked cancel refunds nothing the second time. The ledger's
+      unique reference would catch it anyway; this stops it a step earlier.
+    """
     now = int(time.time())
     with _cursor(transaction=True) as cur:
-        cur.execute(
-            _q("SELECT * FROM jobs WHERE id=? AND status IN ('queued','running')"),
-            (job_id,),
-        )
+        if is_postgres():
+            cur.execute("SELECT * FROM jobs WHERE id=%s FOR UPDATE", (job_id,))
+        else:
+            cur.execute("SELECT * FROM jobs WHERE id=?", (job_id,))
         row = cur.fetchone()
-        if row is None:
+        if row is None or row["status"] not in {"queued", "running"}:
             return False
         cur.execute(
             _q("""UPDATE jobs SET status='error', error=?, internal_error=?,
-                completed_at=? WHERE id=?"""),
+                completed_at=? WHERE id=? AND status IN ('queued','running')"""),
             (str(error)[:500], str(error)[:2000], now, job_id),
         )
+        if (cur.rowcount or 0) <= 0:
+            return False
         _refund_row(cur, row, now)
         return True
 
@@ -987,18 +1015,26 @@ def fail_stale_running_jobs(max_age_seconds: int) -> int:
             (cutoff,),
         )
         rows = list(cur.fetchall())
+        settled = 0
         for row in rows:
             message = (
                 "Generation stopped before it finished. Your booklet credit "
                 "was returned. Please try again."
             )
+            # Same status guard as fail_job_if_running, for the same reason:
+            # the row was read without a lock, so a worker in another process
+            # may have committed 'done' in between. An unguarded UPDATE would
+            # overwrite that and refund a booklet that was delivered.
             cur.execute(
                 _q("""UPDATE jobs SET status='error', error=?, internal_error=?,
-                    completed_at=? WHERE id=?"""),
+                    completed_at=? WHERE id=? AND status IN ('queued','running')"""),
                 (message, "Worker stopped or timed out.", now, row["id"]),
             )
+            if (cur.rowcount or 0) <= 0:
+                continue
             _refund_row(cur, row, now)
-        return len(rows)
+            settled += 1
+        return settled
 
 
 def get_job(job_id: str):

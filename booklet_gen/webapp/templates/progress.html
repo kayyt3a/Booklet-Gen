@@ -21,6 +21,15 @@
       the booklet keeps generating and appears in
       <a class="link" href="{{ url_for('views.library') }}">My booklets</a> when it is done.
     </div>
+    {# A way out that is not "generate a second one and hope". POST with the
+       CSRF token, like every other state-changing form in the app. #}
+    <form method="post" class="cancelForm"
+          action="{{ url_for('views.cancel', job_id=job['id']) }}">
+      {{ csrf_field() }}
+      <input type="hidden" name="next" value="{{ url_for('views.library') }}">
+      <button class="btn secondary small" type="submit">Cancel this booklet</button>
+    </form>
+    <p class="muted">Cancelling returns your booklet credit.</p>
   </div>
 
   <div id="done" style="display:none">

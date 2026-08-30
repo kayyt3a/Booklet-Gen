@@ -20,7 +20,7 @@ from flask import (
 from . import db
 from .auth import login_required
 from .commerce import payments_enabled, products
-from .security import enforce_rate_limit
+from .security import enforce_rate_limit, safe_redirect_target
 from ..programs import (
     PROGRAMS, ACCELERATE_SUBJECTS, EXAM_PROGRAMS, EXAM_YEARS,
     NAPLAN_PROGRAMS, TERM_PLAN_WEEKS, customer_programs,
@@ -428,6 +428,67 @@ def status(job_id: str):
     return jsonify(payload)
 
 
+@bp.route("/cancel/<job_id>", methods=["POST"])
+@login_required
+def cancel(job_id: str):
+    """Stop a booklet that is queued or still generating, and refund it.
+
+    Why this exists: generation can run in a background thread inside the web
+    service, and a Render restart or idle spin-down kills that thread without
+    settling the row. The job then sits at "running" with the credit spent
+    until FOLIO_JOB_TIMEOUT (45 minutes) expires. The customer could see the
+    spinner and had no way to stop it, so the only move available was to spend
+    a second credit on a second booklet, which is what happened.
+
+    POST only and CSRF-protected like every other state-changing route here: a
+    GET cancel is a link a browser prefetch, a crawler or an <img> tag could
+    follow, and this one spends nothing but destroys work.
+
+    Settlement goes through db.fail_job_if_running, the same call the stale
+    sweep uses, so there is exactly one code path that refunds a job. It acts
+    only on a row still in ('queued','running') and refunds only when it was
+    the call that moved the status, so:
+
+    * cancel first, worker finishes later -> finish_job's own status guard
+      finds no queued/running row, returns False, and jobs._finish_and_clean
+      leaves the job failed and refunded. The customer has the credit back and
+      no booklet, which is the correct pair.
+    * worker finishes first, cancel arrives later -> this finds a 'done' row,
+      changes nothing and refunds nothing. The customer has the booklet and the
+      spent credit, which is also the correct pair. They are told so.
+
+    Neither ordering can hand over both, and a double-clicked button takes the
+    second branch.
+    """
+    job = db.get_job(job_id)
+    if not job or job["user_id"] != g.user["id"]:
+        abort(404)
+    enforce_rate_limit("job-cancel", 60, 900)
+
+    target = safe_redirect_target(request.form.get("next"),
+                                  url_for("views.library"))
+
+    if job["status"] in {"queued", "running"} and db.fail_job_if_running(
+            job_id, db.CANCELLED_MESSAGE):
+        log.info("job %s cancelled by its owner (user %s)", job_id, g.user["id"])
+        flash("Booklet cancelled. Your credit has been returned, so you can "
+              "start a new one whenever you like.")
+        return redirect(target)
+
+    # Nothing was cancelled, either because the job had already settled before
+    # the button was pressed or because it settled between the read and the
+    # write. Say which, from the row as it now stands, rather than leaving a
+    # click that appears to have done nothing.
+    settled = db.get_job(job_id) or job
+    if settled["status"] == "done":
+        flash("That booklet finished just before your cancel arrived, so it "
+              "was not cancelled. It is ready in My booklets.")
+    else:
+        flash("That booklet had already stopped, so there was nothing to "
+              "cancel. Any credit it reserved has been returned.")
+    return redirect(target)
+
+
 @bp.route("/library")
 @login_required
 def library():
@@ -446,7 +507,8 @@ def library():
     ratings = db.feedback_for_jobs(
         [j["id"] for j in jobs if j["status"] == "done"])
     return render_template("library.html", jobs=jobs, ratings=ratings,
-                           retention=db.FILE_RETENTION_PER_USER)
+                           retention=db.FILE_RETENTION_PER_USER,
+                           cancelled_message=db.CANCELLED_MESSAGE)
 
 
 @bp.route("/download/<job_id>")
