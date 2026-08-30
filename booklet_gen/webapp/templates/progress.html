@@ -16,10 +16,24 @@
     <div class="flight">{{ flight(170) }}</div>
     <div class="bar"><span></span></div>
     <p class="muted" id="stage" style="margin-top:14px">Starting up...</p>
-    <div class="hint">
+    <div class="hint" id="normalHint" style="display:{{ 'none' if slow else 'block' }}">
       This usually takes a couple of minutes. You can safely close this tab:
       the booklet keeps generating and appears in
       <a class="link" href="{{ url_for('views.library') }}">My booklets</a> when it is done.
+    </div>
+    {# What the page can honestly say about a booklet that has been going a
+       long time. No percentage and no estimate: the pipeline reports no stage
+       boundaries, so either would be made up. The founder generated a second
+       booklet because the first looked frozen and the page said nothing, so
+       "still going, longer than usual, here is the way out" is the whole
+       point. #}
+    <div class="hint slow" id="slowNotice" role="status"
+         style="display:{{ 'block' if slow else 'none' }}">
+      This one is taking longer than usual. It has not been abandoned: FolioAI
+      still has it running, and it will appear in
+      <a class="link" href="{{ url_for('views.library') }}">My booklets</a>
+      if you close this tab. If you would rather not wait, cancel it below and
+      your booklet credit comes straight back.
     </div>
     {# A way out that is not "generate a second one and hope". POST with the
        CSRF token, like every other state-changing form in the app. #}
@@ -101,6 +115,14 @@
           document.getElementById('err').style.display = 'block';
         } else {
           if (d.status === "queued") stageEl.textContent = "Waiting for a generator to become available...";
+          // Server-decided, not a timer in this tab: the customer may have
+          // opened the page long after the booklet started, or reloaded it.
+          if (d.slow) {
+            clearInterval(ticker);
+            stageEl.textContent = "Still working. This one is slower than most.";
+            document.getElementById('slowNotice').style.display = 'block';
+            document.getElementById('normalHint').style.display = 'none';
+          }
           setTimeout(poll, 2500);
         }
       })

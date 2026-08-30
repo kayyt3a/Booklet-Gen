@@ -49,6 +49,11 @@
                  sentence. .pill.running was styled and never rendered. #}
               {% if j.status in ('queued', 'running') %}
                 <span class="pill running">Building</span>
+                {% if j.id in slow_jobs %}
+                  {# Said here too, because this is the page the founder was
+                     looking at while two booklets appeared frozen. #}
+                  <span class="slowNote">taking longer than usual</span>
+                {% endif %}
               {% elif j.status == 'error' %}
                 {# A cancelled booklet is an ordinary settled-and-refunded
                    error row, so every reader of `status` keeps working. The

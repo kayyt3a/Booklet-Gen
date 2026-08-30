@@ -82,6 +82,17 @@ JOB_TIMEOUT_SECONDS = int(os.environ.get("FOLIO_JOB_TIMEOUT", "2700"))
 # waiting for, which is worse than the bug this replaces.
 JOB_HEARTBEAT_MAX_AGE = int(
     os.environ.get("FOLIO_JOB_HEARTBEAT_MAX_AGE", "600"))
+
+# How long one booklet may take before the page stops saying "a couple of
+# minutes" and admits this one is slow.
+#
+# The founder generated a second booklet because the first looked frozen and
+# the page told him nothing either way. What it can honestly tell him is only
+# this: how long it has been, that it is longer than usual, and that he can
+# stop it. There is no percentage and no estimate here on purpose. The pipeline
+# reports no stage boundaries, so any number would be invented, and an invented
+# bar that reaches 90 percent and stops is worse than no bar.
+SLOW_NOTICE_SECONDS = int(os.environ.get("FOLIO_SLOW_JOB_NOTICE", "360"))
 # inline: this process generates, in a background thread.
 # queue:  a separate worker generates and this process only enqueues.
 # auto:   queue when a worker is actually alive, inline when one is not.
@@ -405,13 +416,35 @@ def _dispatch_job(job_id: str, args: dict | None = None) -> None:
     threading.Thread(target=_run_job, args=(job_id, args), daemon=True).start()
 
 
+def _slow_after_seconds(units) -> int:
+    """When a job of this size stops being ordinary.
+
+    A term plan is ten booklets in one job, so it is legitimately slow and must
+    not be called slow at the same moment a single booklet is. Half the base
+    per extra booklet: six minutes for one, thirty-three for a ten-week plan,
+    which is still inside the timeout, so the notice appears before the job is
+    settled rather than instead of it.
+    """
+    return int(SLOW_NOTICE_SECONDS * (1 + (max(1, int(units or 1)) - 1) / 2))
+
+
+def _job_is_slow(job) -> bool:
+    if job["status"] not in {"queued", "running"}:
+        return False
+    return (int(time.time()) - int(job["created_at"])
+            >= _slow_after_seconds(job["units"]))
+
+
 @bp.route("/progress/<job_id>")
 @login_required
 def progress(job_id: str):
     job = db.get_job(job_id)
     if not job or job["user_id"] != g.user["id"]:
         abort(404)
-    return render_template("progress.html", job=job)
+    # Rendered on first load as well as on the poll, because the customer who
+    # needs this notice most is the one coming back to a tab they left open, or
+    # reopening the page after their wifi dropped.
+    return render_template("progress.html", job=job, slow=_job_is_slow(job))
 
 
 def _job_looks_dead(job) -> bool:
@@ -460,6 +493,13 @@ def status(job_id: str):
         payload["download_url"] = url_for("views.download", job_id=job_id)
     elif job["status"] == "error":
         payload["error"] = job["error"]
+    else:
+        # Two true facts and no invented third one. The page uses these to
+        # stop claiming a couple of minutes once it has been considerably
+        # longer than that.
+        payload["running_seconds"] = max(
+            0, int(time.time()) - int(job["created_at"]))
+        payload["slow"] = _job_is_slow(job)
     return jsonify(payload)
 
 
@@ -542,7 +582,8 @@ def library():
         [j["id"] for j in jobs if j["status"] == "done"])
     return render_template("library.html", jobs=jobs, ratings=ratings,
                            retention=db.FILE_RETENTION_PER_USER,
-                           cancelled_message=db.CANCELLED_MESSAGE)
+                           cancelled_message=db.CANCELLED_MESSAGE,
+                           slow_jobs={j["id"] for j in jobs if _job_is_slow(j)})
 
 
 @bp.route("/download/<job_id>")
