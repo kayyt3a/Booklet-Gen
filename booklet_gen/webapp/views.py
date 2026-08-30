@@ -61,10 +61,27 @@ GLOBAL_DAILY_BOOKLET_LIMIT = int(
 # planner call, and an unbounded button is an unbounded bill.
 MAX_PLANS_PER_USER = int(os.environ.get("FOLIO_MAX_PLANS", "40"))
 
-# How long a single job may run before it is presumed dead. Generation is a
-# background thread with no timeout of its own, so without this a hung LLM
-# call leaves the row "running" and the user watching a spinner for ever.
+# How long a single job may run before it is presumed dead. This is the
+# backstop, not the main detector: it has to be generous enough for the slowest
+# legitimate work, which is a ten-week term plan, so it cannot also be quick.
+# It is the only thing that catches a job which never beat at all.
 JOB_TIMEOUT_SECONDS = int(os.environ.get("FOLIO_JOB_TIMEOUT", "2700"))
+
+# How long a running job may go without a heartbeat before it is presumed dead.
+# This is the detector that makes the 45 minutes above stop mattering in
+# practice, because a job that has beaten and then stopped is dead whatever its
+# age (db.start_job_heartbeat).
+#
+# The number: the pump beats every FOLIO_JOB_HEARTBEAT_SECONDS, 30 by default,
+# from its own thread, so it does not slow down when generation does. Ten
+# minutes is twenty consecutive missed beats. Nothing short of the process
+# ending produces that, with one exception, a database outage long enough to
+# fail twenty writes in a row, and during such an outage this sweep cannot run
+# either because it needs the same database. Erring high is deliberate:
+# killing a job that was really progressing costs the customer work they were
+# waiting for, which is worse than the bug this replaces.
+JOB_HEARTBEAT_MAX_AGE = int(
+    os.environ.get("FOLIO_JOB_HEARTBEAT_MAX_AGE", "600"))
 # inline: this process generates, in a background thread.
 # queue:  a separate worker generates and this process only enqueues.
 # auto:   queue when a worker is actually alive, inline when one is not.
@@ -397,19 +414,37 @@ def progress(job_id: str):
     return render_template("progress.html", job=job)
 
 
-def _settle_if_stale(job) -> dict:
-    """Turn a job that has outlived the timeout into a reported failure.
+def _job_looks_dead(job) -> bool:
+    """True when nothing can still be generating this job.
 
-    The worker thread it belonged to is gone (a redeploy, a spin-down, or a
-    hung call), so leaving it "running" means an endless spinner.
+    Two tests, and a job only has to fail one. The heartbeat is the quick one
+    and the age is the backstop for jobs that never beat: see
+    db.fail_stale_running_jobs, which applies exactly the same rule in bulk.
     """
     if job["status"] not in {"queued", "running"}:
-        return job
-    if int(time.time()) - int(job["created_at"]) < JOB_TIMEOUT_SECONDS:
+        return False
+    now = int(time.time())
+    beat = job["heartbeat_at"] if "heartbeat_at" in job.keys() else None
+    if (job["status"] == "running" and beat is not None
+            and now - int(beat) >= JOB_HEARTBEAT_MAX_AGE):
+        return True
+    return now - int(job["created_at"]) >= JOB_TIMEOUT_SECONDS
+
+
+def _settle_if_stale(job) -> dict:
+    """Turn a job that cannot still be running into a reported failure.
+
+    The thread it belonged to is gone (a redeploy, a spin-down, or a hung
+    call), so leaving it "running" means an endless spinner over a spent
+    credit. Settling refunds it through the same single path as everything
+    else.
+    """
+    if not _job_looks_dead(job):
         return job
     db.fail_job_if_running(job["id"], (
-        "Generation stopped before it finished. This usually means the server "
-        "restarted mid-run. Please try again."))
+        "Generation stopped before it finished. Your booklet credit was "
+        "returned. This usually means the server restarted mid-run. Please "
+        "try again."))
     return db.get_job(job["id"]) or job
 
 
@@ -495,12 +530,11 @@ def library():
     """Everything this account has generated, newest first."""
     jobs = db.list_jobs(g.user["id"])
     # Only touch the database again if this page would otherwise show a
-    # spinner for a job whose worker cannot still be alive.
-    cutoff = int(time.time()) - JOB_TIMEOUT_SECONDS
-    if any(j["status"] in {"queued", "running"}
-           and int(j["created_at"]) < cutoff for j in jobs):
+    # spinner for a job that cannot still be alive.
+    if any(_job_looks_dead(j) for j in jobs):
         try:
-            db.fail_stale_running_jobs(JOB_TIMEOUT_SECONDS)
+            db.fail_stale_running_jobs(JOB_TIMEOUT_SECONDS,
+                                       JOB_HEARTBEAT_MAX_AGE)
             jobs = db.list_jobs(g.user["id"])
         except Exception as e:
             log.warning("stale job sweep failed: %s", e)
