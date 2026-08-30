@@ -119,7 +119,13 @@ def _cookies_should_be_secure() -> bool:
 
 def _validate_runtime_config() -> None:
     require_postgres = (os.environ.get("FOLIO_REQUIRE_POSTGRES") or "").strip().lower()
-    queue_mode = (os.environ.get("FOLIO_JOB_MODE") or "inline").strip().lower()
+    # Read the mode views actually runs on rather than parsing the variable a
+    # second time. This used to default to "inline" here and "auto" in
+    # views.py. Nothing behaved differently, because both files only ever
+    # compare the value against "queue", but two defaults for one setting is a
+    # trap for the next change, and it made "what mode is this deployment in?"
+    # a question with two answers.
+    from .views import JOB_MODE as queue_mode
     if (require_postgres in {"1", "true", "yes", "on"} or queue_mode == "queue") \
             and not is_postgres():
         raise RuntimeError(
@@ -163,10 +169,17 @@ def create_app() -> Flask:
     # A deploy or an idle spin-down kills in-flight generation threads while
     # the row still says "running". Nothing would ever clear those, so the
     # user watches a spinner for ever. Settle them at boot.
+    #
+    # Deliberately not "fail everything that says running", tempting as that
+    # is here: in queue mode the worker is a separate service that this boot
+    # knows nothing about, and its jobs are legitimately still generating. The
+    # heartbeat is what tells the two apart, so this sweep uses the same rule
+    # as every other one.
     try:
-        from .views import JOB_TIMEOUT_SECONDS
+        from .views import JOB_HEARTBEAT_MAX_AGE, JOB_TIMEOUT_SECONDS
         from . import db as _db
-        stale = _db.fail_stale_running_jobs(JOB_TIMEOUT_SECONDS)
+        stale = _db.fail_stale_running_jobs(JOB_TIMEOUT_SECONDS,
+                                            JOB_HEARTBEAT_MAX_AGE)
         if stale:
             log.warning("marked %d stale running job(s) as failed at boot", stale)
     except Exception as e:  # never let housekeeping stop the app booting

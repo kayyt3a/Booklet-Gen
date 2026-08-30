@@ -49,8 +49,23 @@
                  sentence. .pill.running was styled and never rendered. #}
               {% if j.status in ('queued', 'running') %}
                 <span class="pill running">Building</span>
+                {% if j.id in slow_jobs %}
+                  {# Said here too, because this is the page the founder was
+                     looking at while two booklets appeared frozen. #}
+                  <span class="slowNote">taking longer than usual</span>
+                {% endif %}
               {% elif j.status == 'error' %}
-                <span class="pill error">Failed</span>
+                {# A cancelled booklet is an ordinary settled-and-refunded
+                   error row, so every reader of `status` keeps working. The
+                   only thing that changes is the word, because "Failed" on a
+                   booklet the customer stopped on purpose reads like a fault
+                   they should report. Compared against the constant the cancel
+                   route writes, so there is one source of truth. #}
+                {% if j.error == cancelled_message %}
+                  <span class="pill error">Cancelled</span>
+                {% else %}
+                  <span class="pill error">Failed</span>
+                {% endif %}
               {% elif j.status == 'done' %}
                 <span class="pill done">Ready</span>
               {% endif %}
@@ -84,6 +99,15 @@
             {% endif %}
           {% elif j.status in ('queued', 'running') %}
             <a class="btn secondary small" href="{{ url_for('views.progress', job_id=j.id) }}">In progress</a>
+            {# The founder was looking at this page with two booklets stuck on
+               Building and no way out of it. POST, with the same CSRF token
+               every other state-changing form here carries. #}
+            <form method="post" action="{{ url_for('views.cancel', job_id=j.id) }}">
+              {{ csrf_field() }}
+              <input type="hidden" name="next" value="{{ url_for('views.library') }}">
+              <button class="btn secondary small" type="submit"
+                      title="Stop this booklet and return its credit">Cancel</button>
+            </form>
           {% else %}
             {% if j.request_json %}
               <form method="post" action="{{ url_for('views.retry', job_id=j.id) }}">

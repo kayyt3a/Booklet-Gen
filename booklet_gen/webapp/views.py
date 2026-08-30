@@ -20,7 +20,7 @@ from flask import (
 from . import db
 from .auth import login_required
 from .commerce import payments_enabled, products
-from .security import enforce_rate_limit
+from .security import enforce_rate_limit, safe_redirect_target
 from ..programs import (
     PROGRAMS, ACCELERATE_SUBJECTS, EXAM_PROGRAMS, EXAM_YEARS,
     NAPLAN_PROGRAMS, TERM_PLAN_WEEKS, customer_programs,
@@ -61,10 +61,38 @@ GLOBAL_DAILY_BOOKLET_LIMIT = int(
 # planner call, and an unbounded button is an unbounded bill.
 MAX_PLANS_PER_USER = int(os.environ.get("FOLIO_MAX_PLANS", "40"))
 
-# How long a single job may run before it is presumed dead. Generation is a
-# background thread with no timeout of its own, so without this a hung LLM
-# call leaves the row "running" and the user watching a spinner for ever.
+# How long a single job may run before it is presumed dead. This is the
+# backstop, not the main detector: it has to be generous enough for the slowest
+# legitimate work, which is a ten-week term plan, so it cannot also be quick.
+# It is the only thing that catches a job which never beat at all.
 JOB_TIMEOUT_SECONDS = int(os.environ.get("FOLIO_JOB_TIMEOUT", "2700"))
+
+# How long a running job may go without a heartbeat before it is presumed dead.
+# This is the detector that makes the 45 minutes above stop mattering in
+# practice, because a job that has beaten and then stopped is dead whatever its
+# age (db.start_job_heartbeat).
+#
+# The number: the pump beats every FOLIO_JOB_HEARTBEAT_SECONDS, 30 by default,
+# from its own thread, so it does not slow down when generation does. Ten
+# minutes is twenty consecutive missed beats. Nothing short of the process
+# ending produces that, with one exception, a database outage long enough to
+# fail twenty writes in a row, and during such an outage this sweep cannot run
+# either because it needs the same database. Erring high is deliberate:
+# killing a job that was really progressing costs the customer work they were
+# waiting for, which is worse than the bug this replaces.
+JOB_HEARTBEAT_MAX_AGE = int(
+    os.environ.get("FOLIO_JOB_HEARTBEAT_MAX_AGE", "600"))
+
+# How long one booklet may take before the page stops saying "a couple of
+# minutes" and admits this one is slow.
+#
+# The founder generated a second booklet because the first looked frozen and
+# the page told him nothing either way. What it can honestly tell him is only
+# this: how long it has been, that it is longer than usual, and that he can
+# stop it. There is no percentage and no estimate here on purpose. The pipeline
+# reports no stage boundaries, so any number would be invented, and an invented
+# bar that reaches 90 percent and stops is worse than no bar.
+SLOW_NOTICE_SECONDS = int(os.environ.get("FOLIO_SLOW_JOB_NOTICE", "360"))
 # inline: this process generates, in a background thread.
 # queue:  a separate worker generates and this process only enqueues.
 # auto:   queue when a worker is actually alive, inline when one is not.
@@ -388,28 +416,68 @@ def _dispatch_job(job_id: str, args: dict | None = None) -> None:
     threading.Thread(target=_run_job, args=(job_id, args), daemon=True).start()
 
 
+def _slow_after_seconds(units) -> int:
+    """When a job of this size stops being ordinary.
+
+    A term plan is ten booklets in one job, so it is legitimately slow and must
+    not be called slow at the same moment a single booklet is. Half the base
+    per extra booklet: six minutes for one, thirty-three for a ten-week plan,
+    which is still inside the timeout, so the notice appears before the job is
+    settled rather than instead of it.
+    """
+    return int(SLOW_NOTICE_SECONDS * (1 + (max(1, int(units or 1)) - 1) / 2))
+
+
+def _job_is_slow(job) -> bool:
+    if job["status"] not in {"queued", "running"}:
+        return False
+    return (int(time.time()) - int(job["created_at"])
+            >= _slow_after_seconds(job["units"]))
+
+
 @bp.route("/progress/<job_id>")
 @login_required
 def progress(job_id: str):
     job = db.get_job(job_id)
     if not job or job["user_id"] != g.user["id"]:
         abort(404)
-    return render_template("progress.html", job=job)
+    # Rendered on first load as well as on the poll, because the customer who
+    # needs this notice most is the one coming back to a tab they left open, or
+    # reopening the page after their wifi dropped.
+    return render_template("progress.html", job=job, slow=_job_is_slow(job))
+
+
+def _job_looks_dead(job) -> bool:
+    """True when nothing can still be generating this job.
+
+    Two tests, and a job only has to fail one. The heartbeat is the quick one
+    and the age is the backstop for jobs that never beat: see
+    db.fail_stale_running_jobs, which applies exactly the same rule in bulk.
+    """
+    if job["status"] not in {"queued", "running"}:
+        return False
+    now = int(time.time())
+    beat = job["heartbeat_at"] if "heartbeat_at" in job.keys() else None
+    if (job["status"] == "running" and beat is not None
+            and now - int(beat) >= JOB_HEARTBEAT_MAX_AGE):
+        return True
+    return now - int(job["created_at"]) >= JOB_TIMEOUT_SECONDS
 
 
 def _settle_if_stale(job) -> dict:
-    """Turn a job that has outlived the timeout into a reported failure.
+    """Turn a job that cannot still be running into a reported failure.
 
-    The worker thread it belonged to is gone (a redeploy, a spin-down, or a
-    hung call), so leaving it "running" means an endless spinner.
+    The thread it belonged to is gone (a redeploy, a spin-down, or a hung
+    call), so leaving it "running" means an endless spinner over a spent
+    credit. Settling refunds it through the same single path as everything
+    else.
     """
-    if job["status"] not in {"queued", "running"}:
-        return job
-    if int(time.time()) - int(job["created_at"]) < JOB_TIMEOUT_SECONDS:
+    if not _job_looks_dead(job):
         return job
     db.fail_job_if_running(job["id"], (
-        "Generation stopped before it finished. This usually means the server "
-        "restarted mid-run. Please try again."))
+        "Generation stopped before it finished. Your booklet credit was "
+        "returned. This usually means the server restarted mid-run. Please "
+        "try again."))
     return db.get_job(job["id"]) or job
 
 
@@ -425,7 +493,75 @@ def status(job_id: str):
         payload["download_url"] = url_for("views.download", job_id=job_id)
     elif job["status"] == "error":
         payload["error"] = job["error"]
+    else:
+        # Two true facts and no invented third one. The page uses these to
+        # stop claiming a couple of minutes once it has been considerably
+        # longer than that.
+        payload["running_seconds"] = max(
+            0, int(time.time()) - int(job["created_at"]))
+        payload["slow"] = _job_is_slow(job)
     return jsonify(payload)
+
+
+@bp.route("/cancel/<job_id>", methods=["POST"])
+@login_required
+def cancel(job_id: str):
+    """Stop a booklet that is queued or still generating, and refund it.
+
+    Why this exists: generation can run in a background thread inside the web
+    service, and a Render restart or idle spin-down kills that thread without
+    settling the row. The job then sits at "running" with the credit spent
+    until FOLIO_JOB_TIMEOUT (45 minutes) expires. The customer could see the
+    spinner and had no way to stop it, so the only move available was to spend
+    a second credit on a second booklet, which is what happened.
+
+    POST only and CSRF-protected like every other state-changing route here: a
+    GET cancel is a link a browser prefetch, a crawler or an <img> tag could
+    follow, and this one spends nothing but destroys work.
+
+    Settlement goes through db.fail_job_if_running, the same call the stale
+    sweep uses, so there is exactly one code path that refunds a job. It acts
+    only on a row still in ('queued','running') and refunds only when it was
+    the call that moved the status, so:
+
+    * cancel first, worker finishes later -> finish_job's own status guard
+      finds no queued/running row, returns False, and jobs._finish_and_clean
+      leaves the job failed and refunded. The customer has the credit back and
+      no booklet, which is the correct pair.
+    * worker finishes first, cancel arrives later -> this finds a 'done' row,
+      changes nothing and refunds nothing. The customer has the booklet and the
+      spent credit, which is also the correct pair. They are told so.
+
+    Neither ordering can hand over both, and a double-clicked button takes the
+    second branch.
+    """
+    job = db.get_job(job_id)
+    if not job or job["user_id"] != g.user["id"]:
+        abort(404)
+    enforce_rate_limit("job-cancel", 60, 900)
+
+    target = safe_redirect_target(request.form.get("next"),
+                                  url_for("views.library"))
+
+    if job["status"] in {"queued", "running"} and db.fail_job_if_running(
+            job_id, db.CANCELLED_MESSAGE):
+        log.info("job %s cancelled by its owner (user %s)", job_id, g.user["id"])
+        flash("Booklet cancelled. Your credit has been returned, so you can "
+              "start a new one whenever you like.")
+        return redirect(target)
+
+    # Nothing was cancelled, either because the job had already settled before
+    # the button was pressed or because it settled between the read and the
+    # write. Say which, from the row as it now stands, rather than leaving a
+    # click that appears to have done nothing.
+    settled = db.get_job(job_id) or job
+    if settled["status"] == "done":
+        flash("That booklet finished just before your cancel arrived, so it "
+              "was not cancelled. It is ready in My booklets.")
+    else:
+        flash("That booklet had already stopped, so there was nothing to "
+              "cancel. Any credit it reserved has been returned.")
+    return redirect(target)
 
 
 @bp.route("/library")
@@ -434,19 +570,20 @@ def library():
     """Everything this account has generated, newest first."""
     jobs = db.list_jobs(g.user["id"])
     # Only touch the database again if this page would otherwise show a
-    # spinner for a job whose worker cannot still be alive.
-    cutoff = int(time.time()) - JOB_TIMEOUT_SECONDS
-    if any(j["status"] in {"queued", "running"}
-           and int(j["created_at"]) < cutoff for j in jobs):
+    # spinner for a job that cannot still be alive.
+    if any(_job_looks_dead(j) for j in jobs):
         try:
-            db.fail_stale_running_jobs(JOB_TIMEOUT_SECONDS)
+            db.fail_stale_running_jobs(JOB_TIMEOUT_SECONDS,
+                                       JOB_HEARTBEAT_MAX_AGE)
             jobs = db.list_jobs(g.user["id"])
         except Exception as e:
             log.warning("stale job sweep failed: %s", e)
     ratings = db.feedback_for_jobs(
         [j["id"] for j in jobs if j["status"] == "done"])
     return render_template("library.html", jobs=jobs, ratings=ratings,
-                           retention=db.FILE_RETENTION_PER_USER)
+                           retention=db.FILE_RETENTION_PER_USER,
+                           cancelled_message=db.CANCELLED_MESSAGE,
+                           slow_jobs={j["id"] for j in jobs if _job_is_slow(j)})
 
 
 @bp.route("/download/<job_id>")

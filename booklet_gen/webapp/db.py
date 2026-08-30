@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -90,7 +91,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     attempts       INTEGER NOT NULL DEFAULT 0,
     units          INTEGER NOT NULL DEFAULT 1,
     credit_units   INTEGER NOT NULL DEFAULT 0,
-    request_json   TEXT
+    request_json   TEXT,
+    heartbeat_at   BIGINT
 );
 CREATE INDEX IF NOT EXISTS jobs_user_created_idx ON jobs (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_created_idx ON jobs (created_at DESC);
@@ -203,6 +205,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     units          INTEGER NOT NULL DEFAULT 1,
     credit_units   INTEGER NOT NULL DEFAULT 0,
     request_json   TEXT,
+    heartbeat_at   INTEGER,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS jobs_user_created_idx ON jobs (user_id, created_at DESC);
@@ -331,6 +334,11 @@ def init_db() -> None:
                 "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS plan_id INTEGER",
                 "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS plan_week INTEGER",
                 "CREATE INDEX IF NOT EXISTS jobs_plan_idx ON jobs (plan_id)",
+                # When this job last proved it was still alive. NULL on every
+                # row that predates the column and on every job that never
+                # beat, which is why the created_at timeout stays as the
+                # backstop rather than being replaced by this.
+                "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS heartbeat_at BIGINT",
             )
             for statement in migrations:
                 conn.execute(statement)
@@ -361,6 +369,7 @@ def init_db() -> None:
             "request_json": "TEXT",
             "plan_id": "INTEGER",
             "plan_week": "INTEGER",
+            "heartbeat_at": "INTEGER",
         })
         conn.execute("CREATE INDEX IF NOT EXISTS jobs_plan_idx ON jobs (plan_id)")
         _sqlite_add_columns(conn, "job_files", {"storage_key": "TEXT"})
@@ -860,7 +869,76 @@ def enqueue_job(job_id: str, user_id: int, label: str, units: int,
         return True
 
 
-def _claim_where(where_sql: str, params: tuple):
+# ---------- per-job heartbeat ----------
+#
+# The worker heartbeat above says whether a generating *process* exists. This
+# says whether one particular job is still being generated, which is a
+# different question and the one a customer's spinner depends on.
+#
+# Why it has to exist: the only way to tell a slow job from a dead one used to
+# be its age, so FOLIO_JOB_TIMEOUT had to be set high enough for the slowest
+# legitimate work (a ten-week term plan) and ended up at 45 minutes. A job
+# whose thread died after ten seconds still showed a spinner for the rest of
+# those 45 minutes with the credit spent.
+#
+# Why it beats from its own thread rather than between pipeline stages: a
+# single Gemini call is bounded by llm/gemini.py's per-attempt timeout and
+# retry deadline, not by anything shorter, so a beat that only ticked between
+# stages would go quiet during exactly the slow generation it is meant to
+# distinguish from a dead one, and the sweep would then kill live work. Killing
+# a live job is worse than the bug being fixed, so the beat is deliberately
+# independent of what the job is doing.
+
+JOB_HEARTBEAT_SECONDS = max(
+    0, int(os.environ.get("FOLIO_JOB_HEARTBEAT_SECONDS", "30")))
+
+
+def beat_job(job_id: str, now: int | None = None) -> bool:
+    """Stamp one job as still alive. False once it is no longer running.
+
+    The status condition is what lets the pump below stop by itself: when the
+    job finishes, fails or is cancelled, this stops matching and the thread
+    exits. Nothing has to remember to turn it off, which matters because the
+    settling can happen in another process entirely.
+    """
+    stamp = int(time.time()) if now is None else int(now)
+    with _cursor() as cur:
+        cur.execute(
+            _q("UPDATE jobs SET heartbeat_at=? WHERE id=? AND status='running'"),
+            (stamp, job_id),
+        )
+        return (cur.rowcount or 0) > 0
+
+
+def start_job_heartbeat(job_id: str, interval_seconds: int | None = None):
+    """Beat for `job_id` until it stops running. Returns a stop Event.
+
+    A daemon thread, so it dies with the process. That is the point: when a
+    Render deploy or an idle spin-down takes the web service down mid-job, the
+    beats stop at the same instant the generation does, and the sweep can tell.
+    """
+    stop = threading.Event()
+    interval = (JOB_HEARTBEAT_SECONDS if interval_seconds is None
+                else int(interval_seconds))
+    if interval <= 0:
+        return stop
+
+    def _pump() -> None:
+        while not stop.wait(interval):
+            try:
+                if not beat_job(job_id):
+                    return
+            except Exception as exc:
+                # A missed beat must not stop generation, and one blip must not
+                # end the pump: the sweep threshold has room for many misses.
+                log.warning("could not beat for job %s: %s", job_id, exc)
+
+    threading.Thread(target=_pump, name=f"job-heartbeat-{job_id[:8]}",
+                     daemon=True).start()
+    return stop
+
+
+def _claim_where(where_sql: str, params: tuple, heartbeat: bool = True):
     now = int(time.time())
     with _cursor(transaction=True) as cur:
         if is_postgres():
@@ -878,21 +956,36 @@ def _claim_where(where_sql: str, params: tuple):
         if picked is None:
             return None
         job_id = picked["id"] if is_postgres() else picked[0]
+        # The first beat, written by the claim itself so there is no window in
+        # which a running job looks like one that never beat. Left NULL when
+        # nothing is going to beat for this job, because a heartbeat that is
+        # stamped once and never advances would have the sweep kill live work
+        # ten minutes later. With it NULL the job falls back to the created_at
+        # backstop, which is exactly the behaviour before any of this.
+        pumping = heartbeat and JOB_HEARTBEAT_SECONDS > 0
         cur.execute(
-            _q("""UPDATE jobs SET status='running', started_at=?,
+            _q("""UPDATE jobs SET status='running', started_at=?, heartbeat_at=?,
                 attempts=attempts+1, error=NULL, internal_error=NULL WHERE id=?"""),
-            (now, job_id),
+            (now, now if pumping else None, job_id),
         )
         cur.execute(_q("SELECT * FROM jobs WHERE id=?"), (job_id,))
-        return dict(cur.fetchone())
+        claimed = dict(cur.fetchone())
+    # After the claim commits, and here rather than in the caller, because
+    # every way a job starts generating goes through this function: the inline
+    # thread in the web service (views._dispatch_job -> jobs.run_job_by_id ->
+    # claim_job) and the separate worker process (worker.main ->
+    # claim_next_job). One hook covers both, and no caller can forget it.
+    if heartbeat:
+        start_job_heartbeat(job_id)
+    return claimed
 
 
-def claim_next_job():
-    return _claim_where("status='queued'", ())
+def claim_next_job(heartbeat: bool = True):
+    return _claim_where("status='queued'", (), heartbeat)
 
 
-def claim_job(job_id: str):
-    return _claim_where(_q("status='queued' AND id=?"), (job_id,))
+def claim_job(job_id: str, heartbeat: bool = True):
+    return _claim_where(_q("status='queued' AND id=?"), (job_id,), heartbeat)
 
 
 def finish_job(job_id: str, *, path: str = None, dir: str = None) -> bool:
@@ -958,47 +1051,108 @@ def fail_job(job_id: str, error: str,
         _refund_row(cur, row, now)
 
 
+# What a customer sees on a booklet they stopped themselves. A constant
+# because both the cancel route and the library template read it: the row is an
+# ordinary settled-and-refunded 'error', and this is the only thing that
+# distinguishes "you stopped this" from "this broke".
+CANCELLED_MESSAGE = (
+    "You cancelled this booklet before it finished. Your booklet credit was "
+    "returned."
+)
+
+
 def fail_job_if_running(job_id: str, error: str) -> bool:
+    """Settle a queued or running job as failed and refund it. Once.
+
+    Every guard here is load-bearing against a job that is genuinely still
+    generating somewhere else:
+
+    * The row is locked FOR UPDATE on Postgres, where the customer's cancel and
+      the worker's finish_job run in different processes against the same row.
+      Without it both transactions read 'running', and the update below (which
+      is a plain UPDATE ... WHERE id=?) would blindly overwrite a 'done' the
+      worker had just committed, refunding a booklet that was delivered.
+    * The UPDATE repeats the status condition, so even without row locking a
+      job that settled between the read and the write is left alone.
+    * `_refund_row` only runs when this call is the one that moved the status,
+      so a double-clicked cancel refunds nothing the second time. The ledger's
+      unique reference would catch it anyway; this stops it a step earlier.
+    """
     now = int(time.time())
     with _cursor(transaction=True) as cur:
-        cur.execute(
-            _q("SELECT * FROM jobs WHERE id=? AND status IN ('queued','running')"),
-            (job_id,),
-        )
+        if is_postgres():
+            cur.execute("SELECT * FROM jobs WHERE id=%s FOR UPDATE", (job_id,))
+        else:
+            cur.execute("SELECT * FROM jobs WHERE id=?", (job_id,))
         row = cur.fetchone()
-        if row is None:
+        if row is None or row["status"] not in {"queued", "running"}:
             return False
         cur.execute(
             _q("""UPDATE jobs SET status='error', error=?, internal_error=?,
-                completed_at=? WHERE id=?"""),
+                completed_at=? WHERE id=? AND status IN ('queued','running')"""),
             (str(error)[:500], str(error)[:2000], now, job_id),
         )
+        if (cur.rowcount or 0) <= 0:
+            return False
         _refund_row(cur, row, now)
         return True
 
 
-def fail_stale_running_jobs(max_age_seconds: int) -> int:
-    cutoff = int(time.time()) - int(max_age_seconds)
+def fail_stale_running_jobs(max_age_seconds: int,
+                            heartbeat_max_age_seconds: int | None = None) -> int:
+    """Settle and refund jobs that cannot still be generating. Count settled.
+
+    Two independent tests, because they catch different failures:
+
+    * `max_age_seconds` against `created_at` is the backstop. It is the only
+      thing that catches a job that never beat at all: one queued for a worker
+      that never arrived, or a row written before the heartbeat column existed.
+      It has to be generous enough for the slowest legitimate work, which is
+      why it is 45 minutes.
+    * `heartbeat_max_age_seconds` against `heartbeat_at` is the fast path. A
+      job that has beaten and then stopped is dead, whatever its age, so this
+      can be minutes without endangering a slow but living job. Rows with a
+      NULL heartbeat are deliberately untouched by it.
+
+    The age test still applies to beating jobs too, so the absolute ceiling on
+    a single job is unchanged. It is the only protection left against a job
+    that hangs while its heartbeat thread carries on beating, and a customer
+    who is watching a genuinely long job can now stop it themselves.
+    """
     now = int(time.time())
+    cutoff = now - int(max_age_seconds)
+    sql = """SELECT * FROM jobs WHERE status IN ('queued','running')
+             AND created_at < ?"""
+    params: tuple = (cutoff,)
+    if heartbeat_max_age_seconds:
+        sql = """SELECT * FROM jobs WHERE status IN ('queued','running')
+                 AND (created_at < ?
+                      OR (status='running' AND heartbeat_at IS NOT NULL
+                          AND heartbeat_at < ?))"""
+        params = (cutoff, now - int(heartbeat_max_age_seconds))
     with _cursor(transaction=True) as cur:
-        cur.execute(
-            _q("""SELECT * FROM jobs WHERE status IN ('queued','running')
-                AND created_at < ?"""),
-            (cutoff,),
-        )
+        cur.execute(_q(sql), params)
         rows = list(cur.fetchall())
+        settled = 0
         for row in rows:
             message = (
                 "Generation stopped before it finished. Your booklet credit "
                 "was returned. Please try again."
             )
+            # Same status guard as fail_job_if_running, for the same reason:
+            # the row was read without a lock, so a worker in another process
+            # may have committed 'done' in between. An unguarded UPDATE would
+            # overwrite that and refund a booklet that was delivered.
             cur.execute(
                 _q("""UPDATE jobs SET status='error', error=?, internal_error=?,
-                    completed_at=? WHERE id=?"""),
+                    completed_at=? WHERE id=? AND status IN ('queued','running')"""),
                 (message, "Worker stopped or timed out.", now, row["id"]),
             )
+            if (cur.rowcount or 0) <= 0:
+                continue
             _refund_row(cur, row, now)
-        return len(rows)
+            settled += 1
+        return settled
 
 
 def get_job(job_id: str):
@@ -1011,8 +1165,8 @@ def list_jobs(user_id: int, limit: int = 50) -> list[dict]:
     with _cursor() as cur:
         cur.execute(
             _q("""SELECT j.id,j.status,j.label,j.error,j.created_at,
-                       j.started_at,j.completed_at,j.units,j.request_json,
-                       f.filename,f.bytes,f.storage_key
+                       j.started_at,j.completed_at,j.heartbeat_at,j.units,
+                       j.request_json,f.filename,f.bytes,f.storage_key
                 FROM jobs j LEFT JOIN job_files f ON f.job_id=j.id
                 WHERE j.user_id=? ORDER BY j.created_at DESC LIMIT ?"""),
             (user_id, limit),

@@ -43,6 +43,7 @@ bp = Blueprint("seo", __name__)
 DISALLOWED_PREFIXES = (
     "/account",         # views.py: usage stats and deletion for one account
     "/admin",           # admin.py: the owner support console
+    "/cancel",          # views.py: POST-only, stops one account's booklet
     "/checkout",        # payments.py: checkout and checkout/success
     "/download",        # views.py: one account's generated file
     "/feedback",        # views.py: a rating form scoped to one account's job

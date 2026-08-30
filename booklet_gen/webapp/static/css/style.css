@@ -311,6 +311,12 @@ a.link{color:var(--navy);font-weight:600}
   border-left:3px solid var(--orange);border-radius:0 10px 10px 0;
   padding:var(--s3) var(--s3);font-size:var(--t-small);color:var(--muted);margin-top:var(--s4);
 }
+/* A booklet that is taking longer than usual. Deliberately not .alert: nothing
+ * has failed, and dressing "still working" in the red kept for a spent credit
+ * and no booklet teaches people to read past the red. The grey is lifted to
+ * ink because this is the one hint on the site that has to be read. */
+.hint.slow{color:var(--ink)}
+.slowNote{color:var(--amber-ink)}
 
 
 /* ---- field sizes ----
