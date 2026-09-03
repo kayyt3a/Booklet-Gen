@@ -85,6 +85,41 @@ for subject in S.SUBJECTS:
                     f"unit scope {scope.id!r} served {sid!r} from {sub.unit}")
 ok("every offered scope resolves, and none reaches outside what it names")
 
+print("\nTHE PICKER CAN ACTUALLY BE DRAWN AS A TREE")
+
+# A picker builds its hierarchy by hanging each row off Scope.parent. A parent
+# that is not itself in the response is a parent the picker cannot draw, so
+# every row hangs off nothing and the whole thing renders as a flat list. That
+# is precisely the hierarchical selection this feature exists to provide, and
+# it broke only when a year was selected, which is the common case: the year
+# scope became the root but every row still pointed at the subject.
+for subject in S.SUBJECTS:
+    for year in (None, "Year 11", "Year 12"):
+        options = S.scope_options(subject, year)
+        ids = {sc.id for sc in options}
+        roots = [sc for sc in options if sc.parent is None]
+        assert len(roots) == 1, (
+            f"{subject} ({year}) returned {len(roots)} rows with no parent. A "
+            "picker needs exactly one root to hang the tree from")
+        for sc in options:
+            assert sc.parent is None or sc.parent in ids, (
+                f"{subject} ({year}): scope {sc.id!r} claims parent "
+                f"{sc.parent!r}, which is not in the same response. The picker "
+                "cannot draw that row inside anything, so the hierarchy "
+                "collapses to a flat list")
+        # And the tree must actually terminate at the root rather than cycle.
+        by_id = {sc.id: sc for sc in options}
+        for sc in options:
+            seen, node = set(), sc
+            while node.parent is not None:
+                assert node.id not in seen, f"parent cycle at {sc.id!r}"
+                seen.add(node.id)
+                node = by_id[node.parent]
+            assert node.id == roots[0].id, (
+                f"{sc.id!r} climbs to {node.id!r} instead of the root "
+                f"{roots[0].id!r}")
+ok("every scope hangs off a parent in the same response, at every year filter")
+
 print("\nTHE THREE LEVELS THE PRODUCT OWNER ASKED FOR ACTUALLY WORK")
 
 whole = S.resolve_scope("methods:year:Year 12", bankable_only=False)

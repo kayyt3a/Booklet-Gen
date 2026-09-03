@@ -560,35 +560,45 @@ def scope_options(subject: str, year: str | None = None) -> list[Scope]:
     def n(items) -> int:
         return sum(1 for s in items if bankable(s))
 
+    # The root of the returned tree. Narrowing to a year makes the YEAR the
+    # root, not the subject, because the subject scope is not in the result and
+    # a parent pointing outside the result is a parent the picker cannot draw:
+    # every row hangs off nothing and the hierarchy renders flat.
+    root = f"{key}:year:{year}" if year else key
+
     out: list[Scope] = []
     if year:
-        out.append(Scope(f"{key}:year:{year}", f"Whole year ({year})", "year",
-                         subject, n(pool)))
+        out.append(Scope(root, f"Whole year ({year})", "year", subject,
+                         n(pool)))
     else:
-        out.append(Scope(key, f"Everything in {subject}", "subject", subject,
+        out.append(Scope(root, f"Everything in {subject}", "subject", subject,
                          n(pool)))
         for y, units in UNITS_BY_YEAR.items():
             inside = [s for s in pool if s.unit in units]
             if inside:
                 out.append(Scope(f"{key}:year:{y}", f"Whole year ({y})",
-                                 "year", subject, n(inside), key))
+                                 "year", subject, n(inside), root))
 
     for unit in ("Unit 1", "Unit 2", "Unit 3", "Unit 4"):
         inside = [s for s in pool if s.unit == unit]
         if inside:
+            # A unit hangs off its own school year when the subject tree shows
+            # years, and off the root otherwise.
+            parent = root if year else f"{key}:year:{inside[0].year}"
             out.append(Scope(f"{key}:unit:{unit}", unit, "unit", subject,
-                             n(inside), key))
+                             n(inside), parent))
+
+    def strand_id(name: str) -> str:
+        return f"{key}:strand:{name}:{year}" if year else f"{key}:strand:{name}"
 
     for strand in strands(subject, year):
         inside = [s for s in pool if s.strand == strand]
-        sid = (f"{key}:strand:{strand}:{year}" if year
-               else f"{key}:strand:{strand}")
-        out.append(Scope(sid, strand, "strand", subject, n(inside), key))
+        out.append(Scope(strand_id(strand), strand, "strand", subject,
+                         n(inside), root))
 
     for s in pool:
         out.append(Scope(s.id, s.name, "subtopic", subject,
-                         1 if bankable(s) else 0,
-                         f"{key}:strand:{s.strand}"))
+                         1 if bankable(s) else 0, strand_id(s.strand)))
     return out
 
 
