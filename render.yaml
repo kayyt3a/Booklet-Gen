@@ -96,6 +96,41 @@ services:
       - key: FOLIO_WORKER_POLL_SECONDS
         value: "2"
 
+# Practice bank filler.
+#
+# A cron rather than a worker, and a separate service from folio-generator on
+# purpose. The generator runs work a customer has paid for and is waiting on;
+# this fills a question bank nobody is watching. Sharing a loop would let bank
+# filling delay a booklet somebody bought.
+#
+# It runs at 00:15 Perth, when nothing else is competing for the connection
+# pool. Most nights it should make no LLM calls at all: it tops up every
+# shallow subtopic from the question families already banked before it
+# considers generating a new one.
+#
+# FOLIO_PRACTICE_TEMPLATE_BUDGET_PER_DAY is the only thing standing between a
+# bug and an overnight bill. It is read from practice_generation_log on every
+# iteration, not held in the process, so this firing twice cannot spend it
+# twice. 40 templates is roughly 2400 verified questions a night.
+  - type: cron
+    name: folio-practice-filler
+    runtime: docker
+    schedule: "15 16 * * *"        # 00:15 Perth (UTC+8)
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python -m booklet_gen.practice.filler --once
+    envVars:
+      - fromGroup: folio-secrets
+      - key: FOLIO_REQUIRE_POSTGRES
+        value: "1"
+      - key: FOLIO_PRACTICE_TEMPLATE_BUDGET_PER_DAY
+        value: "40"
+      - key: FOLIO_PRACTICE_MIN_DEPTH
+        value: "150"
+      - key: FOLIO_PRACTICE_TARGET_DEPTH
+        value: "400"
+      - key: FOLIO_PRACTICE_INSTANCES_PER_TEMPLATE
+        value: "60"
+
 envVarGroups:
   # Created empty on the first Blueprint sync. Paste each value once in the
   # Render dashboard under Environment Groups, and both services get it.

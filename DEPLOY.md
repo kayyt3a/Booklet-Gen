@@ -231,3 +231,97 @@ Before inviting customers:
 Do not push the payment-required configuration live until Stripe, email, and
 the worker are all ready. The app deliberately refuses to start if production
 requirements are enabled but their secrets are missing.
+
+## 10. The practice bank filler
+
+The practice grind serves questions from a bank. Nothing generates a question
+inside a request: `render.yaml` defines a **cron service**,
+`folio-practice-filler`, which stocks that bank overnight and is the only
+thing in the product that spends Gemini money without a customer waiting.
+
+### Provisioning it
+
+1. Sync the Blueprint. Render shows a new cron service,
+   `folio-practice-filler`, running `python -m booklet_gen.practice.filler
+   --once` at 16:15 UTC, which is 00:15 in Perth.
+2. It reads `folio-secrets`, so there is nothing new to paste. Confirm
+   `DATABASE_URL` is present: without Postgres it would fill a local SQLite
+   file inside a container that is deleted when the run ends.
+3. Check the four budget variables on the service. The one that matters is
+   `FOLIO_PRACTICE_TEMPLATE_BUDGET_PER_DAY`, default 40.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `FOLIO_PRACTICE_TEMPLATE_BUDGET_PER_DAY` | 40 | LLM calls allowed per UTC day, counted in the database and shared across every process |
+| `FOLIO_PRACTICE_MIN_DEPTH` | 150 | below this, a subtopic is filled before anything else |
+| `FOLIO_PRACTICE_TARGET_DEPTH` | 400 | what a well stocked subtopic looks like |
+| `FOLIO_PRACTICE_INSTANCES_PER_TEMPLATE` | 60 | questions expanded from one family |
+
+### The one-off seeding run
+
+The nightly cap of 40 fills the bank slowly on purpose. Stocking it the first
+time is a **supervised human job**, not something a cron discovers overnight.
+
+Roughly 8 families for each of the 29 fillable subtopics is about 230 calls,
+which buys on the order of 14,000 individually verified questions. Run it from
+a Render shell on the web service, with the cap raised for that run only:
+
+```
+python -m booklet_gen.practice.filler --once --budget 250 --target-depth 400
+```
+
+Watch the Gemini billing console while it runs and compare the actual spend
+against the estimate before raising it again. Stop it if the discard rate is
+high: `--status` prints depth per subtopic, and a subtopic that is blocked
+says why.
+
+### Watching it
+
+- `python -m booklet_gen.practice.filler --status` prints bank depth per
+  subtopic, calls spent today, which subtopics are blocked, and which are not
+  stocked at all with the reason.
+- `python -m booklet_gen.practice.filler --once --dry-run` says what a run
+  would attempt and spends nothing.
+- The filler writes `record_worker_heartbeat(worker_name="practice-filler")`,
+  so it appears in the admin console and in `/healthz` beside the generation
+  worker, with no extra configuration.
+- Last night's spend and what it bought is one query:
+
+```sql
+SELECT day, SUM(calls) AS calls, SUM(templates_kept) AS kept,
+       SUM(templates_rejected) AS rejected, SUM(items_kept) AS questions
+FROM practice_generation_log GROUP BY day ORDER BY day DESC LIMIT 7;
+```
+
+### Reading a blocked subtopic
+
+`practice_node_state.blocked_reason` is written by the filler and cleared by a
+human. Three reasons appear, and only the last is a fault:
+
+- **no checker**: the syllabus lists the subtopic but nothing in
+  `verify.KINDS_FOR_SUBTOPIC` can settle an answer to it. Expected for 47 of
+  the 79 subtopics; the picker shows them as not stocked rather than serving a
+  blank card.
+- **a pH is a base ten logarithm ...** (and the error function equivalent): a
+  checker exists, but the instance renderer has no `log` or `erf`, so a
+  question family cannot state its own answer. Three subtopics. Adding those
+  functions to `instances._ALLOWED_FUNCTIONS` clears it.
+- **N templates in a row rejected. Last: ...**: the generator cannot write a
+  usable family here. Read the reason, fix the prompt or the checker, then
+
+```sql
+UPDATE practice_node_state
+SET blocked_reason=NULL, blocked_at=NULL, consecutive_failures=0
+WHERE subtopic_id='...';
+```
+
+Rejected templates are kept in `practice_templates` with `status='rejected'`
+and their reason, which is the only record of what the model gets wrong on a
+subtopic. Do not prune that table to save space.
+
+### Before students see any of it
+
+Symbolic verification proves the answer matches the question. It cannot tell
+you the question is a sensible thing to ask a Year 12 three weeks before an
+exam. Read 30 questions drawn from the live bank, one per strand, as a
+teacher, before the feature is announced.
