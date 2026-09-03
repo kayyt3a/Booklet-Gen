@@ -198,14 +198,18 @@ NEEDS_ROUNDING = frozenset({
 # blocking reason. Adding `log` and `erf` to the renderer's whitelist clears
 # all three, which is exactly the kind of decision a human should make about a
 # module they own rather than a factory taking for itself.
-KINDS_NEEDING_ABSENT_MATH = {
-    "ph_strong": "a pH is a base ten logarithm, and the instance renderer has "
-                 "no log, so a family cannot state its own answer",
-    "ph_weak": "a pH is a base ten logarithm, and the instance renderer has "
-               "no log, so a family cannot state its own answer",
-    "normal": "a normal probability is an error function, and the instance "
-              "renderer has no erf, so a family cannot state its own answer",
-}
+# Kinds whose answers the instance renderer cannot express, and the reason,
+# so a subtopic is skipped with something a human can read rather than
+# failing sixty times a night.
+#
+# Empty, and worth keeping rather than deleting. ph_strong, ph_weak and normal
+# were all in here because the renderer had no logarithm and no error
+# function: they verified perfectly and could not state their own answers.
+# `instances._ALLOWED_FUNCTIONS` now carries log, log10, exp, erf and a
+# decimal round, and a real ph_strong family was measured admitting 12 of 12
+# through both gates, so all three are fillable. The next kind to outgrow the
+# renderer goes here rather than silently burning a night of budget.
+KINDS_NEEDING_ABSENT_MATH: dict[str, str] = {}
 
 
 def writable_kinds(subtopic_id: str) -> tuple[str, ...]:
