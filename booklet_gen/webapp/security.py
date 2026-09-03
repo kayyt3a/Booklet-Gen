@@ -19,7 +19,7 @@ import logging
 import secrets
 from urllib.parse import urlparse
 
-from flask import abort, current_app, request, session
+from flask import abort, current_app, g, request, session
 
 log = logging.getLogger(__name__)
 
@@ -104,11 +104,39 @@ def rotate_csrf_token() -> str:
     return session[CSRF_SESSION_KEY]
 
 
-def enforce_rate_limit(scope: str, limit: int, window_seconds: int) -> None:
-    """Stop repeated sensitive requests using a hashed network identifier."""
+def enforce_rate_limit(scope: str, limit: int, window_seconds: int,
+                       per_user: bool = False) -> None:
+    """Stop repeated sensitive requests using a hashed identifier.
+
+    By network address for anything a signed-out visitor can reach, because
+    before sign-in the address is the only handle there is.
+
+    `per_user` keys on the account instead, and is for limits that guard an
+    activity rather than an entrance. An address is shared: a household with
+    two ATAR students, a tutoring room, a school computer lab and any NAT all
+    look like one visitor. A practice limit keyed on the address means the
+    first student to browse locks the rest out for an hour, which is the
+    opposite of what the limit is for. Falls back to the address when nobody
+    is signed in, so it can never be laxer than the default.
+    """
     from . import db
-    address = request.remote_addr or "unknown"
-    fingerprint = hashlib.sha256(address.encode("utf-8")).hexdigest()[:24]
+    fingerprint = ""
+    if per_user:
+        # Subscripted, not attribute access and not isinstance(dict). `g.user`
+        # is a sqlite3.Row locally and a dict_row on Postgres: one of those is
+        # a dict and the other is not, so any check that picks a branch by type
+        # works on one backend and silently falls back to the address on the
+        # other. Falling back is invisible, and the limit it produces is the
+        # one this argument exists to avoid.
+        try:
+            user_id = (getattr(g, "user", None) or {})["id"]
+        except (KeyError, IndexError, TypeError):
+            user_id = None
+        if user_id:
+            fingerprint = f"u{int(user_id)}"
+    if not fingerprint:
+        address = request.remote_addr or "unknown"
+        fingerprint = hashlib.sha256(address.encode("utf-8")).hexdigest()[:24]
     if not db.rate_limit_hit(
             f"{scope}:{fingerprint}", int(limit), int(window_seconds)):
         abort(429, description=(

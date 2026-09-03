@@ -137,6 +137,27 @@ def init_practice_db() -> None:
         log.exception("could not initialise the practice bank")
 
 
+@bp.app_errorhandler(429)
+def _too_many(error):
+    """Answer a rate limit in the format the caller is actually parsing.
+
+    The practice client parses every reply as JSON. A 429 rendered as the
+    site's HTML error page therefore fails at `r.json()`, and the student is
+    told "the connection dropped, try that topic again", which is both wrong
+    and the worst possible advice: trying again is what the limit is asking
+    them not to do. Only the practice path is answered here, so the rest of
+    the site keeps its ordinary error page.
+    """
+    if not (request.path or "").startswith("/practice"):
+        return error
+    return jsonify({
+        "error": "rate_limited",
+        "message": ("You have been moving through topics very quickly. Wait a "
+                    "minute and carry on."),
+        "items": [],
+    }), 429
+
+
 def _unavailable():
     """What every route says when the bank is not installed.
 
@@ -186,6 +207,39 @@ def _years_in(scope_id: str) -> list[str]:
     return sorted(years)
 
 
+def _all_depths() -> dict:
+    """Live question counts for every subtopic, in one call.
+
+    Read once per page rather than per node: the picker has 111 rows and a
+    query each would be 111 round trips to serve one screen.
+    """
+    counter = _fn("bank_depth")
+    if counter is None:
+        return {}
+    try:
+        value = counter()
+    except Exception:                                          # noqa: BLE001
+        log.exception("bank_depth failed while building the picker")
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _is_fillable(scope_id: str, leaves) -> bool:
+    """Whether anything in this scope could ever be banked.
+
+    A subtopic with no deterministic checker is not "queued to be filled": the
+    filler skips it permanently and records `no checker`, and it fills only
+    when somebody writes a new routine. Telling a student in exam term that
+    questions are coming when nothing will produce them is worse than telling
+    them there are none.
+    """
+    try:
+        from ..practice import verify
+    except Exception:                                          # noqa: BLE001
+        return True
+    return any(verify.fillable(sid) for sid in leaves)
+
+
 def _tree(scopes):
     """Nest a flat `scope_options()` list using `Scope.parent`.
 
@@ -199,11 +253,24 @@ def _tree(scopes):
     reaches through a dataclass to get them is a macro that breaks the day the
     dataclass gains a field.
     """
-    nodes = {
-        s.id: {"id": s.id, "label": s.label, "level": s.level,
-               "count": s.count, "years": _years_in(s.id), "children": []}
-        for s in scopes
-    }
+    depths = _all_depths()
+    nodes = {}
+    for s in scopes:
+        leaves = syl.resolve_scope(s.id, bankable_only=True)
+        stocked = [sid for sid in leaves if depths.get(sid, 0) > 0]
+        nodes[s.id] = {
+            "id": s.id, "label": s.label, "level": s.level,
+            # `count` used to be the syllabus's claim about how many subtopics
+            # COULD be banked. The picker printed a green "Stocked" badge from
+            # it, on twenty Methods topics that serve nothing, because having a
+            # deterministic checker is a separate question from the topic being
+            # checkable in principle. It is now what the bank actually holds.
+            "count": len(stocked),
+            "total": len(leaves),
+            "depth": sum(depths.get(sid, 0) for sid in leaves),
+            "fillable": _is_fillable(s.id, leaves),
+            "years": _years_in(s.id), "children": [],
+        }
     roots = []
     for s in scopes:
         node = nodes[s.id]
@@ -372,7 +439,7 @@ def start_session():
     actually is. A scope with nothing in it says so here, before the student
     has pressed anything.
     """
-    enforce_rate_limit(*RL_SESSION)
+    enforce_rate_limit(*RL_SESSION, per_user=True)
     if _store() is None:
         return _unavailable()
     body = request.get_json(silent=True) or {}
@@ -478,7 +545,7 @@ def next_questions():
     The browser holds ten and refetches at four, passing the ids it is holding
     as `exclude`, so a refetch cannot hand back a question already on screen.
     """
-    enforce_rate_limit(*RL_NEXT)
+    enforce_rate_limit(*RL_NEXT, per_user=True)
     if _store() is None:
         return _unavailable()
     row = _owned_session(str(request.args.get("session") or "")[:80])
@@ -544,10 +611,20 @@ def next_questions():
     }
     if payload["unstocked"]:
         _note_demand(leaves, dry=True)
+        # Two different nothings. Only one of them is coming. The filler skips
+        # a subtopic with no deterministic checker permanently and records
+        # "no checker", so promising a student in exam term that questions are
+        # queued, when nothing will ever produce them, is a lie they will find
+        # out about by coming back and checking.
         payload["message"] = (
-            "There are no questions banked for this selection yet. It is a "
-            "real part of the course and it is queued to be filled; a wider "
-            "topic will have questions now.")
+            "There are no questions banked for this topic yet. It is a real "
+            "part of the course and it is waiting to be filled; a wider topic "
+            "will have questions now."
+            if _is_fillable(payload.get("scope_id", ""), leaves) else
+            "FolioAI does not have questions for this topic. It is a real part "
+            "of the course, but every question in it needs marking judgement "
+            "rather than a calculation we can check, so nothing is banked "
+            "here rather than serving you something we cannot stand behind.")
     elif dry:
         _note_demand(leaves, dry=True)
         payload["message"] = (
@@ -589,7 +666,7 @@ def seen():
     flaky connection is an upsert on `(user_id, item_id)`, so it changes
     nothing. That is what lets the client retry without keeping a ledger.
     """
-    enforce_rate_limit(*RL_SEEN)
+    enforce_rate_limit(*RL_SEEN, per_user=True)
     if _store() is None:
         return _unavailable()
     body = request.get_json(silent=True) or {}
@@ -663,7 +740,7 @@ def reset():
     them, and it only ever clears the subtopics inside the scope they are
     working on.
     """
-    enforce_rate_limit(*RL_RESET)
+    enforce_rate_limit(*RL_RESET, per_user=True)
     if _store() is None:
         return _unavailable()
     body = request.get_json(silent=True) or {}

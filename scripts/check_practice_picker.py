@@ -57,6 +57,26 @@ def check(ok: bool, label: str, detail: str = "") -> None:
 # ---------------------------------------------------------------------------
 
 fixtures.fresh_database("folio-picker-")
+
+# Seed a bank BEFORE rendering, and seed only part of the tree. This check used
+# to run against an empty bank, which was the whole reason it enforced the
+# defect it was written to prevent: with nothing banked, the picker's badge came
+# from the syllabus's claim that a topic COULD be filled, so every subtopic in
+# both subjects advertised itself as "Stocked" and the check asserted that as
+# correct. Twenty Methods topics and fifteen Chemistry topics said Stocked and
+# served a blank screen.
+#
+# Seeding a subset means the page has all three states on it at once, and a
+# badge can be measured against what the bank actually holds.
+from booklet_gen.practice import store                            # noqa: E402
+
+store.init_practice_db()
+STOCKED_LEAVES = ["methods.calculus.antidifferentiation",
+                  "methods.calculus.chain-rule",
+                  "methods.calculus.product-quotient"]
+SEEDED = fixtures.seed_bank(subtopic_ids=STOCKED_LEAVES,
+                            templates_per_subtopic=4, items_per_template=15)
+
 EMAIL, PASSWORD = "picker@example.com", "fixture-password-123"
 fixtures.make_user(EMAIL, PASSWORD)
 
@@ -276,12 +296,48 @@ check(not still_clickable,
       "and none of them is clickable, because there is nothing behind them",
       str(still_clickable[:3]))
 
-stocked_leaves = [r for r in chem_rows
-                  if r["level"] == "subtopic" and r["count"] > 0]
-check(all(not by_scope[r["id"]]["disabled"]
-          for r in stocked_leaves if r["id"] in by_scope),
-      "a subtopic the bank CAN hold is never greyed out; over-marking would "
-      "hide most of Chemistry")
+# The assertion that used to live here read "a subtopic the bank CAN hold is
+# never greyed out", measured off the syllabus. That is the defect: what the
+# bank COULD hold and what it DOES hold are different facts, and a student
+# pressing a green badge cares only about the second. Measured off the bank now.
+stock = store.bank_depth()
+
+
+def is_leaf(scope_id: str) -> bool:
+    """A subtopic id, not a group scope. Group ids carry a colon."""
+    return ":" not in scope_id and "." in scope_id
+
+
+live_rows = [sid for sid, node in by_scope.items()
+             if is_leaf(sid) and not node["disabled"]]
+lying = [sid for sid in live_rows if stock.get(sid, 0) <= 0]
+check(not lying,
+      "every subtopic offered as a live choice actually has questions behind "
+      "it",
+      f"{lying[:3]} are clickable with an empty bank, so a student presses a "
+      "green badge and gets a blank screen. This is the exact failure that "
+      "made a Year 12 close the tab in review")
+
+hidden = [sid for sid, held in stock.items()
+          if held > 0 and sid in by_scope and by_scope[sid]["disabled"]]
+check(not hidden,
+      "and every subtopic that does have questions is offered",
+      f"{hidden[:3]} hold questions nobody can reach")
+
+check(len(live_rows) == len(STOCKED_LEAVES),
+      f"exactly the {len(STOCKED_LEAVES)} seeded subtopics are live "
+      f"({len(live_rows)} were)",
+      "the page is offering more or fewer topics than the bank holds")
+
+# The unstocked ones must still be visible, and must say which kind of empty
+# they are: waiting for questions, or never getting any.
+waiting = html.count(">No questions yet<")
+refused = html.count(">Not stocked<")
+check(waiting > 0 and refused > 0,
+      f"the empty topics are split into {waiting} waiting and {refused} that "
+      "will never be stocked",
+      "collapsing the two tells a student a topic is coming when nothing will "
+      "ever produce it, which they find out by coming back to check")
 
 
 # ---------------------------------------------------------------------------

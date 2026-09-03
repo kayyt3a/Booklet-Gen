@@ -97,10 +97,25 @@ press the arrow key.{% endblock %}
                         {% if n.count == 0 %}disabled aria-disabled="true"{% endif %}>
                   <span class="scopeLabel">{{ n.label }}</span>
                   {% if n.count == 0 %}
+                    {# Two different nothings, and a student reads them very
+                       differently. "No questions yet" is a topic somebody may
+                       write a checker for. "Not stocked" is one FolioAI has
+                       decided it cannot mark honestly. Neither is a green
+                       badge, which is what this printed before: the badge came
+                       from the syllabus's claim that a topic COULD be banked,
+                       so twenty Methods topics advertised themselves as
+                       stocked and then served a blank screen. #}
                     <span class="scopeTag notStocked"
-                          title="FolioAI only banks questions it can check without a language model.">Not stocked</span>
+                          title="{% if n.fillable %}Nothing is banked here yet.{% else %}FolioAI only banks questions it can check without a language model.{% endif %}">{{ 'No questions yet' if n.fillable else 'Not stocked' }}</span>
                   {% elif n.level == 'subtopic' %}
-                    <span class="scopeTag stocked">Stocked</span>
+                    <span class="scopeTag stocked">{{ n.depth }} questions</span>
+                  {% elif n.count < n.total %}
+                    {# A wide scope with holes in it has to say so. Grinding
+                       "Whole year" while nine of its twenty topics are empty
+                       builds exactly the false confidence a student cannot
+                       afford six weeks out. #}
+                    <span class="scopeCount partial"
+                          title="{{ n.total - n.count }} of these topics have no questions yet.">{{ n.count }} of {{ n.total }} topics</span>
                   {% else %}
                     <span class="scopeCount">{{ n.count }} topics</span>
                   {% endif %}
