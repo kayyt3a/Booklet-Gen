@@ -13,17 +13,21 @@ Return a single JSON object and nothing else. No prose, no markdown fences.
   "calculator": "assumed",
   "difficulty": "medium",
   "marks": 3,
-  "question_pattern": "Calculate the percentage by mass of O in {salt}.{w}H2O, correct to 3 significant figures.",
-  "answer_pattern": "...",
-  "working_pattern": "...",
+  "question_pattern": "Calculate the percentage by mass of C in C{n}H{h}, correct to 2 decimal places.",
+  "answer_pattern": "{floor(100*(100*12.011*n/(12.011*n + 1.008*h)) + 0.5)/100.0}",
+  "working_pattern": "The molar mass is 12.011 times {n} plus 1.008 times {h}. Carbon's share of that mass, as a percentage, is {floor(100*(100*12.011*n/(12.011*n + 1.008*h)) + 0.5)/100.0}.",
   "params": {
-    "salt": {"choices": ["CuSO4", "MgSO4", "ZnSO4", "FeSO4", "Na2SO4", "CaSO4", "NiSO4", "CoSO4", "MnSO4", "BaSO4"]},
-    "w": {"type": "int", "range": [1, 7]}
+    "n": {"type": "int", "range": [1, 20]},
+    "h": {"type": "int", "range": [2, 42]}
   },
-  "constraints": [],
-  "check_pattern": {"kind": "percent_composition", "element": "O",
-                    "formula": "{salt}.{w}H2O", "sf": 3}
+  "constraints": ["h % 2 == 0", "h <= 2*n + 2", "h >= 2*n - 2"],
+  "check_pattern": {"kind": "percent_composition", "element": "C",
+                    "formula": "C{n}H{h}", "dp": 2}
 }
+
+That family is a real homologous series, alkanes, alkenes and alkynes, and it
+holds 59 distinct questions. It is built the way it is for a reason given in
+RULE THREE below.
 
 THE FIELDS
 
@@ -112,6 +116,30 @@ instead of as a fraction. Keep every printed decimal in plain form: no value
 smaller than 0.0001, because below that it prints in exponent form and the
 reader of the page cannot see it.
 
+RULE THREE: A FORMULA CHOSEN FROM A LIST CANNOT APPEAR IN THE ANSWER
+The renderer substitutes values; it does not look anything up. So a parameter
+whose values are formula strings can appear in the printed question and in the
+check payload, and NEVER in the arithmetic of the answer, because there is no
+way to get from the string "CuSO4" to the number 159.6.
+
+That rules out the obvious family, "the molar mass of {salt}.{w}H2O", because
+its answer cannot be written down. What works instead is a formula built from
+NUMERIC subscripts over a real homologous series, so the molar mass is
+arithmetic on the parameters:
+    "C{n}H{h}"   with   "h % 2 == 0", "h <= 2*n + 2", "h >= 2*n - 2"
+gives 59 real hydrocarbons and a molar mass of 12.011*n + 1.008*h.
+Alcohols "C{n}H{h}O" and carboxylic acids work the same way. Use a "choices"
+list of salts only where the answer does not depend on which salt it is.
+
+WHAT THE RENDERER CAN AND CANNOT COMPUTE
+It knows +, -, *, /, ** and these functions and NO OTHERS: gcd, lcm, abs,
+sqrt, floor, ceiling, Rational, factorial, min, max. There is NO LOGARITHM.
+A pH is a base ten logarithm, so a pH family cannot state its own answer and
+must use the refusal at the bottom of this document rather than guess. Do not
+pin the answer to a constant to get around it. Everything else here, molar
+masses, percentages, stoichiometry, dilutions, titrations, equilibrium
+constants and gas laws, is ordinary arithmetic and is fine.
+
 THE ATOMIC MASSES THE ENGINE USES
 Use these exact values in any arithmetic you write, or your stated answer will
 disagree with the engine's and the family will be discarded:
@@ -127,19 +155,21 @@ R is 8.314, with pressure in kPa and volume in litres.
 THE KINDS, AND THE ONLY WORDING EACH ONE CAN BE READ IN
 
 1. molar_mass
-     "Calculate the molar mass of {salt}.{w}H2O, correct to 3 significant figures."
-   The phrase "molar mass of" must appear, followed directly by the formula.
+     "Calculate the molar mass of C{n}H{h}, correct to 2 decimal places."
+   The phrase "molar mass of" must appear, followed directly by the formula,
+   and the formula must be followed by a comma or a space.
    check_pattern keys: kind, formula, and exactly one of sf or dp
-     {"kind": "molar_mass", "formula": "{salt}.{w}H2O", "sf": 3}
-   answer_pattern: the molar mass in g/mol, rounded as asked.
+     {"kind": "molar_mass", "formula": "C{n}H{h}", "dp": 2}
+   answer_pattern: the molar mass in g/mol, rounded as asked, computed as
+     "{floor(100*(12.011*n + 1.008*h) + 0.5)/100.0}"
 
 2. percent_composition
    The phrase must be exactly "percentage by mass of ELEMENT in FORMULA", with
    the element symbol capitalised as a real symbol.
-     "Calculate the percentage by mass of O in {salt}.{w}H2O, correct to 3 significant figures."
+     "Calculate the percentage by mass of C in C{n}H{h}, correct to 2 decimal places."
    check_pattern keys: kind, element, formula, and one of sf or dp
-   The element cannot be a placeholder unless every formula in the family
-   contains it, so fix the element and vary the compound.
+   The element is fixed for the whole family, because the answer's arithmetic
+   names its atomic mass outright. Vary the compound, not the element.
 
 3. empirical_formula
    The composition is stated as percentages, each one immediately followed by
@@ -217,7 +247,8 @@ THE KINDS, AND THE ONLY WORDING EACH ONE CAN BE READ IN
    check_pattern keys: kind, v_analyte_ml, v_titrant_ml, c_titrant,
    ratio_titrant, ratio_analyte, and one of sf or dp.
 
-9. ph_strong
+9. ph_strong   (read WHAT THE RENDERER CANNOT COMPUTE first: this kind almost
+                always ends in a refusal, because its answer is a logarithm)
    The concentration must be written with "mol/L" after it, and the ionisation
    must be stated as "releases N moles of hydrogen ions" or
    "releases N moles of hydroxide ions".
@@ -228,7 +259,7 @@ THE KINDS, AND THE ONLY WORDING EACH ONE CAN BE READ IN
    it prints exactly, for example
    {"choices": [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]}.
 
-10. ph_weak
+10. ph_weak    (same warning as ph_strong: the answer is a logarithm)
     The concentration must be written with "mol/L", Ka MUST be written in the
     scientific form "Ka = 1.8 x 10^-5" (a plain decimal is not read), and the
     question MUST contain the word "negligible".

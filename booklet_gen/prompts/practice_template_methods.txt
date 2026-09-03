@@ -105,8 +105,22 @@ check_pattern
 
 ARITHMETIC INSIDE A PLACEHOLDER
 A placeholder may hold arithmetic over the parameters, not only a bare name:
-"{a*n}x^{n-1}" is how a derivative family states its own answer. Keep it to
-what the listed functions can do.
+"{a*n}x^{n-1}" is how a derivative family states its own answer.
+
+The renderer knows +, -, *, /, ** and these functions and NO OTHERS:
+gcd, lcm, abs, sqrt, floor, ceiling, Rational, factorial, min, max.
+There is no logarithm, no exponential, no trigonometric function, no error
+function and no summation. So an answer that needs one of those cannot be
+written down as a pattern at all, however correct it is. A binomial P(X = k)
+can be written, because factorial gives the coefficient; a cumulative
+P(X <= k) cannot, because it needs a sum. If the answer to the family you are
+building needs arithmetic the renderer does not have, use the refusal at the
+bottom of this document. Do not pin the answer to a constant to get around it.
+
+To round a computed decimal, divide by a FLOAT so it prints as a decimal
+rather than as a fraction:
+    to 2 decimal places: {floor(100*EXPR + 0.5)/100.0}
+    to 4 decimal places: {floor(10000*EXPR + 0.5)/10000.0}
 
 SIGNS
 Write ranges that read naturally. A coefficient allowed to be negative renders
@@ -216,7 +230,12 @@ discarded whole.
       "A random variable is distributed as X ~ B(n = {n}, p = {p}). Calculate P(X = {k}) correct to 4 decimal places."
     Declare p with "choices", for example {"choices": [0.1, 0.2, 0.25, 0.3, 0.4]}.
     answer_pattern: the probability, rounded to exactly the stated number of
-    decimal places.
+    decimal places. Only the "exactly" mode can be written down, because the
+    coefficient is factorial(n)/(factorial(k)*factorial(n-k)) and the whole
+    probability is then
+      {floor(10000*(factorial(n)/(factorial(k)*factorial(n-k)))*p**k*(1-p)**(n-k) + 0.5)/10000.0}
+    "at_most" and "at_least" need a summation the renderer does not have, so
+    refuse those rather than approximate them. Constrain "k < n".
     check_pattern keys: kind, n, p, k, mode, dp
       mode is "exactly" for P(X = k), "at_most" for P(X <= k), "at_least" for
       P(X >= k), and must agree with the wording.
@@ -234,6 +253,10 @@ discarded whole.
     mode is "less_than", "greater_than" or "between". ONLY the "between" form
     may carry the extra key "upper". For the other two, including "upper" at
     all destroys every question in the family.
+    Note before you start: a normal probability is an error function, and the
+    renderer has no way to write one, so a family of this kind almost always
+    ends in the refusal below. Say so plainly rather than stating an answer you
+    cannot compute.
 
 CALCULATOR
 A "free" family must have numbers that work out by hand and an exact answer:
