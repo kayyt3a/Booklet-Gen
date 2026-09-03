@@ -664,6 +664,38 @@ _ITEM_COLUMNS = """(template_id, subject, subtopic_id, calculator, difficulty,
                     syllabus_version, status, created_at)"""
 
 
+# The stamp a seeded bank carries. Deliberately outside the real allowlist, so
+# a check asserting coverage over `verified_by` can never mistake fixture data
+# for a question a verifier actually settled.
+FIXTURE_VERIFIER = "fixture:arithmetic"
+
+
+def _refuse_unverified(verified_by: str) -> None:
+    """Refuse to bank an item that no known verifier settled.
+
+    The admission gate lives in `verify.admit`, and the filler calls it. That
+    was the whole protection until now, which means it was a convention: any
+    future caller reaching `add_items` directly would bank whatever it was
+    handed, with whatever stamp it invented, and nothing would notice until a
+    Year 12 met an unchecked question.
+
+    This makes the convention structural. It is not a defence against a
+    determined caller, who can always pass a real-looking stamp; it is there so
+    that bypassing the gate has to be deliberate rather than something a
+    plausible refactor does by accident.
+    """
+    from . import verify
+    if verified_by in verify.VERIFIED_BY_ALLOWLIST:
+        return
+    if verified_by == FIXTURE_VERIFIER:
+        return
+    raise ValueError(
+        f"refusing to bank an item stamped {verified_by!r}, which is not a "
+        "verifier this engine knows. Every question served to a student has "
+        "to have been settled by a deterministic routine named in "
+        "verify.VERIFIED_BY_ALLOWLIST")
+
+
 def _insert_item(cur, *, template_id: str, subject: str, subtopic_id: str,
                  calculator: str, difficulty: str, question: str, answer: str,
                  working: str, params_json: str, check_json: str,
@@ -674,6 +706,7 @@ def _insert_item(cur, *, template_id: str, subject: str, subtopic_id: str,
                  status: str = "live",
                  now: Optional[int] = None) -> Optional[int]:
     """The insert itself, for callers already holding a cursor."""
+    _refuse_unverified(verified_by)
     values = (template_id, subject, subtopic_id, calculator, difficulty, marks,
               question, answer, working, params_json, check_json, variant_key,
               float(shuffle_key), verified_by, verifier_notes,

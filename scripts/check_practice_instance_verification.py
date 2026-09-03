@@ -166,6 +166,48 @@ check(not relaxed,
       "treating 'cannot tell' as 'fine' is how a wrong answer reaches a "
       "student three weeks before an ATAR exam with a tick beside it")
 
+print("\n== the bank itself refuses an item no verifier settled ==")
+
+# The gate lives in verify.admit and the filler calls it, which made the whole
+# protection a convention: any future caller reaching store.add_items directly
+# would bank whatever it was handed, with whatever stamp it invented, and
+# nothing would notice until a Year 12 met an unchecked question. The store now
+# refuses a stamp it does not recognise, so bypassing the gate has to be
+# deliberate rather than something a plausible refactor does by accident.
+from booklet_gen.practice import fixtures, store                # noqa: E402
+
+fixtures.fresh_database("folio-verify-")
+store.init_practice_db()
+seeded = fixtures.seed_bank(templates_per_subtopic=2, items_per_template=4)
+
+banked = None
+try:
+    banked = store.insert_item(
+        template_id=seeded.template_ids[0], subject="methods",
+        subtopic_id=seeded.subtopic_ids[0], calculator="free",
+        difficulty="medium", question="Trust me, this one is fine.",
+        answer="42", working="", params_json="{}", check_json="{}",
+        variant_key="bypass", shuffle_key=0.5, verified_by="trust me")
+    refused = False
+except ValueError:
+    refused = True
+
+check(refused and banked is None,
+      "an item stamped by no known verifier is refused by the store itself",
+      "the admission gate is a convention rather than a rule, so a future "
+      "caller reaching add_items directly banks unchecked questions and "
+      "nothing notices until a student meets one")
+
+check(store.insert_item(
+        template_id=seeded.template_ids[0], subject="methods",
+        subtopic_id=seeded.subtopic_ids[0], calculator="free",
+        difficulty="medium", question="q", answer="a", working="",
+        params_json="{}", check_json="{}", variant_key="genuine",
+        shuffle_key=0.5, verified_by=verify.verified_by("derivative")
+      ) is not None,
+      "and a real verifier stamp is still accepted",
+      "the guard is too tight and the filler can no longer bank anything")
+
 print("\n== every stored item can be re-derived from what was stored ==")
 
 # The property that makes bank rot detectable. If a template is edited a year

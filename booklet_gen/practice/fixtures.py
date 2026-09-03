@@ -40,7 +40,11 @@ from .models import TemplateRow, canonical_json
 # item in a seeded bank has not been verified by anything, and a check that
 # asserts coverage over `verified_by` must not be able to mistake one for a
 # question that passed the admission gate.
-FIXTURE_VERIFIER = "fixture:arithmetic"
+#
+# Taken from the store rather than declared again here, because the store now
+# refuses to bank a stamp it does not recognise, and two copies of this string
+# would eventually disagree and break seeding for a reason nobody would guess.
+FIXTURE_VERIFIER = store.FIXTURE_VERIFIER
 
 FIXTURE_PROMPT_VERSION = "fixture-v1"
 
