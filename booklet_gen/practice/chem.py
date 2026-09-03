@@ -858,7 +858,14 @@ def extract(kind: str, text: str) -> dict | None:
 
 
 def _normalise(value):
-    """Compare extracted against stored without tripping over 2 versus 2.0."""
+    """Compare extracted against stored without tripping over 2 versus 2.0.
+
+    A stored payload is rendered from a template, so its numbers arrive as the
+    strings that were printed ("24.50"), while an extractor returns them as
+    floats (24.5). Those are the same quantity, and comparing them as text
+    would reject every correctly rendered instance. A string that is not a
+    number, such as an element symbol or a formula, is compared as text.
+    """
     if isinstance(value, dict):
         return {k: _normalise(v) for k, v in sorted(value.items())}
     if isinstance(value, (list, tuple)):
@@ -867,7 +874,11 @@ def _normalise(value):
         return value
     if isinstance(value, (int, float)):
         return round(float(value), 9)
-    return str(value).strip()
+    text = str(value).strip()
+    try:
+        return round(float(text), 9)
+    except ValueError:
+        return text
 
 
 def payloads_agree(stored: dict, extracted: dict) -> tuple[bool, str]:
