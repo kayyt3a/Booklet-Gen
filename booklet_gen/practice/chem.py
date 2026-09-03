@@ -403,7 +403,13 @@ def solve_empirical_formula(check: dict) -> str:
     ratios = {el: n / smallest for el, n in moles.items()}
     for multiplier in range(1, 7):
         scaled = {el: r * multiplier for el, r in ratios.items()}
-        if all(abs(v - round(v)) < 0.06 * multiplier for v in scaled.values()):
+        # Two tolerances, because the absolute one alone grows with the
+        # multiplier until it means nothing: at six it accepted a ratio of 4.17
+        # as 4. The relative test is what actually decides, and it is the one a
+        # chemist applies by eye.
+        if all(abs(v - round(v)) < 0.06 * multiplier
+               and abs(v - round(v)) <= 0.03 * max(round(v), 1)
+               for v in scaled.values()):
             counts = {el: int(round(v)) for el, v in scaled.items()}
             if min(counts.values()) < 1:
                 continue
@@ -571,8 +577,16 @@ def significant_figures_ambiguous(value: str, figures: int) -> bool:
     text = str(value).strip()
     if "." in text or "e" in text.lower():
         return False
-    digits = text.lstrip("+-").lstrip("0")
-    return len(digits) > int(figures) and digits.rstrip("0") != digits
+    # The ambiguity is a property of the ANSWER, not of the value the question
+    # started from. Checking the input for trailing zeros passed 12345 to three
+    # figures, whose answer is 12300: two zeros a student cannot tell from
+    # significant ones, on a question the input gave no warning about.
+    try:
+        rounded = round_to(float(text), sf=int(figures))
+    except (TypeError, ValueError):
+        return False
+    digits = f"{abs(rounded):.0f}".lstrip("0")
+    return len(digits) > int(figures)
 
 
 def solve_sig_figs(check: dict) -> float:
