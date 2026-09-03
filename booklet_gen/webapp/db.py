@@ -1520,6 +1520,13 @@ def delete_account(user_id: int) -> list:
         cur.execute(_q("DELETE FROM credit_ledger WHERE user_id=?"), (user_id,))
         cur.execute(_q("DELETE FROM payments WHERE user_id=?"), (user_id,))
         cur.execute(_q("DELETE FROM jobs WHERE user_id=?"), (user_id,))
+        # Practice history is per user and outlives any session, so it has to
+        # go explicitly. It is deleted rather than left to ON DELETE CASCADE
+        # because SQLite never enables PRAGMA foreign_keys here, so the cascade
+        # only fires on one of the two backends. Swallows a missing table and
+        # nothing else: see practice/store.py.
+        from ..practice import store as practice_store
+        practice_store.delete_user_practice_data(cur, user_id)
         cur.execute(_q("DELETE FROM users WHERE id=?"), (user_id,))
     if storage_keys:
         try:
