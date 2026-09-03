@@ -664,37 +664,72 @@ def insert_item(*, template_id: str, subject: str, subtopic_id: str,
     makes an exact repeat impossible at the database level rather than merely
     unlikely in code.
     """
-    stamp = _now(now)
-    version = syllabus_version or syllabus_fingerprint()
-    values = (template_id, subject, subtopic_id, calculator, difficulty, marks,
-              question, answer, working, params_json, check_json, variant_key,
-              float(shuffle_key), verified_by, verifier_notes, version, status,
-              stamp)
     with _cursor() as cur:
-        if is_postgres():
-            cur.execute(
-                """INSERT INTO practice_items
-                   (template_id, subject, subtopic_id, calculator, difficulty,
+        return _insert_item(
+            cur, template_id=template_id, subject=subject,
+            subtopic_id=subtopic_id, calculator=calculator,
+            difficulty=difficulty, question=question, answer=answer,
+            working=working, params_json=params_json, check_json=check_json,
+            variant_key=variant_key, shuffle_key=shuffle_key,
+            verified_by=verified_by, marks=marks,
+            verifier_notes=verifier_notes, syllabus_version=syllabus_version,
+            status=status, now=now)
+
+
+_ITEM_COLUMNS = """(template_id, subject, subtopic_id, calculator, difficulty,
                     marks, question, answer, working, params_json, check_json,
                     variant_key, shuffle_key, verified_by, verifier_notes,
-                    syllabus_version, status, created_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                   ON CONFLICT (template_id, variant_key) DO NOTHING
-                   RETURNING id""",
-                values,
-            )
-            row = cur.fetchone()
-            return int(row["id"]) if row is not None else None
+                    syllabus_version, status, created_at)"""
+
+
+def _insert_item(cur, *, template_id: str, subject: str, subtopic_id: str,
+                 calculator: str, difficulty: str, question: str, answer: str,
+                 working: str, params_json: str, check_json: str,
+                 variant_key: str, shuffle_key: float, verified_by: str,
+                 marks: Optional[int] = None,
+                 verifier_notes: Optional[str] = None,
+                 syllabus_version: Optional[str] = None,
+                 status: str = "live",
+                 now: Optional[int] = None) -> Optional[int]:
+    """The insert itself, for callers already holding a cursor."""
+    values = (template_id, subject, subtopic_id, calculator, difficulty, marks,
+              question, answer, working, params_json, check_json, variant_key,
+              float(shuffle_key), verified_by, verifier_notes,
+              syllabus_version or syllabus_fingerprint(), status, _now(now))
+    if is_postgres():
         cur.execute(
-            """INSERT OR IGNORE INTO practice_items
-               (template_id, subject, subtopic_id, calculator, difficulty,
-                marks, question, answer, working, params_json, check_json,
-                variant_key, shuffle_key, verified_by, verifier_notes,
-                syllabus_version, status, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            f"""INSERT INTO practice_items {_ITEM_COLUMNS}
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (template_id, variant_key) DO NOTHING
+                RETURNING id""",
             values,
         )
-        return int(cur.lastrowid) if cur.rowcount else None
+        row = cur.fetchone()
+        return int(row["id"]) if row is not None else None
+    cur.execute(
+        f"""INSERT OR IGNORE INTO practice_items {_ITEM_COLUMNS}
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        values,
+    )
+    return int(cur.lastrowid) if cur.rowcount else None
+
+
+def bulk_insert_items(records: Iterable[dict], now: Optional[int] = None
+                      ) -> list[int]:
+    """Bank a run of items in one transaction. The ids that were new.
+
+    One transaction rather than one per item because the filler stores about
+    sixty at a time and a seeded bank is thousands, and on SQLite `_cursor`
+    opens, commits and closes a connection per call. Same statement, same
+    duplicate handling, just not paid for once per question.
+    """
+    stored: list[int] = []
+    with _cursor(transaction=True) as cur:
+        for record in records:
+            new_id = _insert_item(cur, now=now, **record)
+            if new_id is not None:
+                stored.append(new_id)
+    return stored
 
 
 def add_items(template: TemplateRow, instances: Iterable, verified_by: str,
@@ -705,21 +740,18 @@ def add_items(template: TemplateRow, instances: Iterable, verified_by: str,
     Takes `models.Instance` records, which already carry the variant and
     shuffle keys, so the factory never has to know the column list.
     """
-    stored = 0
-    for instance in instances:
-        new_id = insert_item(
-            template_id=template.id, subject=template.subject,
-            subtopic_id=template.subtopic_id, calculator=template.calculator,
-            difficulty=template.difficulty, marks=template.marks,
-            question=instance.question, answer=instance.answer,
-            working=instance.working, params_json=instance.params_json,
-            check_json=instance.check_json, variant_key=instance.variant_key,
-            shuffle_key=instance.shuffle_key, verified_by=verified_by,
-            verifier_notes=verifier_notes,
-            syllabus_version=template.syllabus_version, now=now,
-        )
-        stored += 1 if new_id is not None else 0
-    return stored
+    records = [{
+        "template_id": template.id, "subject": template.subject,
+        "subtopic_id": template.subtopic_id, "calculator": template.calculator,
+        "difficulty": template.difficulty, "marks": template.marks,
+        "question": instance.question, "answer": instance.answer,
+        "working": instance.working, "params_json": instance.params_json,
+        "check_json": instance.check_json, "variant_key": instance.variant_key,
+        "shuffle_key": instance.shuffle_key, "verified_by": verified_by,
+        "verifier_notes": verifier_notes,
+        "syllabus_version": template.syllabus_version,
+    } for instance in instances]
+    return len(bulk_insert_items(records, now=now))
 
 
 def _item_row(row) -> ItemRow:
