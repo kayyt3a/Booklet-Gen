@@ -160,6 +160,12 @@ def create_app() -> Flask:
     app.config["OUTPUT_DIR"].mkdir(parents=True, exist_ok=True)
 
     init_db()
+    # The practice bank's own tables, beside the app's. Separate call because
+    # they live in their own module with their own advisory lock key, and it
+    # never raises: a problem stocking practice questions must not stop the app
+    # that sells booklets from booting.
+    from .practice_views import init_practice_db
+    init_practice_db()
     init_csrf(app)
     from .commerce import validate_commerce_config
     from .mailer import validate_mail_config
@@ -262,6 +268,7 @@ def create_app() -> Flask:
     from .admin import bp as admin_bp, is_admin
     from .auth import bp as auth_bp
     from .payments import bp as payments_bp
+    from .practice_views import bp as practice_bp
     from .public import bp as public_bp
     from .seo import bp as seo_bp, init_seo
     from .views import bp as views_bp
@@ -271,6 +278,7 @@ def create_app() -> Flask:
     app.register_blueprint(admin_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(payments_bp)
+    app.register_blueprint(practice_bp)
     app.register_blueprint(public_bp)
     app.register_blueprint(seo_bp)
     app.register_blueprint(views_bp)
