@@ -1026,12 +1026,21 @@ def _apply_spacing(candidates: list[ItemRow], recent: Sequence[str],
                    limit: int, family_count: int) -> tuple[list[ItemRow], str]:
     """Choose from the over-fetched candidates without repeating a family.
 
-    Two passes. The strict one takes at most one item per template and skips
-    any family seen in the last SPACING_WINDOW items. If that cannot fill the
-    batch, the relaxed pass takes what is left, still refusing to place two
-    items from one family next to each other, and the caller reports
-    `spacing='relaxed'` so the interface can say the scope is thin rather than
-    implying variety it does not have.
+    Three passes, and which one had to run is what `spacing` reports:
+
+      1. one item per family, and nothing from a family seen in the last
+         SPACING_WINDOW items,
+      2. families may recur inside the batch but never next to each other, and
+         the recent window still holds. A batch of ten drawn from six families
+         has to do this, and the student still never meets two near-identical
+         questions in a row, so this is still 'strict',
+      3. the window and the adjacency rule give way, which only happens in a
+         scope with almost nothing left in it. That is 'relaxed', and the
+         payload says so rather than implying variety the scope does not have.
+
+    A scope holding fewer than four live families is reported relaxed whatever
+    happens, because there the rule cannot be honoured for long and telling the
+    student their scope is thin is more use than a label that means nothing.
     """
     blocked = set(recent)
     picked: list[ItemRow] = []
@@ -1044,25 +1053,30 @@ def _apply_spacing(candidates: list[ItemRow], recent: Sequence[str],
         picked.append(item)
         used.add(item.template_id)
 
-    relaxed_added = 0
+    chosen = {item.id for item in picked}
     if len(picked) < limit:
-        chosen = {item.id for item in picked}
         for item in candidates:
             if len(picked) >= limit:
                 break
-            if item.id in chosen:
+            if item.id in chosen or item.template_id in blocked:
                 continue
             if picked and picked[-1].template_id == item.template_id:
                 continue
             picked.append(item)
             chosen.add(item.id)
-            relaxed_added += 1
 
-    # A batch that ran short because the bank is nearly empty still honoured
-    # the rule, so it stays 'strict'. Only actually breaking the rule, or a
-    # scope too thin to hold it in the first place, is reported as relaxed.
-    spacing = "relaxed" if (relaxed_added or family_count < 4) else "strict"
-    return picked, spacing
+    relaxed = 0
+    if len(picked) < limit:
+        for item in candidates:
+            if len(picked) >= limit:
+                break
+            if item.id in chosen:
+                continue
+            picked.append(item)
+            chosen.add(item.id)
+            relaxed += 1
+
+    return picked, ("relaxed" if relaxed or family_count < 4 else "strict")
 
 
 # ---------------------------------------------------------------------------
