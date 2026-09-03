@@ -103,8 +103,6 @@ CREATE TABLE IF NOT EXISTS practice_templates (
     created_at          BIGINT NOT NULL,
     retired_at          BIGINT
 );
-CREATE INDEX IF NOT EXISTS practice_templates_node_idx
-    ON practice_templates (subtopic_id, status);
 CREATE TABLE IF NOT EXISTS practice_items (
     id               BIGSERIAL PRIMARY KEY,
     template_id      TEXT NOT NULL REFERENCES practice_templates(id) ON DELETE CASCADE,
@@ -127,10 +125,6 @@ CREATE TABLE IF NOT EXISTS practice_items (
     created_at       BIGINT NOT NULL,
     UNIQUE (template_id, variant_key)
 );
-CREATE INDEX IF NOT EXISTS practice_items_draw_idx
-    ON practice_items (subtopic_id, status, shuffle_key);
-CREATE INDEX IF NOT EXISTS practice_items_template_idx
-    ON practice_items (template_id);
 CREATE TABLE IF NOT EXISTS practice_sessions (
     id           TEXT PRIMARY KEY,
     user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -144,8 +138,6 @@ CREATE TABLE IF NOT EXISTS practice_sessions (
     created_at   BIGINT NOT NULL,
     last_seen_at BIGINT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS practice_sessions_user_idx
-    ON practice_sessions (user_id, last_seen_at DESC);
 CREATE TABLE IF NOT EXISTS practice_seen (
     user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     item_id        BIGINT NOT NULL REFERENCES practice_items(id) ON DELETE CASCADE,
@@ -157,10 +149,6 @@ CREATE TABLE IF NOT EXISTS practice_seen (
     last_seen_at   BIGINT NOT NULL,
     PRIMARY KEY (user_id, item_id)
 );
-CREATE INDEX IF NOT EXISTS practice_seen_user_node_idx
-    ON practice_seen (user_id, subtopic_id);
-CREATE INDEX IF NOT EXISTS practice_seen_recent_idx
-    ON practice_seen (user_id, last_seen_at DESC);
 CREATE TABLE IF NOT EXISTS practice_scope_demand (
     subtopic_id       TEXT PRIMARY KEY,
     requests          INTEGER NOT NULL DEFAULT 0,
@@ -211,8 +199,6 @@ CREATE TABLE IF NOT EXISTS practice_templates (
     created_at          INTEGER NOT NULL,
     retired_at          INTEGER
 );
-CREATE INDEX IF NOT EXISTS practice_templates_node_idx
-    ON practice_templates (subtopic_id, status);
 CREATE TABLE IF NOT EXISTS practice_items (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     template_id      TEXT NOT NULL,
@@ -236,10 +222,6 @@ CREATE TABLE IF NOT EXISTS practice_items (
     UNIQUE (template_id, variant_key),
     FOREIGN KEY(template_id) REFERENCES practice_templates(id)
 );
-CREATE INDEX IF NOT EXISTS practice_items_draw_idx
-    ON practice_items (subtopic_id, status, shuffle_key);
-CREATE INDEX IF NOT EXISTS practice_items_template_idx
-    ON practice_items (template_id);
 CREATE TABLE IF NOT EXISTS practice_sessions (
     id           TEXT PRIMARY KEY,
     user_id      INTEGER NOT NULL,
@@ -254,8 +236,6 @@ CREATE TABLE IF NOT EXISTS practice_sessions (
     last_seen_at INTEGER NOT NULL,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
-CREATE INDEX IF NOT EXISTS practice_sessions_user_idx
-    ON practice_sessions (user_id, last_seen_at DESC);
 CREATE TABLE IF NOT EXISTS practice_seen (
     user_id        INTEGER NOT NULL,
     item_id        INTEGER NOT NULL,
@@ -269,10 +249,6 @@ CREATE TABLE IF NOT EXISTS practice_seen (
     FOREIGN KEY(user_id) REFERENCES users(id),
     FOREIGN KEY(item_id) REFERENCES practice_items(id)
 );
-CREATE INDEX IF NOT EXISTS practice_seen_user_node_idx
-    ON practice_seen (user_id, subtopic_id);
-CREATE INDEX IF NOT EXISTS practice_seen_recent_idx
-    ON practice_seen (user_id, last_seen_at DESC);
 CREATE TABLE IF NOT EXISTS practice_scope_demand (
     subtopic_id       TEXT PRIMARY KEY,
     requests          INTEGER NOT NULL DEFAULT 0,
@@ -378,9 +354,15 @@ _PG_MIGRATIONS = (
     "ALTER TABLE practice_node_state ADD COLUMN IF NOT EXISTS last_filled_at BIGINT",
 )
 
-# The indexes, repeated outside the schema strings, because a database that
-# already has the tables never re-runs a CREATE TABLE and would therefore never
-# gain an index added in a later release. Identical text on both backends.
+# The indexes live here and not in the schema strings, and are created AFTER
+# the migration lists have run. Two reasons, both load-bearing:
+#   * a database that already has the tables never re-runs a CREATE TABLE, so
+#     an index declared only there would never reach it,
+#   * an index names columns. Inside the schema string it would be created
+#     before the ALTERs that add those columns, so on a half-created table the
+#     whole DDL would fail on "no such column" and the migration that fixes it
+#     would never run.
+# Identical text on both backends.
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS practice_templates_node_idx"
     " ON practice_templates (subtopic_id, status)",
