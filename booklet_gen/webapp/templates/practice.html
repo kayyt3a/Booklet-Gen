@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Practice grind - FolioAI{% endblock %}
+{% block description %}Grind verified ATAR Mathematics Methods and Chemistry
+questions one at a time. Pick a whole year, a strand, or a single topic, then
+press the arrow key.{% endblock %}
+{% block extra_head %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/practice.css') }}">
+{% endblock %}
+
+{% block body %}
+{# Everything the browser needs to talk to the API, as data attributes rather
+   than as a script block that Jinja writes JavaScript into. One place to look
+   when a URL changes, and nothing to escape. #}
+<div id="practiceApp"
+     data-csrf="{{ csrf_token() }}"
+     data-session-url="{{ url_for('practice.start_session') }}"
+     data-next-url="{{ url_for('practice.next_questions') }}"
+     data-seen-url="{{ url_for('practice.seen') }}"
+     data-reset-url="{{ url_for('practice.reset') }}"
+     data-installed="{{ 'yes' if installed else 'no' }}">
+
+  {# ---------------------------------------------------------------- picker #}
+  <section class="card practicePicker" id="picker">
+    <h1>Practice grind</h1>
+    <p class="sub">Pick how wide you want to go, then press the right arrow key
+      for the next question. Every question here was checked by a computer
+      algebra system or a purpose-built calculator before it was banked, so the
+      answer beside it is the answer.</p>
+
+    {% if not installed %}
+      <div class="alert" role="alert">The question bank is not installed on
+        this deployment yet, so nothing can be served. The picker below still
+        shows what the courses contain.</div>
+    {% endif %}
+
+    <fieldset class="formSection pickerStep">
+      <legend><span class="stepBadge">1</span>Course</legend>
+      <div class="subjectGrid">
+        {% for s in subjects %}
+          <div class="subjectOption">
+            <input type="radio" name="practiceSubject" id="subject-{{ s.key }}"
+                   value="{{ s.key }}" {{ 'checked' if loop.first }}>
+            <label for="subject-{{ s.key }}">
+              <span class="choiceMark" aria-hidden="true"></span>
+              <span>
+                <strong>{{ s.name }}</strong>
+                <small>{{ s.bankable }} of {{ s.total }} topics can be checked
+                  without a language model, so those are the ones stocked.</small>
+              </span>
+            </label>
+          </div>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <fieldset class="formSection pickerStep">
+      <legend><span class="stepBadge">2</span>Narrow it down</legend>
+      <div class="filterRow">
+        <div class="filterGroup" role="group" aria-label="School year">
+          <button type="button" class="chip active" data-year="">Both years</button>
+          {% for y in years %}
+            <button type="button" class="chip" data-year="{{ y }}">{{ y }}</button>
+          {% endfor %}
+        </div>
+        <div class="filterGroup" role="group" aria-label="Calculator">
+          <button type="button" class="chip active" data-calc="">Any calculator</button>
+          <button type="button" class="chip" data-calc="free">Calculator free</button>
+          <button type="button" class="chip" data-calc="assumed">Calculator assumed</button>
+        </div>
+      </div>
+      <p class="fieldHelp">The year filter hides what you are not sitting. A
+        strand such as Calculus stays visible under both years on purpose,
+        because it runs across them.</p>
+    </fieldset>
+
+    <fieldset class="formSection pickerStep">
+      <legend><span class="stepBadge">3</span>Choose a scope</legend>
+      <p class="fieldHelp">Whole course, a whole year, one unit, one strand, or
+        one topic. Whatever you choose is what you get: FolioAI never widens a
+        selection to fill a gap.</p>
+      {% for s in subjects %}
+        {# Both courses are rendered, and the one not chosen is hidden. The
+           tree is server-rendered rather than built in JavaScript so it is
+           measurable: scripts/check_practice_picker.py reads the levels out of
+           this page's HTML. #}
+        <div class="scopeSubject" data-subject="{{ s.key }}"
+             data-subject-name="{{ s.name }}" {{ '' if loop.first else 'hidden' }}>
+          <ul class="scopeTree">
+            {% for n in s.tree recursive %}
+              <li class="scopeNode level-{{ n.level }}"
+                  data-level="{{ n.level }}"
+                  data-years="{{ n.years|join('|') }}">
+                <button type="button"
+                        class="scopePick{{ ' isEmpty' if n.count == 0 }}"
+                        data-scope="{{ n.id }}"
+                        data-label="{{ n.label }}"
+                        {% if n.count == 0 %}disabled aria-disabled="true"{% endif %}>
+                  <span class="scopeLabel">{{ n.label }}</span>
+                  {% if n.count == 0 %}
+                    <span class="scopeTag notStocked"
+                          title="FolioAI only banks questions it can check without a language model.">Not stocked</span>
+                  {% elif n.level == 'subtopic' %}
+                    <span class="scopeTag stocked">Stocked</span>
+                  {% else %}
+                    <span class="scopeCount">{{ n.count }} topics</span>
+                  {% endif %}
+                </button>
+                {% if n.children %}
+                  <ul class="scopeChildren">{{ loop(n.children) }}</ul>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endfor %}
+      <p class="pickerEmpty" id="pickerEmpty" hidden>Nothing matches that
+        filter. Widen the year or the calculator setting.</p>
+    </fieldset>
+
+    <p class="legalNote">{{ attribution }}</p>
+  </section>
+
+  {# ------------------------------------------------------------------- run #}
+  <section class="card practiceRun" id="run" hidden>
+    <div class="runHead">
+      <div>
+        <p class="crumb" id="crumb" aria-live="polite"></p>
+        <p class="runSub" id="runSub"></p>
+      </div>
+      <button type="button" class="btn secondary small" id="changeScope">Change topic</button>
+    </div>
+
+    <div class="runNotice" id="notice" role="status" hidden></div>
+
+    <article class="qCard" id="qCard" aria-live="polite">
+      <div class="qMeta" id="qMeta"></div>
+      <p class="qText" id="qText"></p>
+      <div class="qAnswer" id="qAnswer" hidden>
+        <p class="answerLine"><span class="answerTag">Answer</span>
+          <span id="qAnswerText"></span></p>
+        <div class="qWorking" id="qWorking"></div>
+      </div>
+      <p class="qHidden" id="qHidden">Press the space bar to show the answer.</p>
+    </article>
+
+    <div class="runControls">
+      <button type="button" class="btn secondary small" id="prevBtn">Back</button>
+      <button type="button" class="btn secondary small" id="revealBtn">Show answer</button>
+      <button type="button" class="btn secondary small gotBtn" id="gotBtn">Got it</button>
+      <button type="button" class="btn secondary small missedBtn" id="missedBtn">Missed</button>
+      <button type="button" class="btn small" id="nextBtn">Next</button>
+    </div>
+
+    <dl class="keyHints">
+      <dt>Space</dt><dd>show the answer</dd>
+      <dt>Right</dt><dd>next question</dd>
+      <dt>Left</dt><dd>back</dd>
+      <dt>Up</dt><dd>got it, then next</dd>
+      <dt>Down</dt><dd>missed, then next</dd>
+    </dl>
+
+    <div class="runFoot">
+      <p class="runScore" id="runScore"></p>
+      <button type="button" class="btn secondary small" id="resetBtn" hidden>
+        Clear my history for this topic</button>
+    </div>
+    <p class="legalNote">{{ attribution }}</p>
+  </section>
+</div>
+
+<script src="{{ url_for('static', filename='js/practice.js') }}" defer></script>
+{% endblock %}

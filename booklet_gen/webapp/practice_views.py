@@ -26,20 +26,22 @@ THE BANK INTERFACE THIS FILE EXPECTS
 lazily, inside functions, so this blueprint can be registered and this module
 imported before the bank exists. The calls made are:
 
-    init_practice_db()                                        -> None
+    init_practice_db()                                          -> None
     create_session(user_id, subject, scope_id, scope_label,
-                   calculator)                                -> str
-    get_session(session_id)                                   -> mapping | None
-    draw(user_id, leaf_ids, limit, exclude=(), calculator=None) -> DrawResult
-    record_seen(user_id, events, session_id=...)              -> int
-    reset_seen(user_id, leaf_ids)                             -> int
-    note_scope_demand(subtopic_id, dry=False)                 -> None
-    bank_depth(leaf_ids)                                      -> int | mapping
+                   calculator)                                  -> str
+    get_session(session_id, user_id)                            -> dict | None
+    draw(user_id, leaf_ids, limit, exclude_ids=(),
+         calculator=None)                                       -> DrawResult
+    record_seen(user_id, events)                                -> int
+    touch_session(session_id, served=, answered=, correct=)     -> None
+    reset_seen(user_id, leaf_ids)                               -> int
+    note_scope_demand(leaf_ids, dry=False)                      -> None
+    bank_depth(leaf_ids)                                        -> dict
 
-Where the plan does not fix a name, a short alias list is accepted, and a
-missing call degrades to an honest "practice is not available yet" rather than
-a 500. `DrawResult`, `ItemRow.for_client` and `SeenEvent` come from
-`practice/models.py`, which is the fixed contract.
+Every one of those is looked up by name at call time, and a missing one
+degrades to an honest "practice is not available yet" rather than a 500.
+`DrawResult`, `ItemRow.for_client` and `SeenEvent` come from
+`practice/models.py`, which is the fixed contract between all three builders.
 """
 from __future__ import annotations
 
@@ -104,22 +106,19 @@ def _store():
         return None
 
 
-def _fn(*names):
-    """The first of `names` the bank actually defines, or None.
+def _fn(name):
+    """One named call on the bank, or None if this tree does not have it.
 
-    The plan fixes `draw`, `note_scope_demand` and `bank_depth` by name and
-    leaves the session and seen helpers unnamed. Accepting a short alias list
-    is cheaper than guessing wrong and shipping a blueprint that raises
-    AttributeError on the first click.
+    Looked up at call time rather than imported at module load, so a checkout
+    with a half-finished bank serves an honest 503 on the practice routes
+    instead of failing to import the blueprint and taking the whole app down
+    with it.
     """
     store = _store()
     if store is None:
         return None
-    for name in names:
-        found = getattr(store, name, None)
-        if callable(found):
-            return found
-    return None
+    found = getattr(store, name, None)
+    return found if callable(found) else None
 
 
 def init_practice_db() -> None:
@@ -128,7 +127,7 @@ def init_practice_db() -> None:
     Never raises. The practice bank is one feature; a schema problem in it must
     not stop the app that sells booklets from booting.
     """
-    creator = _fn("init_practice_db", "init_db")
+    creator = _fn("init_practice_db")
     if creator is None:
         log.info("practice bank not installed; /practice will report that")
         return
@@ -172,6 +171,21 @@ def _subject_of_scope(scope_id: str) -> str:
     return syl.subject_for_key(key)
 
 
+def _years_in(scope_id: str) -> list[str]:
+    """Which school years a scope touches, for the picker's year filter.
+
+    Computed from the syllabus rather than parsed out of the id, because a
+    strand deliberately spans units and therefore years: "Calculus" is Year 11
+    and Year 12 at once, and a filter that guessed from the id would hide it
+    from both.
+    """
+    years = {sub.year for sub in
+             (syl.subtopic(i) for i in
+              syl.resolve_scope(scope_id, bankable_only=False))
+             if sub is not None and sub.year}
+    return sorted(years)
+
+
 def _tree(scopes):
     """Nest a flat `scope_options()` list using `Scope.parent`.
 
@@ -180,8 +194,16 @@ def _tree(scopes):
     missing would silently vanish, so they are attached to the root instead:
     the picker showing a topic under the wrong heading is recoverable, the
     picker not showing a topic at all is not.
+
+    Returns plain dicts. The template needs five fields and a Jinja macro that
+    reaches through a dataclass to get them is a macro that breaks the day the
+    dataclass gains a field.
     """
-    nodes = {s.id: {"scope": s, "children": []} for s in scopes}
+    nodes = {
+        s.id: {"id": s.id, "label": s.label, "level": s.level,
+               "count": s.count, "years": _years_in(s.id), "children": []}
+        for s in scopes
+    }
     roots = []
     for s in scopes:
         node = nodes[s.id]
@@ -236,7 +258,7 @@ def _scope_state(scope_id: str) -> tuple[list[str], str]:
 
 def _depth(leaf_ids) -> int:
     """How many live questions the bank holds across these subtopics."""
-    counter = _fn("bank_depth", "depth")
+    counter = _fn("bank_depth")
     if counter is None or not leaf_ids:
         return 0
     try:
@@ -255,26 +277,23 @@ def _depth(leaf_ids) -> int:
 def _note_demand(leaf_ids, dry: bool) -> None:
     """Tell the filler which subtopics students actually grind.
 
-    Called on session creation (so `requests` counts real intent) and on every
-    dry or unstocked draw (so `dry_requests` counts real disappointment). It is
+    Called on session creation (so `requests` counts real intent) and on a dry
+    or unstocked draw (so `dry_requests` counts real disappointment). It is
     deliberately NOT called on a healthy draw: that path runs every six
     questions and must stay a read.
+
+    Failure here is logged and swallowed. Bookkeeping for the overnight filler
+    is not a reason to fail a student's question.
     """
-    noter = _fn("note_scope_demand", "note_demand")
-    if noter is None:
+    noter = _fn("note_scope_demand")
+    leaves = [leaf for leaf in (leaf_ids or []) if leaf]
+    if noter is None or not leaves:
         return
-    for leaf in leaf_ids:
-        try:
-            noter(leaf, dry=dry)
-        except TypeError:
-            try:
-                noter(leaf)
-            except Exception:
-                log.debug("note_scope_demand(%s) failed", leaf, exc_info=True)
-                return
-        except Exception:
-            log.debug("note_scope_demand(%s) failed", leaf, exc_info=True)
-            return
+    try:
+        noter(leaves, dry=dry)
+    except Exception:
+        log.warning("note_scope_demand failed for %d subtopics",
+                    len(leaves), exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +392,7 @@ def start_session():
         calculator = ""
 
     label = syl.scope_label(scope_id)
-    creator = _fn("create_session", "start_session", "new_session")
+    creator = _fn("create_session")
     if creator is None:
         return _unavailable()
     try:
@@ -406,11 +425,14 @@ def _owned_session(session_id: str):
     else's questions. A student's practice history says what they are weak at,
     which is exactly the kind of thing that must not leak sideways.
     """
-    getter = _fn("get_session", "session", "load_session")
-    if getter is None:
+    getter = _fn("get_session")
+    if getter is None or not g.user:
         return None
     try:
-        row = getter(session_id)
+        # The owner is an argument to the read, not a filter applied to its
+        # result. A read that returns the row and then checks it is one
+        # `if` away from leaking another student's session.
+        row = getter(session_id, int(g.user["id"]))
     except Exception:
         log.exception("could not read practice session")
         abort(404)
@@ -420,7 +442,7 @@ def _owned_session(session_id: str):
         owner = int(row["user_id"])
     except (KeyError, IndexError, TypeError, ValueError):
         abort(404)
-    if not g.user or owner != int(g.user["id"]):
+    if owner != int(g.user["id"]):
         abort(404)
     return row
 
@@ -488,23 +510,20 @@ def next_questions():
     drawer = _fn("draw")
     if drawer is None:
         return _unavailable()
-    dropped_by_calculator = False
     try:
-        result = drawer(int(g.user["id"]), leaves, want, exclude=exclude,
+        result = drawer(int(g.user["id"]), leaves, want, exclude_ids=exclude,
                         calculator=calculator or None)
-    except TypeError:
-        # A bank that does not filter on calculator yet. Draw without it and
-        # filter here rather than quietly serving calculator-assumed questions
-        # to somebody who asked for calculator-free. A short batch is honest;
-        # the wrong questions are not.
-        result = drawer(int(g.user["id"]), leaves, want, exclude=exclude)
-        dropped_by_calculator = bool(calculator)
     except Exception:
         log.exception("practice draw failed")
         return _unavailable()
 
     items = list(getattr(result, "items", []) or [])
-    if dropped_by_calculator:
+    if calculator:
+        # A backstop, not the filter. `store.draw` already restricts the SQL to
+        # the calculator the student chose; this catches the day that stops
+        # being true, because handing a calculator-assumed question to somebody
+        # revising for the calculator-free paper is a wrong answer with extra
+        # steps. A short batch is honest, the wrong questions are not.
         items = [i for i in items
                  if getattr(i, "calculator", "either") in (calculator, "either")]
 
@@ -605,19 +624,32 @@ def seen():
     if not events:
         return jsonify({"recorded": 0})
 
-    writer = _fn("record_seen", "mark_seen", "note_seen")
+    writer = _fn("record_seen")
     if writer is None:
         return _unavailable()
-    session_id = str(_row_value(row, "id", ""))
     try:
-        try:
-            written = writer(int(g.user["id"]), events, session_id=session_id)
-        except TypeError:
-            written = writer(int(g.user["id"]), events)
+        written = writer(int(g.user["id"]), events)
     except Exception:
         log.exception("could not record practice seen events")
         return _unavailable()
-    return jsonify({"recorded": int(written or 0) or len(events)})
+
+    # Session counters, for the account page and for support. Deliberately
+    # separate from `practice_seen`: that table is the one that must be
+    # replay-proof, because it decides what the student is shown next. These
+    # three are a display tally, and a batch replayed after a dropped
+    # connection can nudge them. The number the student reads while grinding is
+    # counted in the browser, so nothing they see depends on this.
+    toucher = _fn("touch_session")
+    if toucher is not None:
+        answered = [e for e in events if e.outcome in ("got_it", "missed")]
+        try:
+            toucher(str(_row_value(row, "id", "")), served=len(events),
+                    answered=len(answered),
+                    correct=sum(1 for e in answered if e.outcome == "got_it"))
+        except Exception:
+            log.warning("could not update practice session counters",
+                        exc_info=True)
+    return jsonify({"recorded": int(written or 0)})
 
 
 @bp.post("/practice/reset")
@@ -641,7 +673,7 @@ def reset():
     leaves, reason = _scope_state(str(_row_value(row, "scope_id", "")))
     if reason == "unknown":
         abort(404)
-    clearer = _fn("reset_seen", "reset_scope", "clear_seen")
+    clearer = _fn("reset_seen")
     if clearer is None:
         return _unavailable()
     try:

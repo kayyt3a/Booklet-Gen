@@ -1,0 +1,188 @@
+/* The practice grind: the picker tree and the question card.
+ *
+ * Its own file. style.css dresses the booklet shop and is loaded on every
+ * page, and one screen that needs a nested tree and a full-bleed question card
+ * is not a reason to grow it. Everything here reuses style.css's custom
+ * properties, so the two cannot drift apart on colour, radius or spacing.
+ */
+
+/* --------------------------------------------------------------- picker -- */
+
+.practicePicker h1 { margin-bottom: var(--s2); }
+
+.subjectGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--s3);
+  margin-top: var(--s4);
+}
+.subjectOption { position: relative; min-width: 0; }
+.subjectOption input {
+  position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+}
+.subjectOption label {
+  display: flex; align-items: flex-start; gap: var(--s3);
+  padding: var(--s4); border: 1px solid var(--border);
+  border-radius: var(--radius); background: #fff; cursor: pointer;
+  height: 100%; transition: border-color .12s, background .12s;
+}
+.subjectOption label:hover { border-color: #aebbd0; background: #fbfcfe; }
+.subjectOption input:focus-visible + label { outline: 3px solid var(--orange); outline-offset: 2px; }
+.subjectOption input:checked + label { border-color: var(--navy); background: #f7f9fd; }
+.subjectOption strong { display: block; font-size: var(--t-body); margin-bottom: var(--s1); }
+.subjectOption small { display: block; color: var(--muted); font-size: var(--t-micro); line-height: 1.45; }
+.subjectOption .choiceMark {
+  flex: none; width: 18px; height: 18px; margin-top: 2px;
+  border: 2px solid #c3ccdb; border-radius: 50%; background: #fff;
+}
+.subjectOption input:checked + label .choiceMark { border: 5px solid var(--navy); }
+
+.filterRow { display: flex; flex-wrap: wrap; gap: var(--s5); margin-top: var(--s4); }
+.filterGroup { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.chip {
+  /* 44px minimum tap target, the same floor check_web_layout.py holds the
+     rest of the site to. A filter you cannot hit on a phone is a filter
+     nobody uses. */
+  min-height: 44px; padding: var(--s2) var(--s4);
+  border: 1px solid var(--border); border-radius: 999px;
+  background: #fff; color: var(--ink); font: inherit; font-size: var(--t-small);
+  cursor: pointer; transition: border-color .12s, background .12s;
+}
+.chip:hover { border-color: #aebbd0; background: #fbfcfe; }
+.chip:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
+.chip.active { background: var(--navy); border-color: var(--navy); color: #fff; font-weight: 600; }
+
+/* ----------------------------------------------------------------- tree -- */
+
+.scopeTree, .scopeChildren { list-style: none; margin: 0; padding: 0; }
+.scopeTree { margin-top: var(--s4); }
+/* The indent and the guide line are what make the nesting readable at a
+   glance. Without them a whole year, a strand and a single topic all look
+   like the same kind of thing, which is exactly the collapse this feature
+   cannot afford. */
+.scopeChildren {
+  margin-left: var(--s4);
+  padding-left: var(--s4);
+  border-left: 2px solid var(--border);
+}
+.scopeNode { margin: 2px 0; }
+
+.scopePick {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s3); width: 100%; min-height: 44px;
+  padding: var(--s2) var(--s3); text-align: left;
+  border: 1px solid transparent; border-radius: var(--radius);
+  background: transparent; color: var(--ink); font: inherit;
+  font-size: var(--t-body); cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.scopePick:hover { background: #f2f6fc; border-color: #d7dfec; }
+.scopePick:focus-visible { outline: 3px solid var(--orange); outline-offset: 1px; }
+.scopePick[disabled] { cursor: default; color: var(--muted); }
+.scopePick[disabled]:hover { background: transparent; border-color: transparent; }
+
+.scopeLabel { min-width: 0; }
+.level-subject > .scopePick .scopeLabel,
+.level-year > .scopePick .scopeLabel {
+  font-family: var(--display); font-size: var(--t-h2); line-height: 1.25;
+}
+.level-unit > .scopePick .scopeLabel,
+.level-strand > .scopePick .scopeLabel { font-weight: 600; }
+.level-subtopic > .scopePick .scopeLabel { font-size: var(--t-small); }
+
+.scopeCount, .scopeTag {
+  flex: none; font-size: var(--t-micro); color: var(--muted); white-space: nowrap;
+}
+.scopeTag {
+  padding: 2px var(--s2); border-radius: 999px; border: 1px solid var(--border);
+}
+.scopeTag.stocked { color: var(--green-ink); background: var(--green-tint); border-color: #c9e7d3; }
+.scopeTag.notStocked { color: var(--amber-ink); background: var(--amber-tint); border-color: #f0dcae; }
+
+.pickerEmpty { margin-top: var(--s4); color: var(--muted); font-size: var(--t-small); }
+
+/* ------------------------------------------------------------------ run -- */
+
+.runHead {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--s4); margin-bottom: var(--s4);
+}
+.crumb {
+  margin: 0; font-family: var(--display); font-size: var(--t-h2);
+  line-height: 1.25; color: var(--ink);
+}
+.runSub { margin: var(--s1) 0 0; color: var(--muted); font-size: var(--t-small); }
+
+.runNotice {
+  padding: var(--s3) var(--s4); margin-bottom: var(--s4);
+  border-radius: var(--radius); border: 1px solid #f0dcae;
+  background: var(--amber-tint); color: var(--amber-ink);
+  font-size: var(--t-small); line-height: 1.5;
+}
+
+.qCard {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--paper); padding: var(--s5);
+  /* A fixed floor, so pressing Next does not make the buttons jump up the
+     screen when a one-line question follows a four-line one. A student
+     grinding 200 questions is aiming at the same pixel every time. */
+  min-height: 190px;
+}
+.qMeta {
+  display: flex; flex-wrap: wrap; gap: var(--s2);
+  font-size: var(--t-micro); color: var(--muted); margin-bottom: var(--s3);
+}
+.qMeta span {
+  padding: 2px var(--s2); border-radius: 999px;
+  border: 1px solid #ece3d4; background: #fff;
+}
+.qMeta span.repeatFlag { color: var(--amber-ink); background: var(--amber-tint); border-color: #f0dcae; }
+.qText {
+  margin: 0; font-family: var(--display); font-size: var(--t-h2);
+  line-height: 1.45; color: var(--ink); white-space: pre-wrap;
+}
+.qHidden { margin: var(--s5) 0 0; color: var(--muted); font-size: var(--t-small); }
+.qAnswer { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid #ece3d4; }
+.answerLine { margin: 0; font-size: var(--t-lead); line-height: 1.5; }
+.answerTag {
+  display: inline-block; margin-right: var(--s2); padding: 2px var(--s2);
+  border-radius: 999px; background: var(--green-tint); color: var(--green-ink);
+  font-size: var(--t-micro); font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; vertical-align: 2px;
+}
+.qWorking {
+  margin-top: var(--s3); color: var(--ink); font-size: var(--t-small);
+  line-height: 1.6; white-space: pre-wrap;
+}
+
+.runControls { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s4); }
+.runControls .btn { margin: 0; }
+.gotBtn { border-color: #c9e7d3; color: var(--green-ink); }
+.missedBtn { border-color: #f3cfcf; color: var(--danger); }
+
+.keyHints {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) var(--s2);
+  margin: var(--s4) 0 0; font-size: var(--t-micro); color: var(--muted);
+}
+.keyHints dt {
+  padding: 2px var(--s2); border: 1px solid var(--border); border-bottom-width: 2px;
+  border-radius: 6px; background: #fff; font-weight: 600; color: var(--ink);
+}
+.keyHints dd { margin: 0 var(--s3) 0 0; }
+
+.runFoot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--s3); margin-top: var(--s5); padding-top: var(--s4);
+  border-top: 1px solid var(--border);
+}
+.runScore { margin: 0; color: var(--muted); font-size: var(--t-small); }
+
+@media (max-width: 640px) {
+  .scopeChildren { margin-left: var(--s2); padding-left: var(--s3); }
+  .qCard { padding: var(--s4); }
+  .qText { font-size: var(--t-lead); }
+  .runHead { flex-direction: column; }
+  /* Every control stays reachable with a thumb, and Next stays the widest. */
+  .runControls .btn { flex: 1 1 auto; }
+  .keyHints { display: none; }
+}
