@@ -64,11 +64,46 @@ _PLACEHOLDER = re.compile(r"\{([^{}]+)\}")
 # rather than a template we try to be clever about.
 _SAFE_EXPR = re.compile(r"^[A-Za-z0-9_+\-*/(),.<>=!% ^]+$")
 
+class _Round(sp.Function):
+    """Round inside a pattern, so an answer can state its own precision.
+
+    A pH is written to two decimal places and a probability to four. Without
+    this an answer pattern can only print whatever the arithmetic produced,
+    and "the pH is 2.8723637474483468" is not an answer any marking key would
+    accept.
+
+    A SymPy Function rather than a plain callable, because a pattern is parsed
+    once with symbols standing in for the parameters and only later
+    substituted. A plain function runs at parse time, against `c` and `p`
+    rather than against 3 and 4, and dies trying to round an expression.
+    Returning None from `eval` leaves it unevaluated until the numbers arrive.
+    """
+
+    @classmethod
+    def eval(cls, value, places=None):
+        places = sp.Integer(2) if places is None else places
+        if value.is_number and places.is_number:
+            # Python's round, not SymPy's. Float.round works to binary
+            # precision and turned a pH of 4.30 into 4.2998046875, which is
+            # not a rounding a marking key would recognise.
+            return sp.Float(round(float(sp.N(value, 30)), int(places)))
+        return None
+
+
 _ALLOWED_FUNCTIONS = {
     "gcd": sp.gcd, "lcm": sp.lcm, "abs": sp.Abs, "Abs": sp.Abs,
     "sqrt": sp.sqrt, "floor": sp.floor, "ceiling": sp.ceiling,
     "Rational": sp.Rational, "factorial": sp.factorial,
     "min": sp.Min, "max": sp.Max, "Min": sp.Min, "Max": sp.Max,
+    # Logarithms and the error function are here because without them a
+    # family can verify perfectly and still be unable to write its own
+    # answer down. pH is -log10 of a concentration and a normal probability
+    # is an erf, so ph_strong, ph_weak and normal were all unfillable for
+    # want of these three names, despite verify.py checking them correctly.
+    "log": sp.log, "ln": sp.log, "exp": sp.exp,
+    "log10": lambda x: sp.log(x, 10), "log2": lambda x: sp.log(x, 2),
+    "erf": sp.erf, "erfc": sp.erfc,
+    "pi": sp.pi, "E": sp.E, "round": _Round,
 }
 
 _TRANSFORMS = standard_transformations + (convert_equals_signs,)
@@ -341,6 +376,25 @@ def render(pattern: str, values: dict, table: Optional[dict] = None) -> str:
     return _PLACEHOLDER.sub(one, pattern or "")
 
 
+def _decimalise(text: str) -> str:
+    """An exact fraction, written as the decimal a verifier can read.
+
+    The student-facing side wants 1/2 printed as 1/2. The check payload is
+    parsed with float(), so a concentration rendered as the exact Rational
+    1/20000 fails to parse and takes the whole family down with it, for a
+    reason that looks nothing like the cause. Only touches a string that is
+    entirely one fraction, so an expression like "3*x**2 + 1/2" is left alone
+    for SymPy to read.
+    """
+    stripped = text.strip()
+    if not re.fullmatch(r"-?\d+/\d+", stripped):
+        return text
+    try:
+        return repr(round(float(sp.Rational(stripped)), 12))
+    except (TypeError, ValueError, ZeroDivisionError):
+        return text
+
+
 def render_payload(pattern: Any, values: dict, table: Optional[dict] = None):
     """The check payload, rendered from the same values as the question.
 
@@ -351,7 +405,7 @@ def render_payload(pattern: Any, values: dict, table: Optional[dict] = None):
     """
     table = table or _symbols(values.keys())
     if isinstance(pattern, str):
-        return render(pattern, values, table)
+        return _decimalise(render(pattern, values, table))
     if isinstance(pattern, dict):
         return {k: render_payload(v, values, table) for k, v in pattern.items()}
     if isinstance(pattern, (list, tuple)):
