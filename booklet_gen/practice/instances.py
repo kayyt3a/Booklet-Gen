@@ -22,9 +22,20 @@ prints "35.0 g" while its check payload says 3.50 gets that wrong once and
 then ships it eight hundred times, and the round trip in `verify.admit` is the
 only thing standing between that and a student's screen.
 
-Nothing here calls `eval`. Placeholder expressions and constraints go through
-SymPy's parser with an explicit symbol whitelist, because a template is
-written by a language model and is therefore untrusted input.
+UNTRUSTED INPUT. A template is written by a language model, so every string in
+it is hostile until proven otherwise. This module does not call `eval` itself,
+but SymPy's `parse_expr` does, and an earlier version of this comment claimed
+safety on the strength of the first half of that sentence. Three things
+actually provide it, and all three are needed:
+
+  the character whitelist  filters syntax
+  `reject_hostile`         filters meaning: dunders and attribute access
+  `_SAFE_GLOBALS`          pins the globals `parse_expr` evaluates against,
+                           with `__builtins__` explicitly empty
+
+Without the third, `open(1)` opened a real file descriptor. Without the second,
+`().__class__.__base__.__subclasses__()` returned every loaded Python class,
+using only characters the first one allows. Do not remove any of them.
 """
 from __future__ import annotations
 
@@ -52,6 +63,12 @@ MAX_ENUMERATION = 200_000
 # The floor a family has to clear to be worth banking. Six possible instances
 # is a family a student exhausts in one sitting and then meets again all week.
 MIN_SPACE = 40
+
+# The widest a single declared parameter range may be. Generous for school
+# mathematics, where coefficients live in the tens and concentrations in the
+# thousands, and small enough that materialising every pool cannot exhaust
+# memory before the enumeration cap gets a chance to apply.
+MAX_RANGE_SPAN = 100_000
 
 DEFAULT_COUNT = 60
 MAX_COUNT = 200
@@ -104,9 +121,35 @@ _ALLOWED_FUNCTIONS = {
     "log10": lambda x: sp.log(x, 10), "log2": lambda x: sp.log(x, 2),
     "erf": sp.erf, "erfc": sp.erfc,
     "pi": sp.pi, "E": sp.E, "round": _Round,
+    # Relational constructors, because `_as_relational` rewrites "a != b"
+    # into Ne(a, b) and the pinned globals no longer supply them.
+    "Ne": sp.Ne, "Eq": sp.Eq,
 }
 
 _TRANSFORMS = standard_transformations + (convert_equals_signs,)
+
+# The globals SymPy's generated code is evaluated against, and the reason this
+# module is not a remote code execution hole.
+#
+# `parse_expr` compiles the transformed source and calls `eval` on it. Given no
+# `global_dict` it builds one with `from sympy import *`, and that dict has no
+# `__builtins__` key, so Python helpfully injects the real builtins module.
+# Every builtin is then reachable from a string made only of letters, digits
+# and brackets, all of which the character whitelist above happily allows:
+# `open(1)` opened a real file descriptor, and
+# `().__class__.__base__.__subclasses__()` returned every loaded class, which
+# is the first step of an ordinary sandbox escape. The whitelist filters
+# syntax; it was never going to filter meaning.
+#
+# So the globals are pinned here, with `__builtins__` explicitly empty, and
+# carry only the constructors SymPy's own transformations emit. Everything a
+# template is allowed to name arrives through `local_dict` instead.
+_SAFE_GLOBALS = {
+    "__builtins__": {},
+    "Symbol": sp.Symbol, "Integer": sp.Integer, "Float": sp.Float,
+    "Rational": sp.Rational, "Function": sp.Function,
+    "Ne": sp.Ne, "Eq": sp.Eq,
+}
 
 
 class TemplateError(ValueError):
@@ -153,6 +196,18 @@ def _values_for(name: str, spec: Any) -> list:
         raise TemplateError(f"parameter {name!r} has a non-integer range") from exc
     if high < low:
         low, high = high, low
+    # Bounded BEFORE the list is built, not after. `_tuples` checks the running
+    # product against MAX_ENUMERATION, but it does that having already
+    # materialised every pool, so one badly scaled range (a concentration
+    # written in the wrong units, say) hung the filler on 200MB of integers
+    # before any check could reject it. A school question does not need more
+    # values than this in one parameter.
+    if high - low > MAX_RANGE_SPAN:
+        raise TemplateError(
+            f"parameter {name!r} spans {high - low} values, over the "
+            f"{MAX_RANGE_SPAN} allowed. A range that wide is a units mistake, "
+            "and materialising it stalls the filler before anything can "
+            "reject the template")
     excluded = {int(x) for x in spec.get("exclude", ()) if _is_int(x)}
     values = [v for v in range(low, high + 1, abs(step)) if v not in excluded]
     if not values:
@@ -208,19 +263,84 @@ def _as_relational(text: str) -> str:
     return text
 
 
+# A dot that is not a decimal point is attribute access, and a double
+# underscore is the doorway to every dunder. Pinning the globals is not enough
+# on its own: `().__class__.__base__.__subclasses__()` needs no builtins at
+# all, because the traversal starts from a literal that is already in the
+# expression. It returned every loaded Python class through the "arithmetic"
+# whitelist.
+_DUNDER = re.compile(r"__")
+_ATTRIBUTE_DOT = re.compile(r"(?<!\d)\.|\.(?!\d)")
+
+
+def reject_hostile(text: str) -> Optional[str]:
+    """Why this string must not be parsed, or None if it is ordinary maths.
+
+    Separate from the character whitelist because the whitelist filters
+    SYNTAX and this filters MEANING. Both are needed: the characters in
+    `().__class__.__base__.__subclasses__()` are all perfectly reasonable
+    ones to find in an expression.
+    """
+    body = text or ""
+    if _DUNDER.search(body):
+        return "it contains a double underscore, which only ever means a dunder"
+    if _ATTRIBUTE_DOT.search(body):
+        return ("it contains a dot that is not a decimal point, which means "
+                "attribute access")
+    return None
+
+
 def _parse_safely(text: str, table: dict):
+    hostile = reject_hostile(text)
+    if hostile:
+        raise TemplateError(f"refusing to parse {text!r}: {hostile}")
     if not _SAFE_EXPR.match(text or ""):
         raise TemplateError(f"expression {text!r} contains something unexpected")
     try:
         return parse_expr(_as_relational(text), local_dict=table,
+                          global_dict=dict(_SAFE_GLOBALS),
                           transformations=_TRANSFORMS, evaluate=True)
     except Exception as exc:                                   # noqa: BLE001
         raise TemplateError(f"expression {text!r} does not parse: {exc}") from exc
 
 
-def _satisfies(constraints: Iterable, table: dict, values: dict) -> bool:
+def _compile(constraints: Iterable, table: dict) -> list:
+    """Parse each constraint once, for reuse across the whole sweep.
+
+    `_satisfies` used to parse from source on every candidate tuple. A
+    three-parameter family over ordinary coefficient ranges is 200,000
+    combinations, and at 0.66ms per parse of "gcd(a, b) == 1" that is minutes
+    of work per template, on a cron with a window. Parsing is the expensive
+    half; substitution is cheap.
+    """
+    declared = {name for name, value in table.items()
+                if isinstance(value, sp.Symbol)}
+    compiled = []
     for raw in constraints or ():
         expr = _parse_safely(str(raw), table)
+        compiled.append(expr)
+        if isinstance(expr, bool):
+            continue
+        # `constraints` is the one field the structural validator never looks
+        # at, and an unknown name here does not fail: SymPy turns it into a
+        # symbol or an undefined function, the constraint then never evaluates
+        # true, and the family silently yields nothing. That reads as "the
+        # model wrote a bad template" when it is really "the model wrote
+        # something we do not understand", which are worth telling apart.
+        unknown = {s.name for s in expr.free_symbols} - declared
+        for node in expr.atoms(sp.Function):
+            name = getattr(node.func, "__name__", "")
+            if name not in _ALLOWED_FUNCTIONS and name not in ("Ne", "Eq"):
+                unknown.add(name)
+        if unknown:
+            raise TemplateError(
+                f"constraint {raw!r} names {sorted(unknown)}, which is neither "
+                "a declared parameter nor a function templates may use")
+    return compiled
+
+
+def _satisfies(compiled: Iterable, table: dict, values: dict) -> bool:
+    for expr in compiled or ():
         if isinstance(expr, bool):
             # A constraint that reduced to a constant before substitution says
             # nothing about this tuple, and silently accepting it would let a
@@ -268,7 +388,8 @@ def _tuples(template: TemplateRow) -> Iterator[dict]:
             break
 
     table = _symbols(names)
-    constraints = list(template.constraints or ())
+    # Parsed once, then reused for every tuple in the sweep.
+    constraints = _compile(template.constraints, table)
 
     if total <= MAX_ENUMERATION:
         for combo in itertools.product(*pools):

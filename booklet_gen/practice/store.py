@@ -53,6 +53,16 @@ _PRACTICE_SCHEMA_LOCK_KEY = 72_461_002
 # twice in quick succession. Five is roughly one screenful of grinding.
 SPACING_WINDOW = 5
 
+# How much of each batch is reserved for questions the student got wrong.
+# Three in ten: enough that misses genuinely come back, little enough that new
+# material keeps arriving and a session does not become a wall of failure.
+MISS_SHARE = 0.3
+
+# How long a missed question rests before it can return. Ten minutes, so it
+# comes back inside the same evening but not while the working is still on
+# screen, where the student would be recalling rather than knowing.
+MISS_COOLDOWN = 600
+
 # The widest scope in the syllabus is 42 subtopics. This is the ceiling on the
 # bind parameters one draw will expand, and `draw` raises rather than
 # truncating: a subject that outgrows it must fail loudly, not silently serve a
@@ -1008,10 +1018,53 @@ def draw(user_id: int, subtopic_ids: Sequence[str], limit: int = 10, *,
         recent = [row["template_id"] if is_postgres() else row[0]
                   for row in cur.fetchall()]
 
-        picked, spacing = _apply_spacing(candidates, recent, limit,
+        # Questions this student got WRONG, brought back before the unseen
+        # stock is exhausted. Without this the `outcome` column is written and
+        # read by nothing: a student marks 67 questions missed, comes back the
+        # next day, and meets them at the same rate as the ones they nailed,
+        # and only after grinding every unseen item first. That is a
+        # randomiser, not a study tool, and it is the one thing every Anki
+        # user assumes without being told.
+        #
+        # A reserved share rather than a priority queue, because a batch that
+        # is all misses is demoralising and stops new material arriving. The
+        # cooling-off window keeps a question the student just got wrong from
+        # reappearing three cards later, when they remember the answer rather
+        # than knowing it.
+        due: list[ItemRow] = []
+        want_due = min(limit - 1, max(1, round(limit * MISS_SHARE)))
+        if want_due > 0:
+            due_sql = (f"SELECT i.* FROM practice_items i "
+                       f"JOIN practice_seen s ON s.item_id=i.id "
+                       f"WHERE s.user_id=? AND s.outcome='missed' "
+                       f"AND s.last_seen_at <= ? "
+                       f"AND i.status='live' AND {scope_sql}")
+            due_params: tuple = (int(user_id), _now(None) - MISS_COOLDOWN
+                                 ) + tuple(scope_params)
+            if excluded:
+                due_sql += f" AND i.id NOT IN ({_holes(len(excluded))})"
+                due_params += tuple(excluded)
+            due_sql += " ORDER BY s.last_seen_at ASC, i.id ASC LIMIT ?"
+            cur.execute(_q(due_sql), due_params + (want_due,))
+            due = [_item_row(row) for row in cur.fetchall()]
+
+        picked, spacing = _apply_spacing(candidates, recent, limit - len(due),
                                          family_count)
 
         repeats: set[int] = set()
+        if due:
+            # Interleaved rather than stacked at the front, so a session does
+            # not open with a wall of everything the student has failed.
+            merged: list[ItemRow] = []
+            step = max(1, (len(picked) + len(due)) // len(due))
+            queue = list(due)
+            for index, item in enumerate(picked):
+                if queue and index and index % step == 0:
+                    merged.append(queue.pop(0))
+                merged.append(item)
+            merged.extend(queue)
+            picked = merged[:limit]
+            repeats |= {item.id for item in due}
         exhausted = len(candidates) < want
         if len(picked) < limit and exhausted:
             # Every unseen item in the scope is either in this batch or in the

@@ -84,7 +84,16 @@ def _parse(text: str):
     if not body:
         return None
     try:
-        return parse_expr(body, transformations=_TRANSFORMS, local_dict=_LOCALS)
+        # `global_dict` pinned for the same reason as in instances.py: without
+        # it parse_expr evaluates against globals with no `__builtins__` key,
+        # so Python injects the real builtins and every one of them becomes
+        # reachable from a printed question string. This parses text a language
+        # model wrote.
+        from .instances import _SAFE_GLOBALS, reject_hostile
+        if reject_hostile(body):
+            return None
+        return parse_expr(body, transformations=_TRANSFORMS, local_dict=_LOCALS,
+                          global_dict=dict(_SAFE_GLOBALS))
     except Exception:
         return None
 

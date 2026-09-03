@@ -142,6 +142,55 @@ check(store.seen_count(other, scope) == 0,
       "drawing wrote a sighting for the wrong account")
 
 # --------------------------------------------------------------------------
+print("\n== questions the student got wrong come back ==")
+
+# The `outcome` column used to be written by record_seen and read by nothing.
+# A student could mark 67 questions missed, return the next day, and meet them
+# at the same rate as the ones they nailed, and only after grinding every
+# unseen item in the scope first. That is a randomiser, not a study tool, and
+# it is the one behaviour every Anki user assumes without being told.
+learner = fixtures.make_user("learner@example.com")
+yesterday = store._now(None) - 86_400
+wrong: list[int] = []
+for _ in range(6):
+    batch = store.draw(learner, scope, limit=10)
+    events = []
+    for position, item in enumerate(batch.items):
+        missed = position % 3 == 0
+        if missed:
+            wrong.append(item.id)
+        events.append(SeenEvent(item.id, "missed" if missed else "got_it",
+                                yesterday))
+    store.record_seen(learner, events, now=yesterday)
+
+returned, total = 0, 0
+for _ in range(4):
+    batch = store.draw(learner, scope, limit=10)
+    total += len(batch.items)
+    returned += sum(1 for i in batch.items if i.id in wrong)
+    store.record_seen(learner, [SeenEvent(i.id) for i in batch.items])
+
+check(returned > 0,
+      f"{returned} of the next {total} questions were ones this student got "
+      f"wrong ({returned / max(total, 1):.0%} of the batch)",
+      f"{len(wrong)} missed questions and not one came back while unseen stock "
+      "remained. Marking a question wrong is theatre: the column is written "
+      "and read by nothing")
+check(returned < total // 2,
+      "and misses do not crowd out new material",
+      "a session that is mostly failure is one a student stops opening")
+
+# A question just missed must rest before returning, or the student is
+# recalling the working still on screen rather than knowing the answer.
+fresh_batch = store.draw(learner, scope, limit=10)
+just_missed = fresh_batch.items[0]
+store.record_seen(learner, [SeenEvent(just_missed.id, "missed")])
+following = store.draw(learner, scope, limit=10)
+check(just_missed.id not in {i.id for i in following.items},
+      "a question just marked wrong does not reappear in the next batch",
+      "it comes back while the working is still on screen, so the student "
+      "recalls it rather than knowing it and the repeat teaches nothing")
+
 print("\n== a replayed batch changes nothing ==")
 
 batch = [SeenEvent(i.id, "got_it") for i in theirs.items]
