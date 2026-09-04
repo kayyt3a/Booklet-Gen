@@ -682,6 +682,10 @@ KINDS_FOR_SUBTOPIC: dict[str, tuple[str, ...]] = {
                                              "expression_equivalence"),
     # Describing a transformation is prose. Nothing here can settle it.
     "methods.functions.transformations": (),
+    # No kind reads "state the centre and radius of this circle" off a
+    # printed question, so this is recorded as unfilled rather than left
+    # out of the table, where it would look like an oversight.
+    "methods.functions.circles": (),
     "methods.functions.notation": ("function_value",),
     # A triangle is a picture. Neither the sine rule nor the ambiguous case can
     # be read back off a sentence by anything in this module.
@@ -745,7 +749,10 @@ KINDS_FOR_SUBTOPIC: dict[str, tuple[str, ...]] = {
     "chemistry.stoichiometry.limiting": ("limiting_reagent",),
     "chemistry.energy.enthalpy": (),
     "chemistry.energy.bond-energy": (),
-    "chemistry.gases.laws": ("gas_laws",),
+    # No kinds: the Unit 2 gas content is qualitative in WACE Chemistry.
+    # There is no PV = nRT and no molar volume in the syllabus, so the
+    # gas_laws checker would have verified arithmetic no student is asked.
+    "chemistry.gases.laws": (),
     "chemistry.solutions.concentration": ("concentration_dilution",),
     "chemistry.solutions.solubility": (),
     "chemistry.solutions.volumetric": ("titration",),
@@ -771,7 +778,6 @@ KINDS_FOR_SUBTOPIC: dict[str, tuple[str, ...]] = {
     "chemistry.organic.pathways": (),
     "chemistry.synthesis.yield": (),
     "chemistry.synthesis.design": (),
-    "chemistry.synthesis.analysis": (),
 }
 
 # Implemented, tested, and attached to no subtopic. `sig_figs` is a rule about

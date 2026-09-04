@@ -193,6 +193,30 @@ assert len(by_strand) >= 6, (
     "picker would offer breadth it cannot fill")
 ok(f"{len(stocked)} checkable Chemistry subtopics across {len(by_strand)} strands")
 
+print("\nTHE CHECKER TABLE AND THE SYLLABUS STILL AGREE")
+
+# verify.KINDS_FOR_SUBTOPIC is keyed by subtopic id. Renaming or removing a
+# subtopic here leaves an entry in there pointing at nothing, which is silent:
+# the orphan is simply never consulted, and the subtopic that replaced it has
+# no checker and reports as unstocked for a reason nobody can find. Correcting
+# this file against the real SCSA syllabus documents orphaned one immediately.
+from booklet_gen.practice import verify  # noqa: E402
+
+orphans = [sid for sid in verify.KINDS_FOR_SUBTOPIC if S.subtopic(sid) is None]
+assert not orphans, (
+    f"{orphans} name subtopics that no longer exist. The entry is never "
+    "consulted, so whatever replaced it silently has no checker and reports "
+    "as not stocked with nothing to explain why")
+
+missing = [s.id for s in S.METHODS + S.CHEMISTRY
+           if S.bankable(s) and s.id not in verify.KINDS_FOR_SUBTOPIC]
+assert not missing, (
+    f"{missing} are marked bankable but appear nowhere in KINDS_FOR_SUBTOPIC. "
+    "A subtopic absent from that table is treated as having no checker, which "
+    "is the right default, but it should be recorded deliberately rather than "
+    "by omission")
+ok(f"all {len(verify.KINDS_FOR_SUBTOPIC)} checker entries name a real subtopic")
+
 print("\nEVERY SCOPE HAS A LABEL A STUDENT CAN READ")
 
 for subject in S.SUBJECTS:

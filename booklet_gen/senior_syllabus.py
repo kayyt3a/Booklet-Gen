@@ -139,6 +139,10 @@ METHODS: list[Subtopic] = [
        "Unit 1", "Functions and graphs", "symbolic",
        "translations, dilations and reflections of a graph, and reading them "
        "back off an equation"),
+    _s("methods.functions.circles", "Circles and semicircles", "Unit 1",
+       "Functions and graphs", "symbolic",
+       "the equation of a circle centred anywhere, its radius and centre, and "
+       "the semicircle graphs that come from solving it for y"),
     _s("methods.functions.notation", "Functions and function notation",
        "Unit 1", "Functions and graphs", "symbolic",
        "domain and range, composite functions, inverse functions, piecewise "
@@ -155,7 +159,8 @@ METHODS: list[Subtopic] = [
     _s("methods.trigonometry.functions", "Trigonometric functions", "Unit 1",
        "Trigonometry", "symbolic",
        "graphs of sine, cosine and tangent, amplitude, period and phase, "
-       "solving trigonometric equations, periodic modelling"),
+       "solving trigonometric equations, the angle sum and difference "
+       "identities, periodic modelling"),
 
     _s("methods.probability.combinations", "Counting and combinations",
        "Unit 1", "Counting and probability", "numeric",
@@ -314,6 +319,10 @@ CHEMISTRY: list[Subtopic] = [
        "Unit 1", "Atomic structure and the periodic table", "numeric",
        "writing configurations for atoms and ions, subshells, valence "
        "electrons"),
+    _s("chemistry.atomic.spectroscopy", "Analytical techniques", "Unit 1",
+       "Atomic structure and the periodic table", "judge",
+       "how flame tests, atomic absorption spectroscopy and mass spectrometry "
+       "identify what a substance contains"),
     _s("chemistry.atomic.periodic-trends", "Periodic trends", "Unit 1",
        "Atomic structure and the periodic table", "judge",
        "atomic radius, ionisation energy and electronegativity across a period "
@@ -345,8 +354,12 @@ CHEMISTRY: list[Subtopic] = [
     _s("chemistry.stoichiometry.mass-calculations", "Mass and mole "
        "calculations", "Unit 1", "Stoichiometry and the mole", "numeric",
        "mass to mass calculations through a balanced equation"),
+    # Unit 4, not Unit 1. Limiting reagent and yield are introduced in WACE
+    # Chemistry inside chemical synthesis, alongside atom economy, not with the
+    # mole in first year. A student picking Year 11 was being offered work they
+    # have not met.
     _s("chemistry.stoichiometry.limiting", "Limiting reagent and yield",
-       "Unit 1", "Stoichiometry and the mole", "numeric",
+       "Unit 4", "Stoichiometry and the mole", "numeric",
        "identifying the limiting reagent, theoretical and percentage yield, "
        "excess reagent remaining"),
 
@@ -360,10 +373,16 @@ CHEMISTRY: list[Subtopic] = [
        "profile diagram"),
 
     # Unit 2
-    _s("chemistry.gases.laws", "Gas laws and the ideal gas equation", "Unit 2",
-       "Gases and solutions", "numeric",
-       "pressure, volume and temperature relationships, the ideal gas "
-       "equation, molar volume at standard conditions"),
+    # Marked judge, not numeric, and that is a correction rather than a
+    # limitation. The Unit 2 content asks only for the QUALITATIVE
+    # relationships between pressure, volume and temperature. There is no
+    # PV = nRT and no molar volume anywhere in the WACE Chemistry syllabus, so
+    # generating gas-law arithmetic would have produced questions no student
+    # is ever asked, verified perfectly and off-course.
+    _s("chemistry.gases.laws", "The behaviour of gases", "Unit 2",
+       "Gases and solutions", "judge",
+       "how pressure, volume and temperature of a gas relate to one another, "
+       "explained by the kinetic theory of an ideal gas"),
     _s("chemistry.solutions.concentration", "Concentration and dilution",
        "Unit 2", "Gases and solutions", "numeric",
        "molarity, mass per volume, parts per million, dilution calculations"),
@@ -374,6 +393,11 @@ CHEMISTRY: list[Subtopic] = [
     _s("chemistry.solutions.volumetric", "Volumetric analysis", "Unit 2",
        "Gases and solutions", "numeric",
        "titration calculations, standard solutions, choosing glassware"),
+
+    _s("chemistry.solutions.chromatography", "Chromatography", "Unit 2",
+       "Gases and solutions", "judge",
+       "how a mixture is separated by differing attraction to a stationary and "
+       "a mobile phase, and what a chromatogram shows"),
 
     _s("chemistry.rates.collision-theory", "Reaction rates and collision "
        "theory", "Unit 2", "Reaction rates", "judge",
@@ -453,10 +477,12 @@ CHEMISTRY: list[Subtopic] = [
        "Chemical synthesis and analysis", "judge",
        "industrial synthesis, the compromise between rate, yield and cost, "
        "green chemistry principles"),
-    _s("chemistry.synthesis.analysis", "Instrumental analysis", "Unit 4",
-       "Chemical synthesis and analysis", "judge",
-       "identifying a compound from mass spectrometry, infrared and NMR data, "
-       "and from chromatography"),
+    # "Instrumental analysis" used to sit here in Unit 4, covering mass
+    # spectrometry, infrared and NMR. Every part of that was wrong. Mass
+    # spectrometry is Unit 1, where it explains relative atomic mass from
+    # isotopic abundance; chromatography is Unit 2; and infrared and NMR do not
+    # appear in the WACE Chemistry syllabus at all. It has been replaced by the
+    # two subtopics that are really in the course, in the units that hold them.
 ]
 
 
