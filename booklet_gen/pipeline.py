@@ -1279,6 +1279,11 @@ class BookletPipeline:
                 log.info("pipeline.drop_absurd_quantity_recap",
                          extra={"subject": subject, "reason": absurd})
                 continue
+            impossible = self._impossible_constraints(q)
+            if impossible:
+                log.info("pipeline.drop_impossible_constraints_recap",
+                         extra={"subject": subject, "reason": impossible})
+                continue
             # Attribute the warm-up to the engine that wrote it. The recap has
             # no section around it, so this is the only record of which half of
             # a two-subject booklet a question came from.
@@ -1835,6 +1840,12 @@ class BookletPipeline:
                          extra={"subject": subject, "subtopic": subtopic.name,
                                 "reason": absurd})
                 continue
+            impossible = self._impossible_constraints(q)
+            if impossible:
+                log.info("pipeline.drop_impossible_constraints",
+                         extra={"subject": subject, "subtopic": subtopic.name,
+                                "reason": impossible})
+                continue
             selected.append(q)
             selected_norms.add(norm)
 
@@ -2074,6 +2085,11 @@ class BookletPipeline:
                 log.info("pipeline.drop_absurd_quantity_challenge",
                          extra={"subject": subject, "reason": absurd})
                 continue
+            impossible = self._impossible_constraints(q)
+            if impossible:
+                log.info("pipeline.drop_impossible_constraints_challenge",
+                         extra={"subject": subject, "reason": impossible})
+                continue
             # Claim only once it is going to be kept, so a question dropped as
             # broken or figureless does not block a sound one later.
             if not seen.add(norm):
@@ -2227,6 +2243,28 @@ class BookletPipeline:
         """
         from .agents.consistency import implausible_magnitude
         return implausible_magnitude(text or "")
+
+    @staticmethod
+    def _impossible_constraints(q) -> str | None:
+        """The reason a question's own two conditions cannot both hold, or None.
+
+        The booklet asks for questions that give the student two facts and no
+        method, because working out WHAT TO DO is the part a worksheet never
+        practises. The classic is a rectangle with a stated area and a stated
+        length of fencing, and it has a failure mode the plainer shapes do not:
+        the two conditions have to agree, and whether they do is a fact about a
+        quadratic rather than about the story. An area of 420 with 82 m of
+        fence is 20 by 21; with 78 m it is nothing at all, and the page then
+        asks a child to persist at something that has no answer.
+
+        Nothing else catches it. The arithmetic, the units and the context are
+        all sound, and the judge has to solve the question to notice, which is
+        exactly the step a grader skips. Callers drop the question, as they do
+        for an absurd quantity: both numbers are load bearing in the answer key
+        as well as the question, so changing one silently breaks the other.
+        """
+        from .agents.consistency import impossible_shape_constraints
+        return impossible_shape_constraints(q.question or "", q.answer or "")
 
     def _resolve_visual(self, q, mode: str = "student"):
         """Render one reconciled visual in student or teaching mode.

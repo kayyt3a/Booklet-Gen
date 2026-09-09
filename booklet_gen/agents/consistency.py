@@ -1162,7 +1162,138 @@ def implausible_magnitude(text: str) -> Optional[str]:
 
 
 # --------------------------------------------------------------------------
-# 5. A guided example that hands over its own answer
+# 5. An application question whose two conditions cannot both be met
+# --------------------------------------------------------------------------
+
+# The best questions in a booklet give the student two facts and no method:
+# "a paddock is to have an area of 420 m2 and there is 82 m of fencing; what
+# size should it be?". Nothing in the wording says multiply, divide or factor,
+# so the student has to work out what to do, which is the difference between a
+# practice paper and a worksheet.
+#
+# It is also the shape with a failure mode the others do not have. The two
+# conditions have to agree, and whether they do is a fact about a quadratic
+# rather than about the story: sides sum to P/2 and multiply to A, so a real
+# rectangle exists only when (P/2)^2 >= 4A. 420 and 82 give 20 by 21. 420 and
+# 78 give nothing at all, and the page then asks a child to keep trying at
+# something with no answer, which is worse than a question that is merely hard.
+# Every number in it still reads as plausible, so nothing downstream notices:
+# the arithmetic is fine, the units are fine, the context is fine.
+#
+# This is deliberately narrow. It fires only when the question names a
+# rectangle, states both an area and a boundary length in matching units, and
+# asks for the sides. All three are needed for both conditions to bind: "he has
+# 60 m of fence, how much more does he need" states the same two numbers
+# without claiming they describe the same rectangle.
+
+_SHAPE_UNITS = {
+    "m": "m", "metre": "m", "metres": "m", "meter": "m", "meters": "m",
+    "cm": "cm", "centimetre": "cm", "centimetres": "cm",
+    "centimeter": "cm", "centimeters": "cm",
+}
+_LINEAR_UNIT = (r"(m|cm|metres?|meters?|centimetres?|centimeters?)")
+_AREA_VALUE = re.compile(
+    r"(\d[\d,]*(?:\.\d+)?)\s*"
+    r"(?:(?:square|sq\.?)\s*" + _LINEAR_UNIT +
+    r"|(m|cm)\s*(?:\^\s*2|²|2)(?![\d\w]))",
+    re.IGNORECASE)
+_PERIMETER_VALUE = re.compile(
+    r"perimeter[^.\d]{0,40}?(\d[\d,]*(?:\.\d+)?)\s*" + _LINEAR_UNIT + r"\b",
+    re.IGNORECASE)
+# "82 m of fencing", "3 m of edging". The material has to be the boundary
+# itself, so cost per metre and rolls of turf are not in this list.
+_BOUNDARY_LENGTH = re.compile(
+    r"(\d[\d,]*(?:\.\d+)?)\s*" + _LINEAR_UNIT + r"\b\s+of\s+"
+    r"(?:fenc\w*|edging|ribbon|border\w*|trim\w*|tape|rope|wire|skirting|"
+    r"bunting|string|braid)",
+    re.IGNORECASE)
+_ASKS_FOR_SIDES = re.compile(
+    r"\b(?:dimensions|side lengths|length and width|width and length|"
+    r"how long (?:is|are|should)|what size|how (?:should|could|might)\b"
+    r"[^.?]{0,60}\barrange|how (?:wide|deep)|"
+    r"what are the (?:sides|measurements))\b",
+    re.IGNORECASE)
+_IS_RECTANGLE = re.compile(r"\brectangul\w*|\brectangles?\b", re.IGNORECASE)
+# "20 m by 21 m", "20 by 21", "21m x 20m".
+_SIDE_PAIR = re.compile(
+    r"(\d[\d,]*(?:\.\d+)?)\s*(?:m|cm|metres?|meters?|centimetres?|"
+    r"centimeters?)?\s*(?:by|x|×)\s*(\d[\d,]*(?:\.\d+)?)",
+    re.IGNORECASE)
+
+
+def _first_unit_value(pattern: re.Pattern, text: str,
+                      unit_groups: tuple[int, ...]) -> Optional[tuple[float, str]]:
+    match = pattern.search(text)
+    if not match:
+        return None
+    unit = next((match.group(g) for g in unit_groups if match.group(g)), None)
+    if unit is None:
+        return None
+    normalised = _SHAPE_UNITS.get(unit.lower())
+    if normalised is None:
+        return None
+    try:
+        return float(match.group(1).replace(",", "")), normalised
+    except ValueError:
+        return None
+
+
+def impossible_shape_constraints(question: str,
+                                 answer: str = "") -> Optional[str]:
+    """A short reason when a rectangle's stated area and boundary disagree.
+
+    Returns None for everything it cannot read with certainty, which is most
+    text. Callers drop the question rather than repair it: the two numbers are
+    load bearing in both the question and the answer key, so changing either
+    one leaves a key that no longer matches.
+    """
+    text = " ".join((question or "").split())
+    if not text or not _IS_RECTANGLE.search(text) or not _ASKS_FOR_SIDES.search(text):
+        return None
+    area = _first_unit_value(_AREA_VALUE, text, (2, 3))
+    if area is None:
+        return None
+    boundary = (_first_unit_value(_PERIMETER_VALUE, text, (2,))
+                or _first_unit_value(_BOUNDARY_LENGTH, text, (2,)))
+    if boundary is None:
+        return None
+    (a_value, a_unit), (p_value, p_unit) = area, boundary
+    if a_unit != p_unit or a_value <= 0 or p_value <= 0:
+        # A perimeter in centimetres beside an area in square metres is a
+        # different fault, and guessing at the conversion here would invent a
+        # question nobody wrote.
+        return None
+
+    half = p_value / 2.0
+    discriminant = half * half - 4.0 * a_value
+    if discriminant < 0:
+        return (f"no rectangle has an area of {a_value:g} {a_unit}2 and a "
+                f"perimeter of {p_value:g} {a_unit}: the sides would have to "
+                f"add to {half:g} and multiply to {a_value:g}")
+
+    pair = _SIDE_PAIR.search(" ".join((answer or "").split()))
+    if pair:
+        try:
+            first = float(pair.group(1).replace(",", ""))
+            second = float(pair.group(2).replace(",", ""))
+        except ValueError:
+            return None
+        if first <= 0 or second <= 0:
+            return None
+        tolerance = max(1e-6, a_value * 1e-6)
+        if abs(first * second - a_value) > tolerance:
+            return (f"the answer {first:g} by {second:g} has an area of "
+                    f"{first * second:g}, not the {a_value:g} the question "
+                    "states")
+        if abs(2.0 * (first + second) - p_value) > max(1e-6, p_value * 1e-6):
+            return (f"the answer {first:g} by {second:g} has a perimeter of "
+                    f"{2 * (first + second):g}, not the {p_value:g} the "
+                    "question states")
+    return None
+
+
+# --------------------------------------------------------------------------
+# 6. A guided example that hands over its own answer
 # --------------------------------------------------------------------------
 
 # "Now let's try one together" is the one box on the page the child writes in.
