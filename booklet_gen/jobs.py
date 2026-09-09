@@ -1,7 +1,6 @@
 """Durable booklet job execution, shared by inline development and workers."""
 from __future__ import annotations
 
-import io
 import json
 import logging
 import os
@@ -81,6 +80,10 @@ def execute_claimed_job(job: dict) -> None:
         out_dir = Path(os.environ.get("FOLIO_OUTPUT", "output"))
         _clear_target(out_dir / f"{job_id}.pdf")
         _clear_target(out_dir / job_id)
+        # A term plan builds its archive on disk now, so a job that dies part
+        # way through leaves one behind. The disk allowance is as fixed as the
+        # memory one, and a term of PDFs is not small.
+        _clear_target(out_dir / f"{job_id}.zip")
 
 
 def _generate(job: dict, args: dict) -> None:
@@ -106,25 +109,44 @@ def _generate(job: dict, args: dict) -> None:
         return
 
     if args.get("is_term"):
-        booklets = pipeline.run_term_plan(
-            args["program"], args["year"], args["name"],
-            subject=args.get("subject"), weeks=TERM_WEEKS,
-            topic_hint=args.get("topic"),
-        )
+        # A term plan is the heaviest thing this product does, and it used to
+        # hold all of it at once: ten booklets of generated content, then every
+        # PDF read back into an in-memory zip, then a second full copy of that
+        # zip taken by getvalue() to hand to the database. On a 512 MB instance
+        # that exceeded the memory limit and restarted the service mid-job.
+        #
+        # Now each week is rendered as it arrives, added to a zip on disk and
+        # dropped. Peak memory is one booklet and one PDF instead of ten and an
+        # archive, and the only full copy left is the single read below, which
+        # save_job_file needs because it takes bytes.
         folder = out_dir / job_id
         folder.mkdir(parents=True, exist_ok=True)
-        for data in booklets:
-            filename = (
-                f"week-{data.week_number:02d}-"
-                f"{_slug(data.week_focus or 'booklet')}.pdf"
-            )
-            render_pdf(data, folder / filename)
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-            for pdf in sorted(folder.glob("*.pdf")):
-                archive.write(pdf, pdf.name)
-        db.save_job_file(job_id, user_id, f"{slug}.zip",
-                         "application/zip", buffer.getvalue())
+        archive_path = out_dir / f"{job_id}.zip"
+        weeks_written = 0
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for data in pipeline.iter_term_plan(
+                    args["program"], args["year"], args["name"],
+                    subject=args.get("subject"), weeks=TERM_WEEKS,
+                    topic_hint=args.get("topic")):
+                filename = (
+                    f"week-{data.week_number:02d}-"
+                    f"{_slug(data.week_focus or 'booklet')}.pdf"
+                )
+                pdf_path = folder / filename
+                render_pdf(data, pdf_path)
+                archive.write(pdf_path, pdf_path.name)
+                # Safe to remove: it is inside the archive now, and keeping it
+                # would hold a whole term of PDFs on a disk allowance that is
+                # also fixed.
+                pdf_path.unlink(missing_ok=True)
+                del data
+                weeks_written += 1
+                log.info("term plan %s wrote week %d", job_id, weeks_written)
+        try:
+            db.save_job_file(job_id, user_id, f"{slug}.zip",
+                             "application/zip", archive_path.read_bytes())
+        finally:
+            _clear_target(archive_path)
         _finish_and_clean(job_id, folder)
         return
 

@@ -5,7 +5,7 @@ import os
 import re
 import threading
 from collections import Counter
-from typing import Optional
+from typing import Iterator, Optional
 
 from .agents.challenge_generator import ChallengeGeneratorAgent
 from .agents.exam_generator import ExamGeneratorAgent
@@ -346,7 +346,7 @@ class BookletPipeline:
             week_focus=topic,
         )
 
-    def run_term_plan(
+    def iter_term_plan(
         self,
         program_key: str,
         year_level: str,
@@ -354,10 +354,22 @@ class BookletPipeline:
         subject: Optional[str] = None,
         weeks: int = 10,
         topic_hint: Optional[str] = None,
-    ) -> list[BookletData]:
-        """Generate a whole term: one booklet per week, progressing in
-        difficulty, with the last weeks as revision. Returns one BookletData
-        per week (write each to its own PDF).
+    ) -> Iterator[BookletData]:
+        """Generate a whole term, handing back each week as it is finished.
+
+        A generator rather than a list, and that is the whole point. Building
+        all ten weeks before returning meant a term's worth of questions,
+        lessons, worked examples and answers sat in memory at once, and on a
+        512 MB instance that took the web service over its limit and triggered
+        a restart mid-generation. Yielding lets the caller render each week to
+        a PDF and drop it, so the peak is one booklet rather than ten.
+
+        The cross-week state (spelling, tables, the recap focus) still lives in
+        this loop, because each week genuinely depends on the one before it.
+        Only the finished booklets leave.
+
+        One booklet per week, progressing in difficulty, with the last weeks as
+        revision.
 
         This is the only place spelling can be set, because spelling is the one
         part of a booklet that depends on the booklet before it: week N's list
@@ -381,7 +393,6 @@ class BookletPipeline:
                  extra={"program": program.key, "weeks": len(plan.weeks),
                         "spelling": spelling, "tables": tables})
 
-        booklets: list[BookletData] = []
         prev_focus = None
         # Every word set so far this term, so no two weeks share a list.
         words_set: list[str] = []
@@ -454,7 +465,6 @@ class BookletPipeline:
                                 if data.tables_test else None,
                                 "test_from_week": data.tables_test.from_week
                                 if data.tables_test else None})
-            booklets.append(data)
             # What the week actually taught, not what it was planned to teach.
             # wk.focus is the planner's label, written before generation: the
             # outline parser chooses the real subtopics, and the hour cap can
@@ -462,7 +472,31 @@ class BookletPipeline:
             # rather than the lessons the student sat through.
             taught = [s.subtopic for s in data.sections if s.subtopic]
             prev_focus = "; ".join(taught) if taught else wk.focus
-        return booklets
+            # Handed over last, with every carried value already updated, so a
+            # caller that stops part way through leaves this generator in a
+            # consistent state rather than one week behind itself.
+            yield data
+
+    def run_term_plan(
+        self,
+        program_key: str,
+        year_level: str,
+        student_name: str,
+        subject: Optional[str] = None,
+        weeks: int = 10,
+        topic_hint: Optional[str] = None,
+    ) -> list[BookletData]:
+        """Every week of a term, as a list.
+
+        Kept for the CLI and for checks, which want the whole term in hand to
+        compare weeks against each other. Anything rendering PDFs should use
+        `iter_term_plan` instead: ten weeks of booklet data held at once is
+        what took the web service over its memory limit and restarted it.
+        """
+        return list(self.iter_term_plan(
+            program_key, year_level, student_name, subject=subject,
+            weeks=weeks, topic_hint=topic_hint,
+        ))
 
     def run_plan_week(
         self,
