@@ -2240,7 +2240,15 @@ class BookletPipeline:
         if q.diagram_spec:
             from .visuals import render_diagram
             from .agents.consistency import reconcile_diagram_spec
-            from .visual_policy import student_safe_spec
+            from .visual_policy import repair_spec_from_text, student_safe_spec
+            # Before anything else: a spec that lost its operands would have
+            # drawn zeros, and now refuses to draw at all. The numbers are in
+            # the question text, so put them back rather than losing the figure.
+            repaired = repair_spec_from_text(q.diagram_spec, q.question)
+            if repaired != q.diagram_spec:
+                log.info("pipeline.diagram_operands_recovered",
+                         extra={"type": (repaired or {}).get("type")})
+                q.diagram_spec = repaired
             safe = student_safe_spec(q.diagram_spec, mode=safety_mode)
             if safe != q.diagram_spec:
                 q.diagram_spec = safe

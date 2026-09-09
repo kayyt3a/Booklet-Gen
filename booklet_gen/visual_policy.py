@@ -183,6 +183,57 @@ def deterministic_diagram_spec(question_text: str, subject: str = "",
     return None
 
 
+# The operands each algorithm figure cannot be drawn without. A spec missing
+# one of these is not a spec with a sensible default; it is a spec that lost
+# the question.
+_REQUIRED_OPERANDS = {
+    "long_multiplication": ("top", "bottom"),
+    "column_arithmetic": ("top", "bottom"),
+    "short_division": ("dividend", "divisor"),
+}
+
+
+def spec_is_incomplete(spec: dict | None) -> bool:
+    """Whether an algorithm spec has lost the numbers it is supposed to show."""
+    if not isinstance(spec, dict):
+        return False
+    needed = _REQUIRED_OPERANDS.get(str(spec.get("type", "")).lower())
+    if not needed:
+        return False
+    return any(spec.get(key) in (None, "") for key in needed)
+
+
+def repair_spec_from_text(spec: dict | None, question_text: str,
+                          subject: str = "") -> dict | None:
+    """Put the operands back into an algorithm spec, from the question itself.
+
+    A customer's Year 6 booklet printed a long multiplication frame containing
+    "0 x 0" under a question reading "Calculate 512 x 24". The model had
+    emitted a spec without `top` and `bottom`, and the renderer filled the gap
+    with zeros, so the page carried a confident diagram of a different sum. A
+    student trusts the figure over the text.
+
+    The renderer now refuses such a spec outright, which is the safe half of
+    the fix. This is the useful half: the numbers are right there in the
+    question, so recover them and draw the figure that was wanted rather than
+    dropping it. Only fills what is missing, and only when the recovered spec
+    is the same kind of figure, so a model that deliberately chose a different
+    diagram is never overruled.
+    """
+    if not spec_is_incomplete(spec):
+        return spec
+    recovered = deterministic_diagram_spec(question_text or "", subject)
+    if not recovered:
+        return spec
+    if str(recovered.get("type", "")).lower() != str(spec.get("type", "")).lower():
+        return spec
+    out = dict(spec)
+    for key in _REQUIRED_OPERANDS.get(str(spec.get("type", "")).lower(), ()):
+        if out.get(key) in (None, "") and recovered.get(key) is not None:
+            out[key] = recovered[key]
+    return out
+
+
 def student_safe_spec(spec: dict | None, mode: str = "student") -> dict | None:
     """Copy a spec and remove answer-revealing student algorithm settings."""
     if not isinstance(spec, dict):

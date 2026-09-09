@@ -225,6 +225,30 @@ def _draw_legibly(renderer, spec: dict, out: Path, kind: str) -> None:
 
 # ---- individual renderers ----
 
+def _required_int(spec: dict, key: str, what: str) -> int:
+    """One operand a figure cannot be drawn without.
+
+    Deliberately not `spec.get(key, 0)`. A missing operand used to become a
+    zero, and the renderer then drew a confident, well-formed diagram of the
+    wrong sum: a customer's Year 6 booklet printed "0 x 0" in the working
+    column under a question reading "Calculate 512 x 24". A student trusts the
+    figure over the text, so a wrong figure is worse than none. Raising drops
+    it, and the caller can recover the numbers from the question or print the
+    question alone.
+    """
+    value = spec.get(key)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise ValueError(
+            f"{what} needs {key!r}, and this spec does not carry it. Drawing "
+            "a placeholder would put a diagram of a different sum next to the "
+            "question the student is answering")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{what} needs {key!r} as a whole number, got "
+                         f"{value!r}") from exc
+
+
 def _circle_slices(spec: dict, out: Path, f: _Fonts) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.patches import Wedge, Circle
@@ -936,8 +960,8 @@ def _column_arithmetic(spec: dict, out: Path, f: _Fonts) -> None:
     """
     import matplotlib.pyplot as plt
 
-    top = int(spec.get("top", 0))
-    bottom = int(spec.get("bottom", 0))
+    top = _required_int(spec, "top", "column arithmetic")
+    bottom = _required_int(spec, "bottom", "column arithmetic")
     op = str(spec.get("operation", "+")).strip()
     if op not in {"+", "-"}:
         raise ValueError(f"column arithmetic supports + and -, got {op!r}")
@@ -1062,8 +1086,14 @@ def _long_multiplication(spec: dict, out: Path, f: _Fonts) -> None:
     """
     import matplotlib.pyplot as plt
 
-    top = int(spec.get("top", 0))
-    bottom = int(spec.get("bottom", 0))
+    # Refused, not defaulted. A spec that reached here without operands used to
+    # fall back on a zero for each one and draw a tidy, confident "0 x 0" under
+    # a question reading "Calculate 512 x 24", which is worse than no figure at
+    # all: the student trusts the box on the page over the line of text above
+    # it. Raising drops the figure, and the pipeline either recovers the
+    # numbers from the question or prints the question without a diagram.
+    top = _required_int(spec, "top", "long multiplication")
+    bottom = _required_int(spec, "bottom", "long multiplication")
     if top < 0 or bottom < 0:
         raise ValueError("long multiplication needs non-negative numbers")
     b_str = str(bottom)
