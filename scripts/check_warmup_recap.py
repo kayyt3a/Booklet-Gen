@@ -130,7 +130,11 @@ print("\nTHE TERM PLAN RECAPS WHAT WAS TAUGHT, NOT WHAT WAS PLANNED")
 
 import inspect  # noqa: E402
 
-src = inspect.getsource(BookletPipeline.run_term_plan)
+# iter_term_plan, not run_term_plan: the week loop moved into the generator so
+# a term plan can be rendered one booklet at a time instead of building all ten
+# in memory. run_term_plan is now a thin list() around it, and inspecting that
+# would assert nothing.
+src = inspect.getsource(BookletPipeline.iter_term_plan)
 assert "prev_focus = wk.focus" not in src, (
     "next week's recap revises the planner's label for this week. The outline "
     "parser chooses the real subtopics and the hour cap can drop some, so the "
