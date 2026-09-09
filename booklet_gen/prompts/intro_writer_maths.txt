@@ -150,13 +150,15 @@ Supported spec types:
 - {"type":"coordinate_plane","x_range":[-5,5],"y_range":[-5,5],"points":[[2,3]],"labels":["A"],"lines":[{"m":2,"c":-1}],"curves":[{"a":1,"b":0,"c":-4}]}
   Points, straight lines and parabolas. Keep each range to 12 units or fewer.
 - {"type":"bar_chart","categories":["Mon","Tue"],"values":[4,7],"y_label":"Laps"} and
-  {"type":"picture_graph","each":2,"rows":[{"label":"Cats","count":8}]} and
-  {"type":"tally","rows":[{"label":"Red","count":7}]} and
+  {"type":"picture_graph","each":2,"rows":[{"label":"Cats","count":8},{"label":"Dogs","count":6},{"label":"Birds","count":4}]} and
+  {"type":"tally","rows":[{"label":"Red","count":7},{"label":"Blue","count":4},{"label":"Green","count":9}]} and
   {"type":"dot_plot","values":[3,4,4,5]} and
-  {"type":"stem_leaf","values":[12,15,21]} and
-  {"type":"scatter","points":[[1,2],[2,3]]} and
+  {"type":"stem_leaf","values":[12,15,21,24,28,31,33,37]} and
+  {"type":"scatter","points":[[1,2],[2,3],[3,5],[4,5],[5,8],[6,9]]} and
   {"type":"box_plot","plots":[{"label":"9A","min":2,"q1":5,"median":7,"q3":9,"max":14}]}
-  Data displays. Every picture-graph count must divide by "each".
+  Data displays. Every picture-graph count must divide by "each". A tally or
+  picture graph needs 2-6 rows, a stem and leaf plot 5-40 values, and a
+  scatterplot 4-40 points: below those the figure cannot be drawn at all.
 - {"type":"spinner","sectors":["red","blue","green"]} and
   {"type":"tree_diagram","stages":[{"branches":[{"label":"H","p":"1/2"},{"label":"T","p":"1/2"}]}]} and
   {"type":"venn","sets":["Dogs","Cats"],"regions":{"a":"9","b":"7","ab":"4"}}

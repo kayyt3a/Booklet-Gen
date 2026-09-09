@@ -65,8 +65,10 @@ Populate `diagram_spec` only when a diagram is clearly helpful, and only ever wi
   Looping lines from each term of the first bracket to each term of the second, drawn over the expression. Use for expanding and for the distributive law (a single left term). `labels` writes the products on the arcs, so leave it out on a practice question: the products are the answer.
 - {"type":"coordinate_plane","x_range":[-5,5],"y_range":[-5,5],"points":[[2,3]],"labels":["A"],"lines":[{"m":2,"c":-1}],"curves":[{"a":1,"b":0,"c":-4}]}
   Points, lines and parabolas. Keep each range to 12 units or fewer.
-- {"type":"bar_chart","categories":["Mon","Tue"],"values":[4,7]}, {"type":"picture_graph","each":2,"rows":[{"label":"Cats","count":8}]}, {"type":"tally","rows":[{"label":"Red","count":7}]}, {"type":"dot_plot","values":[3,4,4,5]}, {"type":"stem_leaf","values":[12,15,21]}, {"type":"scatter","points":[[1,2],[2,3]]}, {"type":"box_plot","plots":[{"label":"9A","min":2,"q1":5,"median":7,"q3":9,"max":14}]}
-  Data displays. Every picture-graph count must divide by "each".
+- {"type":"bar_chart","categories":["Mon","Tue"],"values":[4,7]}, {"type":"picture_graph","each":2,"rows":[{"label":"Cats","count":8},{"label":"Dogs","count":6},{"label":"Birds","count":4}]}, {"type":"tally","rows":[{"label":"Red","count":7},{"label":"Blue","count":4},{"label":"Green","count":9}]}, {"type":"dot_plot","values":[3,4,4,5]}, {"type":"stem_leaf","values":[12,15,21,24,28,31,33,37]}, {"type":"scatter","points":[[1,2],[2,3],[3,5],[4,5],[5,8],[6,9]]}, {"type":"box_plot","plots":[{"label":"9A","min":2,"q1":5,"median":7,"q3":9,"max":14}]}
+  Data displays. Every picture-graph count must divide by "each". A tally or
+  picture graph needs 2-6 rows, a stem and leaf plot 5-40 values, and a
+  scatterplot 4-40 points: below those the figure cannot be drawn at all.
 - {"type":"spinner","sectors":["red","blue","green"]}, {"type":"tree_diagram","stages":[{"branches":[{"label":"H","p":"1/2"},{"label":"T","p":"1/2"}]}]}, {"type":"venn","sets":["Dogs","Cats"],"regions":{"a":"9","b":"7","ab":"4","none":"3"}}
   Chance and sets.
 

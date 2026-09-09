@@ -290,18 +290,21 @@ Supported spec types (use exactly these keys):
   A column graph, 2-8 categories. For side-by-side columns give
   "series":[{"name":"Girls","values":[...]},{"name":"Boys","values":[...]}].
 - {"type":"picture_graph","each":2,"unit":"pets",
-   "rows":[{"label":"Cats","count":8}]}
-  A pictograph with a key. Every count must be a whole number of symbols, so
-  each count has to divide by "each".
-- {"type":"tally","rows":[{"label":"Red","count":7}]}
-  Tally marks grouped in fives with the diagonal.
+   "rows":[{"label":"Cats","count":8},{"label":"Dogs","count":6},
+   {"label":"Birds","count":4}]}
+  A pictograph with a key, 2-6 rows. Every count must be a whole number of
+  symbols, so each count has to divide by "each".
+- {"type":"tally","rows":[{"label":"Red","count":7},{"label":"Blue","count":4},
+   {"label":"Green","count":9}]}
+  Tally marks grouped in fives with the diagonal, 2-6 rows.
 - {"type":"dot_plot","values":[3,4,4,5,5,5,6],"x_label":"Goals"}
   Stacked dots over a number line. Use for mode, median and range.
 - {"type":"stem_leaf","values":[12,15,21,24,28]}
-  A stem and leaf plot built from the data, with a key.
-- {"type":"scatter","points":[[1,2],[2,3]],"line_of_best_fit":true,
-   "x_label":"Hours","y_label":"Score"}
+  A stem and leaf plot built from the data, with a key. 5-40 values.
+- {"type":"scatter","points":[[1,2],[2,3],[3,5],[4,5],[5,8],[6,9]],
+   "line_of_best_fit":true,"x_label":"Hours","y_label":"Score"}
   A scatterplot, with an optional line of best fit computed from the points.
+  4-40 points.
 - {"type":"box_plot","plots":[{"label":"9A","min":2,"q1":5,"median":7,"q3":9,
    "max":14}]}
   One to three five-number summaries. They must be in increasing order.

@@ -108,6 +108,7 @@ from typing import Optional
 # which imports them. Re-exported here because callers and check scripts reach
 # for `diagrams.DPI`, `diagrams.CACHE_DIR` and friends.
 from .labels import label_text, normalise_spec                    # noqa: F401
+from .requirements import missing_requirements                    # noqa: F401
 from .style import (                                              # noqa: F401
     ACCENT_COLOR,
     DIAGRAM_PRINT_BOX_PT,
@@ -175,6 +176,19 @@ def render_diagram(spec: dict) -> Optional[Path]:
     # Before the cache key, not after: "cm^2" and "cm²" draw the same picture
     # and should be the same file.
     spec = normalise_spec(spec)
+    # Before the cache, not after. A figure drawn from a spec with holes in it
+    # may already be sitting on disk from a previous release, and returning it
+    # would put the invented numbers back on the page. Checking here retires
+    # those files without discarding every other cached figure, which is what
+    # bumping RENDER_VERSION would cost.
+    missing = missing_requirements(spec)
+    if missing:
+        # Not an error, and not the model's fault to shout about: the pipeline
+        # tries to recover these from the question text first, and a question
+        # that cannot be answered without its figure is dropped downstream.
+        log.info("diagram.spec_incomplete",
+                 extra={"type": kind, "missing": ", ".join(missing)})
+        return None
     out = _cache_path(spec)
     if out.exists():
         return out
