@@ -21,8 +21,40 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 @bp.before_app_request
 def load_user():
+    """Attach the signed-in user to this request, or None.
+
+    This runs before EVERY request, and Flask counts static files as requests,
+    so for a while it was the single most fragile line in the app: one database
+    query that could not be skipped, in front of the stylesheet and the logo.
+    When the database stopped answering, the customer got the branded 500 page
+    with no CSS on it and a broken image where the wordmark goes, because the
+    stylesheet request had failed in here too. The marketing pages, the pricing
+    page and the login form need no database at all and were taken down with
+    everything else.
+
+    So two things. A static file is never asked who is requesting it, and a
+    failed lookup means "not signed in" rather than "no site". Failing to
+    logged-out is the safe direction: nothing behind `login_required` opens,
+    the visitor is sent to the login page, and a database that is genuinely
+    down still reports itself down through /healthz, which is what monitoring
+    watches. The alternative is what happened here, where a database blip and a
+    total outage look the same to a paying customer.
+    """
+    if request.endpoint == "static":
+        g.user = None
+        return
     uid = session.get("user_id")
-    g.user = db.get_user(uid) if uid else None
+    if not uid:
+        g.user = None
+        return
+    try:
+        g.user = db.get_user(uid)
+    except Exception as exc:
+        # Deliberately broad: whatever the driver raises, the answer is the
+        # same, and re-raising here blanks the whole site.
+        g.user = None
+        log.warning("could not load the signed-in user; treating this request "
+                    "as signed out: %s", exc)
 
 
 def login_required(view):
