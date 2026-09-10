@@ -175,6 +175,11 @@ def plans():
         programs=customer_programs(), years=BOOKLET_YEARS,
         subjects=ACCELERATE_SUBJECTS, naplan_years=NAPLAN_YEARS,
         naplan_programs=sorted(NAPLAN_PROGRAMS), term_weeks=TERM_WEEKS,
+        # Quoted from the constant the trim actually applies, so raising the
+        # cap on a larger Supabase plan changes the promise on the page in the
+        # same breath. A page that states a number the code does not enforce is
+        # how a customer finds out by losing a booklet.
+        plan_week_retention=db.PLAN_WEEK_RETENTION,
     )
 
 

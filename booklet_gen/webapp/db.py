@@ -25,13 +25,37 @@ log = logging.getLogger(__name__)
 # new signups see the new number.
 WELCOME_CREDITS = 2
 DB_PATH = Path(os.environ.get("FOLIO_DB", "folio.db"))
-FILE_RETENTION_PER_USER = int(os.environ.get("FOLIO_FILE_RETENTION", "20"))
+# How many one-off booklets stay downloadable per account.
+#
+# BOTH CAPS ARE SET BY ENVIRONMENT VARIABLE FOR A REASON. Every generated PDF
+# is stored in the database unless object storage is configured, so these two
+# numbers are the main thing standing between the product and its disk budget:
+# a Supabase project ran out of disk IO with the loose cap at twenty, and the
+# database became too slow to answer a query, which took the whole site down.
+# The right number is therefore a property of the plan being paid for, not of
+# the code, and moving to a larger instance should be a variable change in the
+# dashboard rather than a deploy. Raise FOLIO_FILE_RETENTION and
+# FOLIO_PLAN_WEEK_RETENTION together with the compute add-on.
+#
+# Raising a cap is instant and safe: nothing is deleted until an account saves
+# its next file, and the trim only ever removes what is beyond the cap. It
+# cannot bring back a file already deleted under a lower one, so the ratchet
+# only turns down destructively. `scripts/trim_stored_files.py` applies a
+# LOWERED cap to accounts that are not generating anything, which the save-time
+# trim never reaches.
+FILE_RETENTION_PER_USER = int(os.environ.get("FOLIO_FILE_RETENTION", "3"))
 # Kept per plan, not per account. A tutor running fifteen students wants the
 # newest few weeks of each of them; counting all of it against one per-account
 # cap would let one busy student evict another student's weeks, which is the
 # inconsistency study plans exist to remove. Loose booklets that belong to no
 # plan are still capped per account by the number above.
-PLAN_WEEK_RETENTION = int(os.environ.get("FOLIO_PLAN_WEEK_RETENTION", "3"))
+#
+# Two is the floor that keeps a study plan coherent rather than merely cheap.
+# Week N's booklet tests the spelling list set in week N-1 and the times table
+# set in week N-1, so a tutor marking this week needs last week's page in front
+# of them. One would break that; the cross-booklet routines in agents/spelling
+# and agents/tables are the reason this is not simply set to 1.
+PLAN_WEEK_RETENTION = int(os.environ.get("FOLIO_PLAN_WEEK_RETENTION", "2"))
 _SCHEMA_LOCK_KEY = 72_461_001
 
 
@@ -1392,7 +1416,7 @@ def save_job_file(job_id: str, user_id: int, filename: str,
         # Two separate caps, because a plan week and a one-off booklet are not
         # competing for the same shelf. Counting them together let a tutor's
         # busiest student push another student's weeks out, so a plan that
-        # promised the last three weeks quietly held one.
+        # promised the newest few weeks quietly held one.
         cur.execute(_q("SELECT plan_id FROM jobs WHERE id=?"), (job_id,))
         row = cur.fetchone()
         plan_id = row["plan_id"] if row else None
@@ -1409,8 +1433,8 @@ def save_job_file(job_id: str, user_id: int, filename: str,
             # trimming.
             # Newest first, ties broken toward the later week. Two weeks
             # generated in the same second are ordered arbitrarily otherwise,
-            # and "keep the last three" then decides by insertion order, which
-            # can throw away week 5 and keep week 1.
+            # and "keep the newest few" then decides by insertion order,
+            # which can throw away week 5 and keep week 1.
             cur.execute(
                 _q("""SELECT f.job_id,f.storage_key FROM job_files f
                     JOIN jobs j ON j.id=f.job_id WHERE j.plan_id=?
