@@ -402,22 +402,51 @@ def generation_is_available() -> tuple[bool, str]:
     return False, status
 
 
-def _worker_is_live() -> bool:
+def _worker_state() -> str:
+    """"healthy", "absent", or "unknown" when the database cannot be asked.
+
+    The third case used to be folded into the second, and the two want opposite
+    answers. A worker that is genuinely absent means this process should
+    generate the booklet, which is the whole point of auto mode. A worker whose
+    status cannot be READ means the database is not answering, and generating
+    here then cannot work: claiming the job, beating its heartbeat and saving
+    the finished file all need the same database that just failed.
+    """
     try:
-        return db.worker_status(WORKER_HEARTBEAT_MAX_AGE)["status"] == "healthy"
-    except Exception:
-        # A worker that cannot be asked about is a worker that cannot be
-        # relied on. Generating here is the safe answer: the job runs.
-        log.warning("worker status unavailable; generating in-process")
-        return False
+        status = db.worker_status(WORKER_HEARTBEAT_MAX_AGE)["status"]
+    except Exception as exc:
+        log.warning("worker status unavailable: %s", exc)
+        return "unknown"
+    return "healthy" if status == "healthy" else "absent"
 
 
 def _dispatch_job(job_id: str, args: dict | None = None) -> None:
     if JOB_MODE == "queue":
         return
-    if JOB_MODE == "auto" and _worker_is_live():
-        log.info("job %s left for the worker", job_id)
-        return
+    if JOB_MODE == "auto":
+        state = _worker_state()
+        if state == "healthy":
+            log.info("job %s left for the worker", job_id)
+            return
+        if state == "unknown":
+            # Do not generate in this process while the database is failing.
+            # The booklet cannot finish without it, and what the attempt WOULD
+            # do is spend hundreds of megabytes of the web service's memory on
+            # matplotlib, ReportLab and a booklet's worth of content. Render
+            # restarts an instance that exceeds its memory limit, so one order
+            # that was never going to succeed takes the whole website down with
+            # it, which is how a struggling database became an outage.
+            #
+            # Leaving it queued is not stranding it: fail_stale_running_jobs
+            # settles and refunds queued jobs past FOLIO_JOB_TIMEOUT precisely
+            # for the case of "queued for a worker that never arrived", so the
+            # customer gets their credit back without anyone intervening. And
+            # if the worker is in fact alive and merely unreachable from here,
+            # it picks the job up as soon as it can read the queue.
+            log.warning("job %s left queued: the database could not be asked "
+                        "whether a worker is running, and generating it here "
+                        "would need that same database", job_id)
+            return
     threading.Thread(target=_run_job, args=(job_id, args), daemon=True).start()
 
 

@@ -74,12 +74,12 @@ assert views.JOB_MODE == "auto", (
 ok("auto is the default, so a fresh deploy needs no switch flipped")
 
 disp = inspect.getsource(views._dispatch_job)
-assert 'JOB_MODE == "auto"' in disp and "_worker_is_live()" in disp, disp
-ok("auto asks whether a worker is alive before leaving the job queued")
+assert 'JOB_MODE == "auto"' in disp and "_worker_state()" in disp, disp
+ok("auto asks about the worker before leaving the job queued")
 
-live = inspect.getsource(views._worker_is_live)
-assert "except Exception" in live and "return False" in live, live
-ok("a worker that cannot be asked about counts as absent, so the job still runs")
+live = inspect.getsource(views._worker_state)
+assert "except Exception" in live and '"unknown"' in live, live
+ok("a worker that CANNOT BE ASKED ABOUT is told apart from one that is absent")
 
 print("\nEACH MODE STILL DOES WHAT ITS NAME SAYS")
 
@@ -97,21 +97,29 @@ class FakeThread:
 
 views.threading.Thread = FakeThread
 try:
-    for mode, worker_live, should_run_here in (
-        ("inline", False, True),
-        ("inline", True, True),     # inline ignores the worker entirely
-        ("queue", False, False),
-        ("queue", True, False),
-        ("auto", False, True),      # no worker: this process does it
-        ("auto", True, False),      # worker alive: leave it queued
+    for mode, worker_state, should_run_here in (
+        ("inline", "absent", True),
+        ("inline", "healthy", True),   # inline ignores the worker entirely
+        ("queue", "absent", False),
+        ("queue", "healthy", False),
+        ("auto", "absent", True),      # no worker: this process does it
+        ("auto", "healthy", False),    # worker alive: leave it queued
+        # The database could not be asked. Generating here needs that same
+        # database to claim the job, beat its heartbeat and save the file, so
+        # the booklet cannot finish; the attempt would only spend hundreds of
+        # megabytes of the web service's memory, and Render restarts an
+        # instance over its memory limit, taking the website down for everyone
+        # over one order that was never going to succeed. The job stays queued
+        # and fail_stale_running_jobs refunds it.
+        ("auto", "unknown", False),
     ):
         calls.clear()
         views.JOB_MODE = mode
-        views._worker_is_live = lambda live=worker_live: live
+        views._worker_state = lambda state=worker_state: state
         views._dispatch_job("job-" + mode, {})
         ran = bool(calls)
         assert ran == should_run_here, (
-            f"mode={mode} worker_live={worker_live}: ran_in_process={ran}, "
+            f"mode={mode} worker_state={worker_state}: ran_in_process={ran}, "
             f"expected {should_run_here}")
 finally:
     views.threading.Thread = real_thread
