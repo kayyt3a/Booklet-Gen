@@ -2020,6 +2020,56 @@ def written_response_rules(question) -> int:
     return max(2, min(math.ceil(words / _WORDS_PER_RULE), _MAX_WRITTEN_RULES))
 
 
+# A question answered by CHOOSING or NAMING rather than by working something
+# out. "Is this angle acute or obtuse?" is answered in one word, and a shipped
+# Year 4 page gave it five centimetres of squared paper: a grid that size next
+# to a one-word answer reads as a rendering fault, and it pushed the rest of
+# the subtopic onto a page of its own, which then printed 60% empty.
+#
+# Answer LENGTH is the wrong signal and was the first thing tried. "Calculate
+# 573 x 46" answers in five digits and needs every square it is given. What
+# separates them is whether the child computes or decides, so that is what is
+# matched, and only when the answer is short enough to confirm it.
+_DECIDES_RATHER_THAN_COMPUTES = re.compile(
+    # "Is it acute or obtuse?", "Is this solid a cube or a cylinder?"
+    r"\b(?:is|are)\b[^.?]{0,48}?\b\w+\s+or\s+(?:a|an|the)?\s*\w+\s*\?"
+    r"|\bwhich (?:one|angle|shape|solid|number|option|is)\b"
+    r"|\bname the\b|\bwhat (?:shape|solid|name)\b"
+    r"|\b(?:true or false|yes or no)\b",
+    re.IGNORECASE,
+)
+# Counting a feature off a figure: "how many acute angles does the set square
+# have?" is answered by looking. Held apart from the pattern above because it
+# is the one that over-matched: "how many acute angles are there if each of the
+# 4 corners measures 45 degrees and you must first halve each one?" is the same
+# opening words and two steps of arithmetic, and shrinking THAT leaves a child
+# less room than the method needs, which is the failure worth avoiding. A digit
+# anywhere in the question disqualifies it, because a one-step count off a
+# picture states its quantities in words if at all.
+_COUNTS_OFF_A_FIGURE = re.compile(
+    r"\bhow many \w+ (?:angles?|sides?|faces|edges|vertices|lines?)\b",
+    re.IGNORECASE,
+)
+_HAS_DIGIT = re.compile(r"\d")
+# An answer that settles it: one word, a letter, or a small whole number. A
+# decimal, a fraction, a unit or a sum is working that happens to be short.
+_SETTLED_ANSWER = re.compile(
+    r"^(?:[A-Za-z][A-Za-z'\- ]{0,18}|\d{1,2}|[A-E])\.?$")
+
+
+def _answered_by_deciding(question) -> bool:
+    """Whether this question is answered by choosing, not by working out."""
+    text = " ".join((getattr(question, "question", "") or "").split())
+    answer = " ".join(str(getattr(question, "answer", "") or "").split())
+    if not text or not answer:
+        return False
+    decides = bool(_DECIDES_RATHER_THAN_COMPUTES.search(text)) or bool(
+        _COUNTS_OFF_A_FIGURE.search(text) and not _HAS_DIGIT.search(text))
+    if not decides:
+        return False
+    return bool(_SETTLED_ANSWER.match(answer))
+
+
 def _working_space_cm(question, floor_cm: float = 0.0) -> float:
     # A prose answer is sized by the lines it is given, not by its difficulty
     # tag: "Explain how you know" is tagged easy as often as hard, and the
@@ -2027,6 +2077,10 @@ def _working_space_cm(question, floor_cm: float = 0.0) -> float:
     rules = written_response_rules(question)
     if rules:
         return min(rules * _ANSWER_LINE_CM + 0.3, _MAX_WORKING_SPACE_CM)
+    if _answered_by_deciding(question):
+        # The floor still applies: the Warm-up's own minimum wins over this,
+        # because a recap question is arithmetic whatever its wording.
+        return max(floor_cm, _PANEL_MIN_CM)
     base = max(floor_cm, _DIFFICULTY_SPACE_CM.get(
         (question.difficulty or "medium").strip().lower(), 2.2))
     parts = len(part_labels(question.question))
