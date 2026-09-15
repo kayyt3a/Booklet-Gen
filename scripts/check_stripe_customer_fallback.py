@@ -177,6 +177,39 @@ if len(calls) == 2:
           "without these Stripe has no way to create the customer, and the "
           "purchase is not attached to anyone")
 
+print("\n== Managed Payments is declined on every session ==")
+
+# Stripe enables Managed Payments by default, which makes Stripe the merchant
+# of record, adds 3.5% per transaction, and refuses any line item whose product
+# has no tax code. FolioAI's products have none, so every live checkout 500ed:
+#
+#   Invalid line_items[0]: the product tax code is missing ... required for
+#   Managed Payments, which is enabled by default on your account.
+#
+# The dashboard page for it is a sign-up flow, not a toggle, so it has to be
+# declined per session. Asserted on every call, including the retry, because a
+# fallback path that forgets it would fail for the reason the first attempt did.
+for index, call in enumerate(calls):
+    check(call.get("managed_payments") == {"enabled": False},
+          f"call {index + 1} declines Managed Payments",
+          f"got {call.get('managed_payments')!r}. Stripe refuses the session "
+          "because the products carry no tax code, and the customer gets a 500 "
+          "on the pricing page. It would also take 3.5% of a five dollar sale")
+
+check(not payments._managed_payments_wanted(),
+      "and it is off unless explicitly asked for",
+      "the default changed, so every deployment is now paying 3.5% per "
+      "transaction and needs a tax code on every product")
+
+os.environ["FOLIO_STRIPE_MANAGED_PAYMENTS"] = "1"
+try:
+    check(payments._managed_payments_wanted(),
+          "FOLIO_STRIPE_MANAGED_PAYMENTS=1 opts back in",
+          "there is no way to adopt Managed Payments without editing code, so "
+          "the decision cannot be made in the dashboard where it belongs")
+finally:
+    os.environ.pop("FOLIO_STRIPE_MANAGED_PAYMENTS", None)
+
 print("\n== and the dead id is not left in the database ==")
 
 row = db.get_user(user_id)

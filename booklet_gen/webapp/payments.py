@@ -28,6 +28,17 @@ def _stripe():
     return stripe
 
 
+def _managed_payments_wanted() -> bool:
+    """Whether to let Stripe be the merchant of record for this sale.
+
+    Off unless asked for. See the note at the call site: it costs 3.5% per
+    transaction and requires a tax code on every product.
+    """
+    return (os.environ.get("FOLIO_STRIPE_MANAGED_PAYMENTS") or "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def _public_url(endpoint: str, **values) -> str:
     configured = (os.environ.get("FOLIO_PUBLIC_URL") or "").strip().rstrip("/")
     path = url_for(endpoint, **values)
@@ -75,6 +86,28 @@ def checkout(product_key: str):
                        + "?session_id={CHECKOUT_SESSION_ID}",
         "cancel_url": _public_url("payments.pricing") + "?cancelled=1",
         "allow_promotion_codes": True,
+        # Stripe turns Managed Payments on by default for new accounts, which
+        # makes Stripe the merchant of record, adds 3.5% per transaction on top
+        # of the normal fee, and refuses any line item whose product carries no
+        # tax code. FolioAI's products carry none, so every live checkout
+        # failed with a 500:
+        #
+        #   Invalid line_items[0]: the product tax code is missing ... Product
+        #   tax code is required for Managed Payments, which is enabled by
+        #   default on your account.
+        #
+        # There is no off switch in the dashboard: that settings page is a
+        # sign-up flow, not a toggle. So it is declined per session, which is
+        # the mechanism Stripe's own error message points at. Declining here
+        # rather than relying on a dashboard default also means Stripe changing
+        # that default again cannot silently take checkout down.
+        #
+        # This is a pricing and tax decision, not a technical one. 3.5% on a
+        # five dollar booklet is most of the margin, and being your own
+        # merchant of record is the arrangement the Terms and the GST position
+        # were written for. Set FOLIO_STRIPE_MANAGED_PAYMENTS=1 to opt in, and
+        # give both products a tax code first or checkout will fail again.
+        "managed_payments": {"enabled": _managed_payments_wanted()},
     }
     customer_id = (g.user["stripe_customer_id"] or "").strip()
     if customer_id:
