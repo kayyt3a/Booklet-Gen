@@ -158,7 +158,7 @@ finally:
         os.environ.pop("FOLIO_PRICE_SINGLE_AUD", None)
     else:
         os.environ["FOLIO_PRICE_SINGLE_AUD"] = _saved_price
-check(b"A$6.50" in _repriced and b"A$5.00" not in _repriced,
+check(b"A$6.50" in _repriced and b"A$3.50" not in _repriced,
       "and the figure follows the catalogue when the price changes",
       "repriced to 6.50")
 

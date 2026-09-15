@@ -48,8 +48,8 @@ CONFIGURED = {
     "SUPABASE_URL": "https://project.supabase.co",
     "SUPABASE_SERVICE_ROLE_KEY": "service-role-key",
     "FOLIO_STORAGE_BUCKET": "booklets",
-    "FOLIO_PRICE_SINGLE_AUD": "5.00",
-    "FOLIO_PRICE_TERM_AUD": "35.00",
+    "FOLIO_PRICE_SINGLE_AUD": "3.50",
+    "FOLIO_PRICE_TERM_AUD": "30.00",
 }
 
 

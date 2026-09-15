@@ -259,7 +259,7 @@ if products_block is not None:
           "no rating or review field on the Product block either",
           "same reason: nothing here is a real review")
     prices = {o["price"] for o in products_block.get("offers", [])}
-    check(prices == {"5.00", "35.00"},
+    check(prices == {"3.50", "30.00"},
           "the Product offers quote the real prices the page itself charges",
           f"got {prices}; structured data quoting a different price than the "
           "page itself is the kind of mismatch that gets a manual action")

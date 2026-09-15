@@ -37,14 +37,14 @@ available for development.
 
 Keep the existing introductory prices:
 
-- One booklet credit: A$5.00
-- Ten booklet credits: A$35.00
+- One booklet credit: A$3.50
+- Ten booklet credits: A$30.00
 - New-account welcome credit: one
 - Subscription: none during the paid beta
 - Credit expiry: none while the account remains active
 
-The ten-credit pack is A$3.50 per booklet, a 30 percent reduction from buying
-ten single credits. This gives a parent a workbook-like term purchase while the
+The ten-credit pack is A$3.00 per booklet, about a 14 percent reduction from
+buying ten single credits. This gives a parent a workbook-like term purchase while the
 single credit remains a low-commitment option.
 
 Display one total Australian-dollar price. Australian consumer pricing must
