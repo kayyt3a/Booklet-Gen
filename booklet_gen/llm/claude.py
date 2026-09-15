@@ -10,11 +10,17 @@ class ClaudeClient(LLMClient):
             raise RuntimeError("ANTHROPIC_API_KEY is not set")
         import anthropic
         self._client = anthropic.Anthropic(api_key=config.anthropic_api_key)
-        self._fast = config.claude_model_fast
-        self._strong = config.claude_model_strong
+        self._models = {
+            "fast": config.claude_model_fast,
+            "strong": config.claude_model_strong,
+            "exact": config.claude_model_exact,
+        }
 
     def complete(self, system: str, user: str, tier: Tier = "strong", temperature: float = 0.4) -> str:
-        model_name = self._strong if tier == "strong" else self._fast
+        model_name = self._models.get(tier)
+        if model_name is None:
+            raise ValueError(f"unknown model tier {tier!r}; "
+                             f"expected one of {sorted(self._models)}")
         message = self._client.messages.create(
             model=model_name,
             max_tokens=4096,

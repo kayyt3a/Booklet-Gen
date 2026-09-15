@@ -59,15 +59,27 @@ class GeminiClient(LLMClient):
         import google.generativeai as genai
         genai.configure(api_key=config.gemini_api_key)
         self._genai = genai
-        self._fast = config.gemini_model_fast
-        self._strong = config.gemini_model_strong
+        # A dict rather than a conditional. It used to read
+        #   model_name = self._strong if tier == "strong" else self._fast
+        # which sends every tier it does not recognise to the CHEAPEST model.
+        # Adding a tier under that rule would have quietly downgraded whatever
+        # used it, and the only symptom would have been worse booklets.
+        self._models = {
+            "fast": config.gemini_model_fast,
+            "strong": config.gemini_model_strong,
+            "exact": config.gemini_model_exact,
+        }
         self._timeout_s = max(5.0, float(timeout_s))
         # A deadline shorter than one attempt would make the first call
         # pointless, so it is at least one timeout long.
         self._deadline_s = max(self._timeout_s, float(deadline_s))
 
     def complete(self, system: str, user: str, tier: Tier = "strong", temperature: float = 0.4) -> str:
-        model_name = self._strong if tier == "strong" else self._fast
+        model_name = self._models.get(tier)
+        if model_name is None:
+            # Loud, because the alternative is a silent downgrade.
+            raise ValueError(f"unknown model tier {tier!r}; "
+                             f"expected one of {sorted(self._models)}")
         model = self._genai.GenerativeModel(model_name, system_instruction=system)
         deadline = time.monotonic() + self._deadline_s
         last_error: Exception | None = None

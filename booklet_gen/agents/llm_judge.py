@@ -119,7 +119,7 @@ class LLMJudgeValidator:
                 + joined
             )
         try:
-            raw = self._client.complete(self._system, user, tier="strong", temperature=0.0)
+            raw = self._client.complete(self._system, user, tier="exact", temperature=0.0)
             data = extract_json(raw)
             resp = _JudgeResponse.model_validate(data)
             result = _cross_check(
@@ -224,7 +224,7 @@ class LLMJudgeValidator:
                 + joined
             )
         try:
-            raw = self._client.complete(self._system, user, tier="strong", temperature=0.0)
+            raw = self._client.complete(self._system, user, tier="exact", temperature=0.0)
             data = extract_json(raw)
             by_index: dict[int, ValidationResult] = {}
             for item in data.get("results", []):

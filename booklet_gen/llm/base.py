@@ -4,7 +4,9 @@ from typing import Literal
 
 from ..config import Config, load_config
 
-Tier = Literal["fast", "strong"]
+# "exact" is a strong tier for work that must be right rather than quick. It
+# resolves to the strong model unless its own is configured. See load_config.
+Tier = Literal["fast", "strong", "exact"]
 
 
 class LLMClient(ABC):
