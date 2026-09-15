@@ -80,10 +80,51 @@ def checkout(product_key: str):
     if customer_id:
         values["customer"] = customer_id
     else:
-        values["customer_email"] = g.user["email"]
-        values["customer_creation"] = "always"
-    session = stripe.checkout.Session.create(**values)
+        _create_customer(values, g.user["email"])
+    try:
+        session = stripe.checkout.Session.create(**values)
+    except Exception as exc:
+        # A stored customer id this Stripe account has never heard of. The
+        # first live launch is where this bites: every account that tested
+        # checkout carries a TEST mode cus_..., Stripe rejects it outright
+        # under a live key, and the customer gets a 500 on the one page whose
+        # whole job is taking their money. It also happens whenever a customer
+        # is deleted in the Stripe dashboard.
+        #
+        # The id is worthless either way, so forget it and let Stripe make a
+        # new one from the email address, which is what an account with no id
+        # already does. Falling back rather than raising means one stale row
+        # costs a moment, not a sale.
+        if not (customer_id and _customer_is_unknown(exc)):
+            raise
+        log.warning("stored Stripe customer %s is unknown to this account; "
+                    "creating a new one", customer_id)
+        db.set_stripe_customer(int(g.user["id"]), None)
+        values.pop("customer", None)
+        _create_customer(values, g.user["email"])
+        session = stripe.checkout.Session.create(**values)
     return redirect(session.url, code=303)
+
+
+def _create_customer(values: dict, email: str) -> None:
+    """Have Stripe make a fresh customer for this checkout."""
+    values["customer_email"] = email
+    values["customer_creation"] = "always"
+
+
+def _customer_is_unknown(exc: Exception) -> bool:
+    """Whether Stripe refused the request because the customer is not there.
+
+    Matched on the message rather than the type: stripe raises the same
+    InvalidRequestError for a bad price, a bad currency and half a dozen other
+    things, and retrying those without the customer would send the customer
+    round the same failure twice. `param` is the reliable half of the message
+    and the text is the backstop.
+    """
+    if getattr(exc, "param", None) == "customer":
+        return True
+    message = str(getattr(exc, "user_message", None) or exc)
+    return "No such customer" in message
 
 
 def fulfil_checkout(session_id: str) -> int | None:
