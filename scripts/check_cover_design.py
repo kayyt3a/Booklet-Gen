@@ -179,7 +179,8 @@ print("\nThe fixed composition, on every cover")
 for label, path in rendered.items():
     t = page1_text(path)
     data = CASES[label]
-    ok = ("FOLIO AI" in t and "practice booklets" in t
+    ok = ("FOLIO" in t and "FOLIO AI" not in t and "FOLIOAI" not in t
+          and "practice booklets" in t
           and data.year_level in t and data.student_name in t
           and cover_pill(data) in t and cover_topic(data) in t
           and "Topic:" in t and "Name:" in t)

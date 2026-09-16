@@ -832,7 +832,7 @@ def _page_motif(c, v: Variant, reader) -> None:
 # The cover
 # --------------------------------------------------------------------------
 
-def render_cover(c, spec: CoverSpec) -> None:
+def render_cover(c, spec: CoverSpec, *, printed_brand: str) -> None:
     """Draw the whole cover onto page 1 of `c`.
 
     Leaves the canvas graphics state as it found it, so the caller's
@@ -895,8 +895,8 @@ def render_cover(c, spec: CoverSpec) -> None:
     _draw_logo(c, reader, MARGIN, H - 36 - lock_w * LOGO_ASPECT, lock_w)
     tx = MARGIN + lock_w + 14
     top = H - 36 - lock_w * LOGO_ASPECT
-    end = _text(c, tx, top + lock_w * LOGO_ASPECT - 21, "FOLIO", bold, 24, v.ink)
-    _text(c, end + 7, top + lock_w * LOGO_ASPECT - 21, "AI", bold, 24, ACCENT)
+    _text(c, tx, top + lock_w * LOGO_ASPECT - 21, printed_brand.upper(),
+          bold, 24, v.ink)
     _text(c, tx + 1, top + lock_w * LOGO_ASPECT - 40, "practice booklets",
           bold, 11.5, v.muted)
 
