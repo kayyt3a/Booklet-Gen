@@ -25,6 +25,7 @@ from .timing import (section_minutes, round_display, round_total,
                      classwork_section_minutes, session_plan)
 from .config import Config, load_config
 from .llm import get_client
+from .generation_timing import submit_with_context
 from .rag import Retriever
 from .schemas import (
     BookletData, ExamPaper, ExamSection, Passage, Question, SpellingList,
@@ -709,7 +710,8 @@ class BookletPipeline:
         if self._max_workers > 1 and len(specs) > 1:
             from concurrent.futures import ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=min(self._max_workers, len(specs))) as ex:
-                sections = list(ex.map(build, specs))
+                futures = [submit_with_context(ex, build, spec) for spec in specs]
+                sections = [future.result() for future in futures]
         else:
             sections = [build(s) for s in specs]
 
@@ -1494,9 +1496,11 @@ class BookletPipeline:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             with ThreadPoolExecutor(max_workers=self._max_workers) as ex:
                 futures = {
-                    ex.submit(self._process_subtopic, outline.subject,
-                              outline.year_level, tn, st, seen, quotas[i],
-                              authoring_guidance, use_rag): i
+                    submit_with_context(
+                        ex, self._process_subtopic, outline.subject,
+                        outline.year_level, tn, st, seen, quotas[i],
+                        authoring_guidance, use_rag,
+                    ): i
                     for i, (tn, st) in enumerate(tasks)
                 }
                 for fut in as_completed(futures):
