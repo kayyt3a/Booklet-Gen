@@ -6,6 +6,7 @@ import math
 import os
 from datetime import date
 from pathlib import Path
+from typing import Final
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
@@ -25,6 +26,8 @@ from .timing import booklet_timing, homework_session_plan
 from .visuals.cover import (ACCENT_HEX, CoverSpec, draw_wave_band,
                             render_cover, variant_for)
 
+
+PRINTED_BRAND: Final[str] = "Folio"
 
 PAGE_MARGIN = 2.0 * cm
 
@@ -2822,16 +2825,14 @@ def _draw_foot_mark(canvas) -> None:
     """The wordmark at the foot, opposite the page number.
 
     Where a publisher's imprint goes, and the one place in the interior that
-    says who made the thing on every page. Small, quiet and in the cover's two
-    colours: the point is that the page and the cover belong to each other, not
+    says who made the thing on every page. Small and quiet, the point is that
+    the page and the cover belong to each other, not
     that the reader is told the brand twenty times.
     """
     canvas.setFont(FONT_BOLD, _FOOT_MARK_PT)
     canvas.setFillColor(colors.HexColor(_FOOT_MARK_INK))
-    canvas.drawString(PAGE_MARGIN, CHROME_MARGIN, "FOLIO")
-    width = canvas.stringWidth("FOLIO ", FONT_BOLD, _FOOT_MARK_PT)
-    canvas.setFillColor(colors.HexColor(ACCENT_BLUE))
-    canvas.drawString(PAGE_MARGIN + width, CHROME_MARGIN, "AI")
+    wordmark = PRINTED_BRAND.upper()
+    canvas.drawString(PAGE_MARGIN, CHROME_MARGIN, wordmark)
 
 
 def _draw_running_head(canvas, doc, header: str) -> None:
@@ -2866,7 +2867,7 @@ def _draw_page_chrome(canvas, doc):
     # front page is one composition rather than text floating on a picture.
     if doc.page == 1 and getattr(doc, "_cover", None) is not None:
         try:
-            render_cover(canvas, doc._cover)
+            render_cover(canvas, doc._cover, printed_brand=PRINTED_BRAND)
         except Exception as e:
             # A cover that fails to draw must not cost the customer the
             # booklet: fall back to a blank front page.
@@ -3055,14 +3056,12 @@ class CentreOnPage(Flowable):
 
 
 def _wordmark_lockup(styles, size: float = _COLOPHON_MARK):
-    """The brand mark and "FOLIO AI", side by side, centred.
+    """The brand mark and wordmark, centred.
 
     Falls back to the words alone if the mark will not load, because a missing
     image must not take the wordmark down with it.
     """
-    # "FOLIO" then "AI" in the accent, with the space between them the cover
-    # sets: the two halves of the wordmark are not one word.
-    text = Paragraph('FOLIO <font color="#2F5FBF">AI</font>', styles["wordmark"])
+    text = Paragraph(PRINTED_BRAND.upper(), styles["wordmark"])
     mark = _make_image(str(_BRAND_MARK_PATH), max_w=size, max_h=size)
     if mark is None:
         return text
@@ -3950,7 +3949,8 @@ _HOW_TO_TIMES = (
     "to read in it, how many parts it has, and how long the teaching in front "
     "of it takes to work through. It is an estimate and not a target.")
 _HOW_TO_HONESTY = (
-    "FolioAI writes and checks this booklet by machine. Maths answers are "
+    f"{PRINTED_BRAND} writes and checks this booklet by machine. "
+    "Maths answers are "
     "re-worked symbolically where the question allows it, and the rest are "
     "graded against the question by a language model; an answer whose working "
     "disagrees with it is printed without a tick. No teacher has reviewed it. "
@@ -4857,12 +4857,12 @@ def _booklet_doc(target, data: BookletData, times: dict | None = None):
         leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
         topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
         title=booklet_title(data),
-        author="FolioAI",
+        author=PRINTED_BRAND,
         # ReportLab writes its own literal "(unspecified)" into these when they
         # are left off, and a parent sees that in the Properties dialog of the
         # thing they paid for.
         subject=f"{data.subject} practice, {data.year_level}",
-        creator="FolioAI",
+        creator=PRINTED_BRAND,
     )
     _head = data.program_label or data.subject
     doc._header_text = f"{_head}  |  {data.year_level}  |  {data.student_name}"
@@ -5007,7 +5007,8 @@ def render_exam_pdf(paper: ExamPaper, out_path: Path) -> Path:
             leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
             topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
             title=f"{paper.subject} Practice Examination",
-            author="FolioAI",
+            author=PRINTED_BRAND,
+            creator=PRINTED_BRAND,
         )
         doc._header_text = (f"{paper.subject}  |  {paper.year_level}  |  "
                             f"{paper.student_name}")
@@ -5054,7 +5055,7 @@ def _exam_story(styles, paper: ExamPaper, body_width: float,
 
     # ---- Cover: formal exam front page ----
     story.append(Spacer(1, 1.2 * cm))
-    story.append(Paragraph("FOLIOAI", styles["wordmark"]))
+    story.append(Paragraph(PRINTED_BRAND.upper(), styles["wordmark"]))
     story.append(Spacer(1, 0.8 * cm))
     story.append(Paragraph("Practice Examination", styles["subtitle"]))
     story.append(Paragraph(_escape(paper.subject), styles["title"]))
@@ -5094,7 +5095,8 @@ def _exam_story(styles, paper: ExamPaper, body_width: float,
 
     story.append(Spacer(1, 0.8 * cm))
     story.append(Paragraph(
-        "This is a practice paper generated by FolioAI. Questions marked with a "
+        f"This is a practice paper generated by {PRINTED_BRAND}. "
+        "Questions marked with a "
         "check mark in the marking key have been symbolically verified.",
         styles["footer_note"],
     ))
