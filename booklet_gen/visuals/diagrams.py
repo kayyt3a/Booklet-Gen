@@ -203,7 +203,7 @@ def render_diagram(spec: dict) -> Optional[Path]:
         _draw_legibly(renderer, spec, out, kind)
         return out
     except Exception as e:
-        log.warning("diagram.render_failed", extra={"type": kind, "error": str(e)[:200]})
+        log.warning("diagram.render_failed type=%s error=%s", kind, str(e)[:200])
         return None
 
 
