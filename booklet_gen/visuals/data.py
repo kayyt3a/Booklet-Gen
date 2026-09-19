@@ -36,18 +36,101 @@ def _save(fig, out: Path) -> None:
     save_figure(fig, out, 0.10)
 
 
-def _frame(ax, f: _Fonts, x_label: str = "", y_label: str = "") -> None:
-    """The plain two-spine frame every chart here uses."""
+def _frame(ax, f: _Fonts, x_label: str = "", y_label: str = "") -> float:
+    """The plain two-spine frame every chart here uses.
+
+    Returns the tick label size, which a caller needs if it has to re-set the
+    tick labels afterwards: `set_xticklabels` takes its size from the rcParams
+    rather than from the `tick_params` call above, so re-setting them without
+    it silently drops the labels back to the matplotlib default.
+    """
+    tick_pt = f.label(9)
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
     for side in ("left", "bottom"):
         ax.spines[side].set_color(LINE_COLOR)
         ax.spines[side].set_linewidth(LINE_WIDTH * 0.8)
-    ax.tick_params(colors=LINE_COLOR, labelsize=f.label(9), length=3, width=1.0)
+    ax.tick_params(colors=LINE_COLOR, labelsize=tick_pt, length=3, width=1.0)
     if x_label:
         ax.set_xlabel(x_label, fontsize=f.label(9.5), color=LINE_COLOR)
     if y_label:
         ax.set_ylabel(y_label, fontsize=f.label(9.5), color=LINE_COLOR)
+    return tick_pt
+
+
+# How far a category label is slanted when it will not fit upright. Anchored
+# at its own tick, so it runs back underneath the column to its left and the
+# labels sit on parallel lines rather than sharing one row.
+_LABEL_TILT = 30.0
+# A label may use this much of its own column. The remainder is the gap that
+# tells a reader where one label ends and the next begins.
+_LABEL_SHARE = 0.92
+
+
+def _wrap_label(text: str) -> str:
+    """Break a multi-word category onto two lines of similar length."""
+    words = str(text).split()
+    if len(words) < 2:
+        return str(text)
+    cut = min(range(1, len(words)),
+              key=lambda i: abs(len(" ".join(words[:i]))
+                                - len(" ".join(words[i:]))))
+    return " ".join(words[:cut]) + "\n" + " ".join(words[cut:])
+
+
+def _widest_label(fig, ax) -> float:
+    """The widest tick label as drawn, in pixels."""
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    widths = [t.get_window_extent(renderer=renderer).width
+              for t in ax.get_xticklabels() if t.get_text()]
+    return max(widths) if widths else 0.0
+
+
+def _fit_xticklabels(fig, ax, labels, tick_pt: float) -> None:
+    """Keep each category label inside its own column.
+
+    A Year 3 column graph shipped reading "ApplesBananasBerriesMelon" along
+    the bottom, with no gap between any two words. Matplotlib centres a tick
+    label on its tick and never checks whether the one beside it is already
+    there, so four ordinary fruit names ran together into one string.
+
+    DRAWING THE FIGURE WIDER DOES NOT FIX THIS, and it was the first thing
+    tried. A figure wider than the print box is scaled down bodily, and the
+    legibility pass then scales the type back up by the same factor to hold
+    the 9pt floor, so the words take the same share of the printed width
+    however large the canvas is drawn. The horizontal room is fixed by the
+    print box and the floor together. The labels are what has to give.
+
+    So they are narrowed instead: wrapped at a space where there is one, and
+    slanted where there is not. Slanting last, because a Year 3 reads
+    horizontal text more easily than slanted text, and the wrap costs nothing
+    to read.
+    """
+    if not labels:
+        return
+    room = (ax.get_window_extent().width / len(labels)) * _LABEL_SHARE
+    if _widest_label(fig, ax) <= room:
+        return
+
+    flat = [str(t) for t in labels]
+    wrapped = [_wrap_label(t) for t in flat]
+    if wrapped != flat:
+        ax.set_xticklabels(wrapped, fontsize=tick_pt)
+        if _widest_label(fig, ax) <= room:
+            return
+        # The wrap did not get there, and the slant below is about to be
+        # applied, so take the wrap back off. The two remedies pull opposite
+        # ways: a second line makes a label narrower, which is what an upright
+        # row needs, and twice as TALL, which is the measurement a slanted row
+        # is short of. "Walked to school" over two slanted lines has its
+        # descender in the line beside it.
+        ax.set_xticklabels(flat, fontsize=tick_pt)
+
+    for text in ax.get_xticklabels():
+        text.set_rotation(_LABEL_TILT)
+        text.set_ha("right")
+        text.set_rotation_mode("anchor")
 
 
 def _series(spec: dict) -> list[tuple[str, list[float]]]:
@@ -109,7 +192,8 @@ def bar_chart(spec: dict, out: Path, f: _Fonts) -> None:
                linewidth=LINE_WIDTH * 0.7, label=name or None)
     ax.set_xticks(xs)
     ax.set_xticklabels(categories)
-    _frame(ax, f, str(spec.get("x_label", "")), str(spec.get("y_label", "")))
+    tick_pt = _frame(ax, f, str(spec.get("x_label", "")),
+                     str(spec.get("y_label", "")))
     if n > 1 and any(name for name, _ in series):
         # Above the plot, not inside it. Matplotlib's "best" location happily
         # parks the legend on top of the tallest column, which is the one value
@@ -117,6 +201,21 @@ def bar_chart(spec: dict, out: Path, f: _Fonts) -> None:
         ax.legend(fontsize=f.label(8.5), frameon=False, ncol=n,
                   loc="lower center", bbox_to_anchor=(0.5, 1.0))
     ax.set_ylim(0, max(max(v) for _, v in series) * 1.12 or 1)
+    # The question is nearly always "how many chose X", so the answer is read
+    # off this axis. Matplotlib picks its tick count from the room it has, and
+    # a slanted set of category labels takes enough of that room to leave a
+    # graph marked 0 and 10 and nothing in between, which a child cannot read
+    # a 14 off. Ask for the marks instead of accepting what is left over.
+    # `steps` are the only gaps allowed between marks, so a count of children
+    # is never marked in halves. `nbins` is the count matplotlib works back
+    # from: asking for four leaves a graph running to 8 marked 0 and 5, because
+    # the step it wants is 2.24 and the next one it is allowed is 5.
+    from matplotlib.ticker import MaxNLocator
+    ax.yaxis.set_major_locator(
+        MaxNLocator(nbins=5, integer=True, steps=[1, 2, 5, 10]))
+    # Last, because it measures the labels as they will actually be drawn and
+    # everything above changes where they land.
+    _fit_xticklabels(fig, ax, categories, tick_pt)
     _save(fig, out)
 
 
