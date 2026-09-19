@@ -46,6 +46,19 @@ from .schemas import (
 # never wrong for Year 9. It was applied to a six year old.
 CLASSWORK_CAP_MINUTES = int(os.environ.get("FOLIO_CLASSWORK_CAP_MINUTES", "60"))
 
+# Spare Final Challenge questions to ask for beyond what the year band prints.
+#
+# The seven guards on a challenge question drop roughly one in three, and the
+# Final Challenge is the smallest set in the booklet, so it is the one where
+# that rate shows: a Year 3 booklet shipped with one question under the heading
+# and a score box reading "___ / 1".
+#
+# Two, not more. The whole set is written in one call and graded in one batched
+# judge call, so each spare costs output tokens and no round trip, but it is
+# still a question the model wrote instead of thinking harder about the ones
+# that print.
+CHALLENGE_HEADROOM = int(os.environ.get("FOLIO_CHALLENGE_HEADROOM", "2"))
+
 # Never teach fewer than this many subtopics in a session, even if the cap
 # says so. A booklet that teaches one thing is not worth an hour of a
 # tutor's time, and at that point the honest answer is a longer session.
@@ -302,6 +315,7 @@ class BookletPipeline:
             all_challenge.extend(
                 self._build_challenge(
                     subj, year_level, covered, generation_context, seen,
+                    alone=len(subjects) == 1,
                 )
             )
 
@@ -2010,6 +2024,7 @@ class BookletPipeline:
 
     def _build_challenge(
         self, subject, year_level, covered, reference_chunks, seen=None,
+        alone=True,
     ) -> list[ValidatedQuestion]:
         # The Final Challenge is cumulative and its questions are the longest in
         # the booklet: five of them cost a Year 1 nineteen minutes on the
@@ -2021,9 +2036,81 @@ class BookletPipeline:
             return []
         if seen is None:
             seen = _SeenQuestions()
+
+        # A Year 3 booklet shipped a Final Challenge of ONE question, on a page
+        # of its own, with a score box reading "___ / 1". The year band sets
+        # four. Nothing was broken: the model returned four, seven guards ran
+        # over them, three were dropped for good reasons, and the section
+        # printed whatever was left because nothing downstream had an opinion
+        # about how much that was.
+        #
+        # Asking for exactly what prints is the mistake, and it is cheap to
+        # undo here. This is ONE call for the whole booklet, and the spares are
+        # graded inside the same batched judge call as the rest, so the
+        # headroom costs output tokens and no extra round trip. Challenge
+        # questions are also the likeliest in the booklet to be dropped: they
+        # are cumulative, multi-step and the longest thing written, which is
+        # most of what the guards look for.
+        results = self._challenge_pass(
+            subject, year_level, covered, reference_chunks, seen,
+            n_challenge + CHALLENGE_HEADROOM)
+
+        # A section is either worth its page or it is not. Below the floor,
+        # spend one more call rather than print a stub: the booklet is already
+        # paid for and a second challenge call is a small fraction of what it
+        # cost to make. `seen` stops the second pass handing back what the
+        # first one already kept.
+        #
+        # The second pass asks for the FULL set again, not for the shortfall.
+        # Asking for the shortfall assumes the next batch will survive intact,
+        # which the pass that just ran is the evidence against: a booklet that
+        # lost five of six will lose most of the next three too, and the round
+        # trip is already being paid for either way. Only the output tokens
+        # scale with the number, so the cheap thing to be generous with is the
+        # ask.
+        floor = (n_challenge + 1) // 2
+        if len(results) < floor:
+            log.warning("pipeline.challenge_short",
+                        extra={"subject": subject, "kept": len(results),
+                               "wanted": n_challenge, "floor": floor})
+            results += self._challenge_pass(
+                subject, year_level, covered, reference_chunks, seen,
+                n_challenge + CHALLENGE_HEADROOM)
+
+        if len(results) < floor and alone:
+            # Still short. Print nothing rather than a Final Challenge that
+            # announces itself on the contents page, takes a page, and holds
+            # one question. The formatter already omits the section, its
+            # timing and its score row when this list is empty, so a booklet
+            # without it reads as finished rather than as broken.
+            #
+            # Only when this subject is the whole section. A NAPLAN booklet
+            # runs this once for numeracy and once for literacy and merges the
+            # two into one Final Challenge, where a short half is not a short
+            # section, and throwing it away would cost the customer questions
+            # to fix an appearance the merge has already fixed.
+            log.warning("pipeline.challenge_abandoned",
+                        extra={"subject": subject, "kept": len(results),
+                               "wanted": n_challenge, "floor": floor,
+                               "reason": "a one-question capstone looks like a "
+                                         "fault, and it is cheaper to lose the "
+                                         "section than the customer"})
+            return []
+        return results[:n_challenge]
+
+    def _challenge_pass(
+        self, subject, year_level, covered, reference_chunks, seen, ask,
+    ) -> list[ValidatedQuestion]:
+        """One generate-and-grade round of challenge questions.
+
+        Separated out so the caller can run it twice. Everything in it is
+        idempotent with respect to `seen`, which is claimed only for questions
+        that survive to the end, so a second round neither repeats the first
+        round's output nor is blocked by what the first round threw away.
+        """
         try:
             qs = self._challenger.generate(
-                subject, year_level, covered, n_challenge, reference_chunks,
+                subject, year_level, covered, ask, reference_chunks,
             )
         except Exception as e:
             log.warning("pipeline.challenge_failed", extra={"error": str(e)[:200]})
@@ -2040,9 +2127,10 @@ class BookletPipeline:
         # whole booklet: the Final Challenge is meant to combine the skills,
         # not reprint a question already answered in the practice.
         candidates = []
-        # Never more than the year band asked for: the generator is told the
-        # number but a model that returns six would otherwise print six.
-        for q in qs.questions[:n_challenge]:
+        # Never more than was asked for: the generator is told the number but a
+        # model that returns eight would otherwise have all eight graded, and
+        # the batched judge call is the expensive half of this.
+        for q in qs.questions[:ask]:
             if self._norm_q(q.question) in seen:
                 continue
             if self._reasoning_reject(subject, q):

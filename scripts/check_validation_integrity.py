@@ -219,13 +219,54 @@ print("\nVALIDATION STAYS BATCHED")
 
 import inspect  # noqa: E402
 
-src = inspect.getsource(BookletPipeline._build_challenge)
+# The challenge path is two methods: _build_challenge decides how many rounds
+# to run, _challenge_pass runs one of them. Both are read, because a guard
+# that reads only the outer one passes the moment the validation call is moved
+# into a helper, which is exactly what happened when the top-up was added.
+# Naming the helper means a rename fails here loudly rather than quietly
+# leaving the rule unchecked.
+src = "".join(inspect.getsource(fn) for fn in
+              (BookletPipeline._build_challenge,
+               BookletPipeline._challenge_pass))
 assert "_validate_many(" in src, \
     "the Final Challenge no longer validates as a batch"
 assert "self._validate(" not in src, (
     "the Final Challenge validates one question per call, which is the "
     "per-question pattern the project notes forbid")
 ok("the Final Challenge grades its whole set in one call, not one per question")
+
+# And measured, not only read. The source above cannot tell one batch per pass
+# from one batch per question, and the top-up means the number of passes is no
+# longer always one.
+validation_calls.clear()
+
+
+class CountingChallenger:
+    def __init__(self):
+        self.calls = 0
+
+    def generate(self, subject, year_level, covered, n_questions, chunks=None):
+        self.calls += 1
+        return QuestionSet(questions=[
+            Question(question=f"challenge {self.calls}.{i}", answer=str(i),
+                     working="w", difficulty="hard")
+            for i in range(n_questions)])
+
+
+pipe._challenger = CountingChallenger()
+pipe._n_challenge = 5
+pipe._plan_question_visuals = lambda *a, **k: None
+pipe._impossible_constraints = lambda qq: None
+challenge = BookletPipeline._build_challenge(
+    pipe, "Mathematics", "Year 5",
+    [("Number", "Fractions"), ("Measurement", "Area")], None, _SeenQuestions())
+assert challenge, "the challenge produced nothing, so nothing below is measured"
+assert len(validation_calls) == pipe._challenger.calls, (
+    f"{pipe._challenger.calls} generation pass(es) took "
+    f"{len(validation_calls)} validation batches. One batch per pass is the "
+    "rule; one per question is the cost pattern the project notes forbid")
+ok(f"{pipe._challenger.calls} challenge pass(es), "
+   f"{len(validation_calls)} validation batch(es)")
 
 generation_src = inspect.getsource(BookletPipeline._generate_and_validate)
 assert "self._validate(" not in generation_src, (
