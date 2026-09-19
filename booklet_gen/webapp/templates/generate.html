@@ -141,11 +141,26 @@
     if (isExam) document.getElementById('term_plan').checked = false;
 
     // Restrict the year dropdown to the years the chosen program supports.
+    //
+    // By REMOVING the options rather than marking each one hidden. Safari has
+    // never honoured `hidden` on an <option>, so on an iPad every year stayed
+    // in the list, and iOS draws a <select> as a native wheel picker where the
+    // difference between hidden and disabled is the difference between a year
+    // not existing and a year that scrolls past but will not take.
+    //
+    // The placeholder is left in place and never removed, so the select always
+    // has something to sit on.
     var year = document.getElementById('year');
-    var cleared = false;
-    for (var i = 0; i < year.options.length; i++) {
-      var o = year.options[i];
-      if (!o.value) continue;
+    if (!year.folioAllYears) {
+      // Captured once, before anything is taken out, because every later call
+      // has to be able to put back what an earlier one removed.
+      year.folioAllYears = Array.prototype.slice.call(year.options);
+    }
+    var wanted = year.value;
+    var kept = [];
+    for (var i = 0; i < year.folioAllYears.length; i++) {
+      var o = year.folioAllYears[i];
+      if (!o.value) { kept.push(o); continue; }   // the placeholder
       // NAPLAN is sat in Years 3, 5, 7 and 9 only, so offering any other year
       // would be offering practice for a test that is never sat.
       var allowed = isExam
@@ -153,11 +168,19 @@
         : isNaplan
           ? o.getAttribute('data-naplan-year') === 'yes'
           : o.getAttribute('data-exam-year') !== 'yes';
-      o.hidden = !allowed;
-      o.disabled = !allowed;
-      if (!allowed && o.selected) { o.selected = false; cleared = true; }
+      if (allowed) kept.push(o);
     }
-    if (cleared) year.selectedIndex = 0;
+    year.innerHTML = '';
+    for (var k = 0; k < kept.length; k++) {
+      kept[k].disabled = !kept[k].value;   // only the placeholder is disabled
+      year.appendChild(kept[k]);
+    }
+    // Put the year back if it survived the change, and fall to the placeholder
+    // if it did not. Assigning the VALUE rather than selectedIndex: index 0 is
+    // the disabled placeholder, and forcing a disabled option selected is what
+    // left the form unsubmittable with no message anyone could see.
+    year.value = wanted;
+    if (!year.value) year.selectedIndex = 0;
 
     updateAction(isExam);
   }
