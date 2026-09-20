@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ..config import Config
+from ..generation_timing import timed
 from .base import LLMClient, Tier
 
 
@@ -21,16 +22,24 @@ class ClaudeClient(LLMClient):
         if model_name is None:
             raise ValueError(f"unknown model tier {tier!r}; "
                              f"expected one of {sorted(self._models)}")
-        message = self._client.messages.create(
-            model=model_name,
-            max_tokens=4096,
-            temperature=temperature,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        parts = []
-        for block in message.content:
-            text = getattr(block, "text", None)
-            if text:
-                parts.append(text)
-        return "".join(parts).strip()
+        with timed(
+            "llm.claude", "complete", llm_provider="claude",
+            llm_model=model_name, llm_tier=tier,
+        ):
+            with timed(
+                "llm.claude", "attempt", llm_provider="claude",
+                llm_model=model_name, llm_tier=tier, llm_attempt=1,
+            ):
+                message = self._client.messages.create(
+                    model=model_name,
+                    max_tokens=4096,
+                    temperature=temperature,
+                    system=system,
+                    messages=[{"role": "user", "content": user}],
+                )
+            parts = []
+            for block in message.content:
+                text = getattr(block, "text", None)
+                if text:
+                    parts.append(text)
+            return "".join(parts).strip()

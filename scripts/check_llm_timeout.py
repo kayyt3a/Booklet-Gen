@@ -92,8 +92,9 @@ def _client(outcomes, timeout_s=120.0, deadline_s=420.0):
     gemini_mod.time = clock          # instant, but the clock still advances
 
     cfg = Config(provider="gemini", gemini_model_fast="fast",
-                 gemini_model_strong="strong", claude_model_fast="",
-                 claude_model_strong="", gemini_api_key="test-key",
+                 gemini_model_strong="strong", gemini_model_exact="exact",
+                 claude_model_fast="", claude_model_strong="",
+                 claude_model_exact="", gemini_api_key="test-key",
                  anthropic_api_key="", max_retries=3)
     client = gemini_mod.GeminiClient(cfg, timeout_s=timeout_s, deadline_s=deadline_s)
     return client, calls, sleeps
