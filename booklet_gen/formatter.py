@@ -821,6 +821,42 @@ _EN_DASH = re.compile(r"\s*–\s*")
 # bug, not a fix for this one.
 _ARTICLE_RE = re.compile(r"\b([Aa]n?)\s+([A-Za-z][A-Za-z'-]*)")
 
+# A CAPITAL "A" MID-SENTENCE IS A LABEL, NOT AN ARTICLE, and this rule shipped
+# in every booklet examined before it was found:
+#
+#   "Circle An is 1/2 shaded. Circle B is 3/4 shaded."      (Year 3)
+#   "Shape An area = 4 x 3 = 12 cm2"                        (Year 4 key)
+#   "Compare angle An and angle B using a square corner."   (Year 4)
+#   "the dot plots show quiz scores for Group An and Group B"(Year 6)
+#   "How much more of Circle An is shaded than Circle B?"   (Year 6)
+#
+# "Circle A is" parses as the article "A" followed by "is", "is" begins with a
+# vowel, and the fixer dutifully corrects it to "An". The child then has to
+# work out that "Circle An" means the circle labelled A.
+#
+# Two guards, each sound on its own, and they cover each other's edge.
+#
+# ONE: the indefinite article is lower case unless it opens a sentence. A
+# capital A or An anywhere else is a label, a heading word or a name. This is
+# what saves "Shape A area", where the following word could legitimately take
+# an article.
+_SENTENCE_START = re.compile(r"(?:^|[.?!:;]\s|\n\s*|[\"'(\[]\s*)$")
+
+# TWO: nothing that can follow an article is a finite verb or a conjunction.
+# "a is", "a and", "a shows" are not article usage in any sentence, so a match
+# ending in one of these was never an article to correct. This is what saves a
+# sentence that genuinely opens on a label, "A is larger than B", which the
+# first guard alone would rewrite to "An is larger than B".
+_NEVER_AFTER_ARTICLE = frozenset({
+    "is", "are", "was", "were", "am", "be", "been", "being",
+    "and", "or", "nor", "but", "then", "than", "so",
+    "has", "have", "had", "will", "would", "can", "could", "shall",
+    "should", "may", "might", "must", "does", "did", "do",
+    "shows", "show", "showed", "equals", "equal", "measures", "contains",
+    "holds", "gives", "makes", "costs", "weighs", "needs", "goes",
+    "lies", "meets", "starts", "ends", "begins", "looks", "seems",
+})
+
 # Vowel-letter word that is actually a consonant SOUND ("yoo", "w"), so "a"
 # is correct despite the spelling.
 _A_NOT_AN = frozenset({
@@ -855,9 +891,25 @@ def _correct_article(article: str, word: str) -> str:
     return an_form if wants_an else a_form
 
 
+def _is_article(text: str, match: "re.Match[str]") -> bool:
+    """Whether this A/An/a/an is really an article, and not a label.
+
+    See the two guards above `_NEVER_AFTER_ARTICLE`. Both have to pass, which
+    is what stops "Circle A is shaded" becoming "Circle An is shaded" without
+    breaking "A university has an hour-long lecture".
+    """
+    if match.group(2).lower() in _NEVER_AFTER_ARTICLE:
+        return False
+    if match.group(1)[0].isupper():
+        return bool(_SENTENCE_START.search(text[:match.start(1)]))
+    return True
+
+
 def _fix_articles(text: str) -> str:
     """Correct a/an before the next word, deterministically. See note above."""
     def fix(m: "re.Match[str]") -> str:
+        if not _is_article(text, m):
+            return m.group(0)
         return _correct_article(m.group(1), m.group(2)) + " " + m.group(2)
     return _ARTICLE_RE.sub(fix, text)
 
