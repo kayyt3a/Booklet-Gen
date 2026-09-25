@@ -87,7 +87,29 @@ cumulative "Final Challenge", with a verified answer key.
 python -m venv .venv && .venv\Scripts\pip install -r requirements.txt   # Windows
 python main.py --program accelerate --subject Maths --year "Year 5" --name "Sam"
 python -m booklet_gen.webapp     # local web app at 127.0.0.1:5000
+python scripts\audit_booklet.py output\some-booklet.pdf   # grade a finished PDF
 ```
+
+## Auditing a finished booklet
+
+`scripts/audit_booklet.py` reads a booklet PDF and reports what is wrong with
+it: dead space per page, a section below its year band, an answer that
+disagrees with its own working, model deliberation left in the answer key,
+unticked answers, questions over the year's reading budget, figures promised
+but not printed, and em dashes. It works from the file alone, so it runs
+against any booklet from any version, including ones already sold, and it
+exits non-zero when it finds something serious.
+
+It is the only thing that looks at a whole booklet the way a customer meets
+one. Every other check in `scripts/` proves one defect is gone; this asks
+whether what shipped is worth the money. Run it on a sample before a release,
+and on any booklet a customer complains about.
+
+`scripts/check_booklet_audit.py` guards it, in both directions: that it finds
+planted defects, and that a sound booklet comes back sound. The second matters
+more. Writing the auditor produced four false alarms before it produced one
+true finding, and a tool that cries wolf gets ignored, which costs more than
+the defect it might have caught.
 
 ## Autonomous agent guardrail
 

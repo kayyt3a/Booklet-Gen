@@ -49,7 +49,7 @@ Populate `diagram_spec` only when a diagram is clearly helpful, and only ever wi
   A 3D cylinder labelled with radius and height. Use for volume/surface-area of cylinders.
 - {"type":"compare","items":[{"label":"A","spec":{...}},{"label":"B","spec":{...}}]}
   For "which is bigger / smaller / order these" questions. Sub-figures MUST be meaningfully different (e.g. different denominators for fraction comparisons). Refer to the labels in the question text. Never ask a comparison question with only one figure.
-- {"type":"clock","hour":3,"minute":10}, {"type":"array","rows":3,"columns":4,"shaded":9}, {"type":"groups","groups":3,"each":4}, {"type":"shape","shapes":["triangle","pentagon"]}, {"type":"place_value","value":342}, {"type":"part_whole","whole":"45","parts":["28","?"]}, {"type":"factor_tree","value":60}
+- {"type":"clock","hour":3,"minute":10}, {"type":"array","rows":3,"columns":4,"shaded":9}, {"type":"groups","groups":3,"each":4}, {"type":"shape","shapes":["triangle","pentagon"]}, {"type":"place_value","value":2456}, {"type":"part_whole","whole":"45","parts":["28","?"]}, {"type":"factor_tree","value":60}
   Number and early-primary pictures. `array` with "shaded" is a fraction of a collection.
 - {"type":"money","items":["$2","50c"]}, {"type":"ruler","length":7,"max":10,"unit":"cm"}, {"type":"jug","capacity":1000,"level":650,"unit":"mL"}, {"type":"scale_dial","max":1000,"value":450,"unit":"g"}
   Money and reading a measuring instrument.

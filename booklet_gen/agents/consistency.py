@@ -55,10 +55,36 @@ log = logging.getLogger(__name__)
 # Note the absence of a trailing \b: several of these end in punctuation, and
 # \b after a colon or comma can never match, which silently disabled
 # "Correction:" and "Actually," until it was tested.
+#
+# THE PRONOUN AND THE HYPHEN. A shipped Year 4 answer key read "Let us
+# re-calculate for the most common interpretation of 'side-by-side'". This
+# pattern held "let me recalculate" and matched neither half of that: not
+# "let us", and not the hyphen. Both are now optional everywhere they can
+# appear, because which pronoun a model reaches for and whether it hyphenates
+# are not facts about whether it changed its mind.
 _SELF_CORRECTION = re.compile(
-    r"\b(wait\b|hold on\b|actually,|let me recalculate\b|recalculating\b"
+    r"\b(wait\b|hold on\b|actually,"
+    r"|let (?:me|us) re-? ?(?:calculate|check|examine|do|try)\b"
+    r"|re-? ?(?:calculating|examining|checking)\b"
     r"|correction:|i made an error\b|that'?s wrong\b|scratch that\b"
-    r"|on second thought\b|apologies\b|my mistake\b|let me redo\b)",
+    r"|on second thought\b|apologies\b|my mistake\b)",
+    re.IGNORECASE,
+)
+
+# A model offering the reader two READINGS of the question, as opposed to two
+# methods for the same answer. The first means the question cannot be marked;
+# the second is good teaching and must not be touched.
+#
+# "Alternatively" alone does not separate them. "Alternatively, count the
+# squares in each row" is a second method and belongs in a key. So these fire
+# only in combination with an answer the working never reaches, which is
+# checked in `answer_is_trustworthy` below and is what distinguishes a
+# question with two readings from a lesson with two routes.
+_ALTERNATIVE_READINGS = re.compile(
+    r"\b(alternatively\b|most common interpretation\b"
+    r"|(?:another|a different|the other|either) (?:reading|interpretation)\b"
+    r"|assuming the (?:standard|usual|most common)\b"
+    r"|if (?:instead |)they are joined\b)",
     re.IGNORECASE,
 )
 
@@ -144,8 +170,58 @@ def working_contradicts_answer(answer: str, working: str) -> bool:
     return True
 
 
+def offers_alternative_readings(working: str) -> bool:
+    """True when the working weighs two readings of the question, not two
+    methods for one answer. Only meaningful alongside a failing answer: see
+    `_ALTERNATIVE_READINGS`."""
+    return bool(_ALTERNATIVE_READINGS.search(working or ""))
+
+
+def answer_is_unprintable(answer: str, working: str) -> tuple[bool, Optional[str]]:
+    """(unprintable, reason). Working too compromised to print at all.
+
+    The strict half of `answer_is_trustworthy`. That function decides whether
+    an answer has earned its tick, which is a cheap and reversible penalty, so
+    it is allowed to be broad. This one decides whether to throw the question
+    away, and the two need different evidence.
+
+    ONLY THE SELF-CORRECTION TELL REACHES THIS BAR. A key that says "Let us
+    re-calculate" or "On second thought" is a model narrating a change of mind
+    in a document a parent marks from. No correct answer key contains those
+    phrases, so there is nothing to lose by dropping it, and the Year 4 booklet
+    that shipped "128 m" over working concluding 112 m is caught here because
+    its working said both.
+
+    THE CONTRADICTION TELL DELIBERATELY DOES NOT. `working_contradicts_answer`
+    is right often enough to withhold a tick and nowhere near right enough to
+    destroy a question. Two ways it fires on correct work:
+
+      * column arithmetic builds its result one digit at a time and never
+        states it, so "7222" over "8 + 4 = 12 (write 2, carry 1)..." looks
+        like an answer that appears nowhere in its own working
+      * a fraction whose working operates on numerators alone: "3/16" over
+        "1 + 2 = 3" never mentions 16, because the denominator is in the
+        question rather than the working
+
+    The second is most of primary maths. Escalating that signal from "no tick"
+    to "no question" was tried, and it emptied the practice set of every
+    fraction subtopic in the test suite before it could reach a customer. The
+    tick stays withheld, `scripts/audit_booklet.py` reports it on the finished
+    PDF, and a person decides.
+    """
+    for text, where in ((working, "working"), (answer, "answer")):
+        if has_self_correction(text or ""):
+            return True, f"{where} contains model self-correction"
+    return False, None
+
+
 def answer_is_trustworthy(answer: str, working: str) -> tuple[bool, Optional[str]]:
-    """(ok, reason). Used to strip a verified mark that was not earned."""
+    """(ok, reason). Used to strip a verified mark that was not earned.
+
+    Broader than `answer_is_unprintable` above, and the difference is the
+    point: this one only costs the question its tick, so it can afford to be
+    wrong sometimes.
+    """
     if has_self_correction(working):
         return False, "working contains model self-correction"
     # The same tell in the answer field. It slips past the contradiction check
@@ -154,6 +230,12 @@ def answer_is_trustworthy(answer: str, working: str) -> tuple[bool, Optional[str
     if has_self_correction(answer):
         return False, "answer contains model self-correction"
     if working_contradicts_answer(answer, working):
+        # Said plainly when the working also weighed two readings, because then
+        # the fault is in the QUESTION and no answer key could have been
+        # written for it. A regenerated answer would fail the same way.
+        if offers_alternative_readings(working):
+            return False, ("the question has two readings and the working "
+                           "answers a third")
         return False, "stated answer does not appear anywhere in the working"
     return True, None
 

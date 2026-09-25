@@ -75,5 +75,44 @@ assert "—" not in rendered, "the em dash backstop should still fire too"
 ok("_escape applies the article fix alongside the existing em-dash backstop, "
    "so every question, answer and lesson line gets both")
 
+print("\nA CAPITAL A MID-SENTENCE IS A LABEL, NOT AN ARTICLE")
+
+# Every one of these shipped, in three booklets across three year levels,
+# because "Circle A is" parses as the article "A" followed by "is", and "is"
+# begins with a vowel. The child is then asked about "Circle An".
+LABELS = [
+    ("Circle A is 1/2 shaded. Circle B is 3/4 shaded.",
+     "Year 3, the warm-up"),
+    ("How much more of Circle A is shaded than Circle B?",
+     "Year 6, homework question 1"),
+    ("The dot plots show daily quiz scores for Group A and Group B.",
+     "Year 6, class work question 3"),
+    ("Shape A area = 4 x 3 = 12 cm2.", "Year 4, the answer key"),
+    ("Compare angle A and angle B using a square corner.", "Year 4"),
+    ("Check angle A against a square corner; it is smaller.",
+     "Year 4, the answer key"),
+]
+for src, where in LABELS:
+    got = _fix_articles(src)
+    assert got == src, f"{where}: {src!r} -> {got!r}"
+ok(f"a labelled A survives all {len(LABELS)} shipped cases unchanged")
+
+# The guard that saves a sentence genuinely opening on a label, which the
+# sentence-start rule alone would rewrite to "An is larger than B".
+assert _fix_articles("A is larger than B.") == "A is larger than B."
+assert _fix_articles("A and B meet at the centre.") == "A and B meet at the centre."
+ok("and so does one that opens a sentence, because no article is ever "
+   "followed by 'is' or 'and'")
+
+# The other half, which matters more: the fix still has to fire. A guard that
+# stops the corruption by stopping the correction has not fixed anything.
+assert _fix_articles("Draw a octagon.") == "Draw an octagon."
+assert _fix_articles("A elephant appeared.") == "An elephant appeared."
+assert _fix_articles("It rained. A hour later, a apple fell.") == \
+    "It rained. An hour later, an apple fell."
+assert _fix_articles("An acute angle is smaller.") == "An acute angle is smaller."
+ok("while a real article is still corrected, including a capital one opening "
+   "a sentence")
+
 print(f"\nALL {_passed} ARTICLE AGREEMENT CHECKS PASSED")
 sys.exit(0)

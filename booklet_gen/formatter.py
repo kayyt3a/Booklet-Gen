@@ -821,6 +821,42 @@ _EN_DASH = re.compile(r"\s*–\s*")
 # bug, not a fix for this one.
 _ARTICLE_RE = re.compile(r"\b([Aa]n?)\s+([A-Za-z][A-Za-z'-]*)")
 
+# A CAPITAL "A" MID-SENTENCE IS A LABEL, NOT AN ARTICLE, and this rule shipped
+# in every booklet examined before it was found:
+#
+#   "Circle An is 1/2 shaded. Circle B is 3/4 shaded."      (Year 3)
+#   "Shape An area = 4 x 3 = 12 cm2"                        (Year 4 key)
+#   "Compare angle An and angle B using a square corner."   (Year 4)
+#   "the dot plots show quiz scores for Group An and Group B"(Year 6)
+#   "How much more of Circle An is shaded than Circle B?"   (Year 6)
+#
+# "Circle A is" parses as the article "A" followed by "is", "is" begins with a
+# vowel, and the fixer dutifully corrects it to "An". The child then has to
+# work out that "Circle An" means the circle labelled A.
+#
+# Two guards, each sound on its own, and they cover each other's edge.
+#
+# ONE: the indefinite article is lower case unless it opens a sentence. A
+# capital A or An anywhere else is a label, a heading word or a name. This is
+# what saves "Shape A area", where the following word could legitimately take
+# an article.
+_SENTENCE_START = re.compile(r"(?:^|[.?!:;]\s|\n\s*|[\"'(\[]\s*)$")
+
+# TWO: nothing that can follow an article is a finite verb or a conjunction.
+# "a is", "a and", "a shows" are not article usage in any sentence, so a match
+# ending in one of these was never an article to correct. This is what saves a
+# sentence that genuinely opens on a label, "A is larger than B", which the
+# first guard alone would rewrite to "An is larger than B".
+_NEVER_AFTER_ARTICLE = frozenset({
+    "is", "are", "was", "were", "am", "be", "been", "being",
+    "and", "or", "nor", "but", "then", "than", "so",
+    "has", "have", "had", "will", "would", "can", "could", "shall",
+    "should", "may", "might", "must", "does", "did", "do",
+    "shows", "show", "showed", "equals", "equal", "measures", "contains",
+    "holds", "gives", "makes", "costs", "weighs", "needs", "goes",
+    "lies", "meets", "starts", "ends", "begins", "looks", "seems",
+})
+
 # Vowel-letter word that is actually a consonant SOUND ("yoo", "w"), so "a"
 # is correct despite the spelling.
 _A_NOT_AN = frozenset({
@@ -855,9 +891,25 @@ def _correct_article(article: str, word: str) -> str:
     return an_form if wants_an else a_form
 
 
+def _is_article(text: str, match: "re.Match[str]") -> bool:
+    """Whether this A/An/a/an is really an article, and not a label.
+
+    See the two guards above `_NEVER_AFTER_ARTICLE`. Both have to pass, which
+    is what stops "Circle A is shaded" becoming "Circle An is shaded" without
+    breaking "A university has an hour-long lecture".
+    """
+    if match.group(2).lower() in _NEVER_AFTER_ARTICLE:
+        return False
+    if match.group(1)[0].isupper():
+        return bool(_SENTENCE_START.search(text[:match.start(1)]))
+    return True
+
+
 def _fix_articles(text: str) -> str:
     """Correct a/an before the next word, deterministically. See note above."""
     def fix(m: "re.Match[str]") -> str:
+        if not _is_article(text, m):
+            return m.group(0)
         return _correct_article(m.group(1), m.group(2)) + " " + m.group(2)
     return _ARTICLE_RE.sub(fix, text)
 
@@ -1811,6 +1863,20 @@ def _lesson_opening(flowables: list) -> list:
     return flowables
 
 
+def _lesson_prose(flowables: list) -> list:
+    """The lesson up to, but NOT including, the worked-example box.
+
+    The intro paragraph and the key points, which are ordinary paragraphs and
+    split across a page like any other prose. The box after them is a Table and
+    cannot split, so it is the piece that decides whether a whole lesson fits,
+    and it is the piece worth letting travel alone.
+    """
+    for i, f in enumerate(flowables):
+        if isinstance(f, Table):
+            return flowables[:i]
+    return flowables
+
+
 # What has to fit under a heading for the heading to be worth printing here.
 # Enough for the first line or two of whatever follows: an answer and its
 # working in the key, a question and the top of its working panel in the body.
@@ -1851,28 +1917,42 @@ def orphan_break(headings: list, width: float = BODY_WIDTH,
 
 
 def _lesson_cond_break(headings: list, lesson: list) -> list:
-    """The break that stops a heading being stranded above its worked example.
+    """The break that stops a heading being stranded above its own lesson.
 
-    The worked-example box is one Table and cannot split, so when it does not
-    fit it moves whole to the next page and leaves the topic heading, the
-    subtopic heading, the intro paragraph and the key points sitting above four
-    or five centimetres of white. Measured, not guessed: see stack_height.
+    Sized for the headings and the lesson PROSE, and deliberately not for the
+    worked-example box after it.
+
+    It used to demand the whole opening, box included, so that a lesson either
+    landed complete or moved complete. That reads better when it fires and it
+    is the wrong trade, because of what it costs when it fires. The box is
+    several centimetres tall, so a page with everything but the box still left
+    on it threw all of that away: a shipped Year 3 booklet lost 12.4cm of a
+    24.6cm column to one of these, and averaged 4.8cm a page across the
+    booklet. The defect it was avoiding, headings and prose above four or five
+    centimetres of white, is the SMALLER waste, and the break was trading a
+    bounded cost for an unbounded one.
+
+    So the box is now allowed to travel by itself. Whatever is left on the page
+    is filled with the lesson that introduces it, which is the thing a reader
+    wants under a heading anyway, and only the part that genuinely cannot split
+    moves on. What is thrown away falls from "everything still on the page" to
+    "whatever the box alone would not fit into".
 
     Measured as ONE stack rather than as two added together. The frame sets the
     gap between the last heading and the first line of the lesson to the larger
     of the heading's spaceAfter and the paragraph's spaceBefore, and measuring
     the two runs separately loses that junction entirely: 6pt, about 0.21cm,
     which is enough to leave a lesson believing it fits with 9.83cm left when
-    it needs 9.89cm, and the worked-example box then moves to the next page on
-    its own. Small enough to hide until something repaginates the booklet.
+    it needs 9.89cm. Small enough to hide until something repaginates.
     """
     # Key points are grouped in a KeepTogether so a lone bullet cannot be
     # stranded. ReportLab reports a sentinel height for that wrapper, so
-    # measure its real contents here or the opening is understated and the
-    # worked-example box can move to the next page by itself.
-    needed = min(stack_height(headings + _unwrap(_lesson_opening(lesson))),
-                 _MAX_COND_BREAK)
-    return [CondPageBreak(needed)]
+    # measure its real contents here or the opening is understated.
+    prose = stack_height(headings + _unwrap(_lesson_prose(lesson)))
+    # A lesson with no prose at all still may not leave its headings alone at
+    # the foot of a page, so the ordinary orphan rule is the floor.
+    floor = stack_height(headings) + _ORPHAN_MIN_CM * cm
+    return [CondPageBreak(min(max(prose, floor), _MAX_COND_BREAK))]
 
 
 def part_opening_break(opening: list, floor_cm: float = 0.0) -> CondPageBreak:
@@ -4290,8 +4370,11 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
                 # The first run of the part. Its break goes in front of the
                 # band rather than in front of the headings, and covers both,
                 # so the band arrives on the page its own lesson starts.
+                # Prose, not the whole opening: the worked-example box is
+                # allowed to travel to the next page by itself rather than
+                # take everything above it along. See _lesson_cond_break.
                 story.insert(cw_mark, part_opening_break(
-                    story[cw_mark:] + _lesson_opening(lesson)))
+                    story[cw_mark:] + _lesson_prose(lesson)))
             story.extend(lesson)
             if section.questions:
                 # Only when something follows it. A subtopic the hour could not
@@ -4488,7 +4571,7 @@ def _booklet_story(styles, data: BookletData, times: dict, *,
             # does not work: the whole block moves and the heading is left with
             # nothing under it after all.
             headings_need = (
-                stack_height(head_only + _lesson_opening(lesson)) if lesson
+                stack_height(head_only + _lesson_prose(lesson)) if lesson
                 else stack_height(head_only + _unwrap([first_row]),
                                   demanded=True)
                 if first_row is not None
