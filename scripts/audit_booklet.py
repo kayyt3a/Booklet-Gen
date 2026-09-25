@@ -89,10 +89,24 @@ TICK_RATE_NOTE = 0.85
 
 # The model thinking out loud, in a document someone marks from. Taken from
 # the answer key of a shipped Year 4 booklet.
-DELIBERATION = re.compile(
-    r"\b(?:alternatively|let us re-?calculate|let me re-?calculate"
-    r"|most common interpretation|on second thought|wait,"
-    r"|i (?:will|shall) assume|re-?examining|actually,)\b", re.IGNORECASE)
+#
+# IMPORTED FROM THE PIPELINE'S OWN GUARD, not written again here. This file
+# began with its own copy, and that is exactly how the defect reached a
+# customer: `consistency._SELF_CORRECTION` held "let me recalculate" and the
+# booklet said "Let us re-calculate", so the pipeline saw nothing and only the
+# auditor did. Two detectors for one rule will always drift, and the one that
+# drifts is the one that ships. Importing means broadening either of them
+# broadens both.
+try:
+    from booklet_gen.agents.consistency import (                   # noqa: E402
+        _ALTERNATIVE_READINGS, _SELF_CORRECTION)
+    DELIBERATION = re.compile(
+        f"(?:{_SELF_CORRECTION.pattern})|(?:{_ALTERNATIVE_READINGS.pattern})",
+        re.IGNORECASE)
+except ImportError:
+    # Audits a PDF from outside the project, where the package is not
+    # importable. Reported below rather than guessed at silently.
+    DELIBERATION = None
 
 # Working that sets out a column algorithm, where the answer is built one
 # digit at a time and is NOT expected to appear anywhere as a whole number:
@@ -347,8 +361,15 @@ def check_dead_space(b: Booklet) -> list[Finding]:
     everything under it. The average is the number that matters and the worst
     pages are the evidence for it, so they belong in the same line.
     """
+    # Every content page but the last. The last one carries the end of the
+    # Final Challenge and the score box, and a booklet stops where it stops:
+    # there is nothing left to pull up into the space under it. Counting it
+    # charged every booklet for its own ending, which made a well set booklet
+    # read as 2.3cm wasted a page when the pages that could actually be
+    # improved averaged 1.8cm.
+    pages = b.content_pages()[:-1]
     gaps = sorted(((FOOTER_TOP_PT - b.lowest_content(i)) / 72 * 2.54, i)
-                  for i in b.content_pages())
+                  for i in pages)
     if not gaps:
         return []
     mean = sum(g for g, _ in gaps) / len(gaps)
@@ -426,8 +447,14 @@ def check_answer_key(b: Booklet) -> list[Finding]:
         "a tick means that answer was checked, and a key that is mostly "
         "unticked is one a parent cannot mark from with any confidence"))
 
+    if DELIBERATION is None:
+        found.append(Finding(
+            "NOTE", "answer key", "deliberation check",
+            "skipped: booklet_gen is not importable from here",
+            "run this from the project root to check the key for model "
+            "deliberation, which shares its detector with the pipeline"))
     for a in key:
-        if DELIBERATION.search(a["working"]):
+        if DELIBERATION is not None and DELIBERATION.search(a["working"]):
             phrase = DELIBERATION.search(a["working"]).group(0)
             found.append(Finding(
                 "SERIOUS", "deliberation", a["where"],

@@ -1298,6 +1298,11 @@ class BookletPipeline:
                 log.info("pipeline.drop_impossible_constraints_recap",
                          extra={"subject": subject, "reason": impossible})
                 continue
+            untrustworthy = self._untrustworthy_key(q)
+            if untrustworthy:
+                log.info("pipeline.drop_untrustworthy_key_recap",
+                         extra={"subject": subject, "reason": untrustworthy})
+                continue
             # Attribute the warm-up to the engine that wrote it. The recap has
             # no section around it, so this is the only record of which half of
             # a two-subject booklet a question came from.
@@ -1860,6 +1865,12 @@ class BookletPipeline:
                          extra={"subject": subject, "subtopic": subtopic.name,
                                 "reason": impossible})
                 continue
+            untrustworthy = self._untrustworthy_key(q)
+            if untrustworthy:
+                log.info("pipeline.drop_untrustworthy_key",
+                         extra={"subject": subject, "subtopic": subtopic.name,
+                                "reason": untrustworthy})
+                continue
             selected.append(q)
             selected_norms.add(norm)
 
@@ -2178,6 +2189,11 @@ class BookletPipeline:
                 log.info("pipeline.drop_impossible_constraints_challenge",
                          extra={"subject": subject, "reason": impossible})
                 continue
+            untrustworthy = self._untrustworthy_key(q)
+            if untrustworthy:
+                log.info("pipeline.drop_untrustworthy_key_challenge",
+                         extra={"subject": subject, "reason": untrustworthy})
+                continue
             # Claim only once it is going to be kept, so a question dropped as
             # broken or figureless does not block a sound one later.
             if not seen.add(norm):
@@ -2262,8 +2278,47 @@ class BookletPipeline:
         return kept
 
     @staticmethod
+    def _untrustworthy_key(q) -> str | None:
+        """The reason this question's answer key cannot be printed, or None.
+
+        `_trusted` below has caught this class of fault since it was written,
+        and all it did was withhold the tick. A Year 4 booklet shipped with
+        "Answer: 128 m" above working whose every line concluded 112 m, and
+        the guard that noticed had no way to say more than "do not put a tick
+        on it". The question printed. A parent marking from that page marks a
+        correct child wrong, and a missing tick does not tell them which of
+        the two numbers to believe; it does not even tell them there is a
+        disagreement to notice.
+
+        This is the same shape as every other fault in this pipeline: the
+        detection worked and nothing acted on it. So it is a gate now, beside
+        the others, and the question is dropped. That is the cheaper loss by a
+        wide margin. One question fewer is a rounding error against an answer
+        key a parent cannot trust, and the year band floors are what stop the
+        drop emptying a section.
+
+        NARROWER THAN `_trusted`, on purpose, and the first version of this was
+        not. Dropping on everything that costs a question its tick emptied the
+        practice set of every fraction subtopic in the test suite, because a
+        key for "1/16 + 2/16" works on the numerators and never writes the
+        denominator, which reads as an answer appearing nowhere in its own
+        working. See `consistency.answer_is_unprintable` for what is left in
+        and what is deliberately left out.
+        """
+        from .agents.consistency import answer_is_unprintable
+        bad, why = answer_is_unprintable(
+            getattr(q, "answer", "") or "", getattr(q, "working", "") or "")
+        return (why or "the answer key is not printable") if bad else None
+
+    @staticmethod
     def _trusted(q, verified: bool) -> bool:
         """Withhold the verified mark when the working betrays the answer.
+
+        Kept as a backstop behind `_untrustworthy_key`, which drops these
+        before they reach here. It still earns its place: the exam paper builds
+        its own marking key down a separate path that the gates do not run on,
+        and a guard that costs one function call is worth more than the
+        tidiness of removing it.
 
         The judge grades the answer against the question, so it never sees
         working that disagrees with the answer it is supposedly justifying.
