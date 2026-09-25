@@ -59,6 +59,22 @@ CLASSWORK_CAP_MINUTES = int(os.environ.get("FOLIO_CLASSWORK_CAP_MINUTES", "60"))
 # that print.
 CHALLENGE_HEADROOM = int(os.environ.get("FOLIO_CHALLENGE_HEADROOM", "2"))
 
+# The same, for a practice subtopic, and for the same measured reason: the
+# guards drop about one question in three, and asking for exactly what prints
+# takes the whole shortfall out of the printed booklet. A Year 6 booklet
+# shipped six homework questions against a band of twelve.
+#
+# One subtopic is one generation call and one batched judge call however many
+# questions it holds, so a spare costs output tokens and no round trip.
+PRACTICE_HEADROOM = int(os.environ.get("FOLIO_PRACTICE_HEADROOM", "2"))
+
+# Class Work may not be trimmed below this to make room for Homework. Four
+# questions under every mini-lesson is the promise the classwork floor exists
+# for; three is where that gives, and it only gives when the alternative is a
+# subtopic taught in the lesson and never practised during the week.
+CLASSWORK_MIN_QUESTIONS = int(
+    os.environ.get("FOLIO_CLASSWORK_MIN_QUESTIONS", "3"))
+
 # Never teach fewer than this many subtopics in a session, even if the cap
 # says so. A booklet that teaches one thing is not worth an hour of a
 # tutor's time, and at that point the honest answer is a longer session.
@@ -1387,6 +1403,23 @@ class BookletPipeline:
         # question carries a passage_id.
         validated = self._group_by_passage(validated)
         cut = self._passage_safe_split(validated, self._n_classwork)
+        # Class Work takes its share off the front and Homework gets the rest,
+        # which means a short set leaves Homework with NOTHING. That is how a
+        # Year 6 booklet taught angles for seventeen minutes and then set no
+        # angle question for the week at all: four questions survived the
+        # guards, class work is four, and the subtraction did the rest.
+        #
+        # Hand one back rather than print a topic the child never practises.
+        # Recomputed through _passage_safe_split rather than decremented,
+        # because the cut has to keep landing on a passage boundary: an English
+        # comprehension question moved across it is a question about a reading
+        # that is not on the page.
+        if cut >= len(validated) > CLASSWORK_MIN_QUESTIONS:
+            cut = self._passage_safe_split(
+                validated, max(CLASSWORK_MIN_QUESTIONS, self._n_classwork - 1))
+            log.info("pipeline.classwork_yielded_to_homework",
+                     extra={"subject": subject, "subtopic": subtopic.name,
+                            "survived": len(validated), "classwork": cut})
         classwork = validated[:cut]
         # Held to the year band's budget even when the model wrote more than it
         # was asked for, which it does often enough to matter: the count in the
@@ -1812,13 +1845,22 @@ class BookletPipeline:
         # checks drive this method on a bare pipeline that sets just the
         # attributes they exercise.
         cut_at = getattr(self, "_n_classwork", None)
-        # Ask for exactly what this year level will print. The agent is built
-        # once, before anyone knows whose booklet this is, so the number has to
-        # arrive per call: a Year 1 subtopic is set six questions and a Year 9
-        # one eight, and generating eight everywhere means paying to write and
-        # to validate two that are then thrown away.
+        # Sized per call, because the agent is built once, before anyone knows
+        # whose booklet this is: a Year 1 subtopic is set six questions and a
+        # Year 9 one eight.
+        #
+        # Plus headroom, for the same reason the Final Challenge carries it.
+        # This used to ask for exactly what it would print, and the guards drop
+        # roughly one in three, so the shortfall came straight off the printed
+        # count. A Year 6 booklet shipped with six homework questions against a
+        # band of twelve and its middle topic, seventeen minutes of angles in
+        # the lesson, set NO homework at all: four questions survived, class
+        # work takes its four off the front, and homework got what was left.
+        #
+        # The spares cost output tokens and no extra round trip, because the
+        # whole subtopic is one generation call and one batched judge call.
         n_classwork, n_homework = self._question_budget(year_level)
-        count = n_classwork + n_homework
+        count = n_classwork + n_homework + PRACTICE_HEADROOM
 
         def pooled(question_set):
             for p in getattr(question_set, "passages", None) or []:

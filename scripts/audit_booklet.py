@@ -313,6 +313,27 @@ class Booklet:
                           else len(body)))
         return spans
 
+    def subtopics_in(self, band: str) -> list[str]:
+        """The subtopics a band teaches or sets, in order.
+
+        Read off the "TOPIC n OF m" rule the booklet prints above each one,
+        because the line under it is the subtopic name in both Class Work and
+        Homework. Matching on the name alone would also catch the contents
+        page and the answer key, which name every subtopic in the booklet.
+        """
+        out = []
+        for i, this in enumerate(self.bands):
+            if this != band:
+                continue
+            lines = [ln.strip() for ln in self.text[i].split("\n") if ln.strip()]
+            for j, line in enumerate(lines[:-1]):
+                if re.fullmatch(r"TOPIC \d+ OF \d+", line):
+                    name = re.sub(r"\s*\(about \d+ min\)\s*$", "",
+                                  lines[j + 1]).strip()
+                    if name and name not in out:
+                        out.append(name)
+        return out
+
     def questions(self) -> list[dict]:
         """Numbered questions off the child's pages, with the page they sit on.
 
@@ -398,13 +419,33 @@ def check_section_sizes(b: Booklet) -> list[Finding]:
         return [Finding("NOTE", "structure", "score box",
                         "could not be read",
                         "section sizes could not be checked from this file")]
+    taught = b.subtopics_in("CLASS WORK")
+    set_for_week = b.subtopics_in("HOMEWORK")
+
     try:
         from booklet_gen.timing import session_plan
         plan = session_plan(b.year)
         expected = {"Warm-up Recap": plan.recap_questions,
                     "Final Challenge": plan.challenge_questions}
+        # Homework is per subtopic, so the booklet's own topic count sets the
+        # total. This was left out at first and a Year 6 booklet with six
+        # homework questions against a band of twelve came back clean.
+        if taught:
+            expected["Homework"] = plan.homework_per_subtopic * len(taught)
     except Exception:
         expected = {}
+
+    # A subtopic taught in the lesson and never practised during the week. The
+    # same Year 6 booklet spent seventeen minutes on angles and set not one
+    # angle question for homework, which no count of questions reveals on its
+    # own: the booklet had homework, just none of it on that.
+    never_set = [name for name in taught if name not in set_for_week]
+    if taught and set_for_week and never_set:
+        found.append(Finding(
+            "SERIOUS", "taught, not set", ", ".join(never_set)[:60],
+            f"{len(never_set)} of {len(taught)} subtopics get no homework",
+            "the child works through it in the lesson and then never sees it "
+            "again, which is the week the booklet exists to plan"))
     for name, want in expected.items():
         got = box.get(name)
         if got is None:
