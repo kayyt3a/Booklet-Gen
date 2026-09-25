@@ -360,6 +360,13 @@ def main() -> int:
          "unlabelled shapes, for a name-this question"),
         ({"type": "place_value", "value": 342}, "place value blocks for 342"),
         ({"type": "place_value", "value": 7}, "place value blocks for a single digit"),
+        # Four digits and up draw a headed place-value chart instead of
+        # blocks, because 2456 as base-ten blocks is 2,400 drawn cells. This
+        # sat in the refusal list below, which made a limitation of the
+        # renderer into a requirement on it, and a Year 4 booklet asking for
+        # the value of the 4 in 2456 printed with no figure at all.
+        ({"type": "place_value", "value": 4200}, "a place-value chart for 4200"),
+        ({"type": "place_value", "value": 1234567}, "and one for seven digits"),
     ]
     for spec, note in _PRIMARY_CASES:
         path = diagrams.render_diagram(spec)
@@ -371,7 +378,11 @@ def main() -> int:
         ({"type": "array", "rows": 40, "columns": 40}, "an array too big to read"),
         ({"type": "groups", "groups": 99, "each": 2}, "more groups than fit"),
         ({"type": "shape", "shape": "dodecahedron"}, "a shape it cannot draw"),
-        ({"type": "place_value", "value": 4200}, "a number past 999"),
+        # Eight digits needs a column the chart has no heading for, and there
+        # is no picture of a negative count to draw. Both are real ceilings,
+        # unlike 999.
+        ({"type": "place_value", "value": 12345678}, "a number past seven digits"),
+        ({"type": "place_value", "value": -5}, "a negative number"),
     ]:
         check(diagrams.render_diagram(spec) is None, f"refuses {note}")
 

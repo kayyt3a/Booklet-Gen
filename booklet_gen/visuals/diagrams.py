@@ -901,18 +901,102 @@ def _shape(spec: dict, out: Path, f: _Fonts) -> None:
     save_figure(fig, out, 0.05)
 
 
+# Column headings for the place-value chart, smallest first, in two forms.
+#
+# Words are clearer to a nine year old and they do not fit. The print box is
+# 6cm, a four column chart gives each heading about 42pt of it, and
+# "Thousands" needs about 48pt at the 9pt floor every label on a figure has to
+# clear. Written in words this chart printed "ThousandsHundreds Tens Ones"
+# with the first two on top of each other, and at seven digits it was a single
+# grey smear. It is the column graph's defect exactly: text drawn at a size
+# the legibility pass inflates, into a slot nothing measured.
+#
+# So the words are tried, measured, and swapped for the abbreviations a
+# classroom place-value chart actually uses when they do not fit. Both forms
+# are here rather than one, because at four digits in a wide figure the words
+# do fit and are worth having.
+_PV_WORDS = ("Ones", "Tens", "Hundreds", "Thousands", "Ten\nThousands",
+             "Hundred\nThousands", "Millions")
+_PV_SHORT = ("O", "T", "H", "Th", "TTh", "HTh", "M")
+
+
 def _place_value(spec: dict, out: Path, f: _Fonts) -> None:
-    """Hundreds, tens and ones as blocks, the standard classroom picture.
+    """A number shown by place, as a classroom shows it.
 
     "Three-digit numbers" was taught with no picture of a three-digit number.
     Place value is the one idea in early primary that is genuinely spatial.
+
+    TWO FORMS, because one does not stretch. Base-ten blocks are the picture
+    for 0-999 and they stop working immediately above it: 2456 would be
+    twenty-four hundred-squares, about 2,400 drawn cells, and a Year 4 booklet
+    asking for the value of the 4 in 2456 would get a grey rectangle.
+
+    So this used to raise above 999, and the question printed with no figure
+    at all. That is the wrong reading of the limit. The limit is real, and a
+    classroom answers it the same way: at four digits it puts the number in a
+    place-value chart, columns headed and one digit in each. Which is also
+    exactly what the question is about, so the chart teaches the idea the
+    blocks were there to teach.
     """
+    value = int(spec.get("value", 0))
+    if value < 0:
+        raise ValueError(f"place value cannot show a negative number, got {value}")
+    if value > 9_999_999:
+        raise ValueError(
+            f"place value covers 0 to 9,999,999, got {value}. Past seven "
+            "digits the chart needs a column this figure has no room to head")
+    if value > 999:
+        _place_value_chart(value, out, f)
+        return
+    _place_value_blocks(value, spec, out, f)
+
+
+def _place_value_chart(value: int, out: Path, f: _Fonts) -> None:
+    """The four-and-up form: headed columns with one digit in each."""
+    import matplotlib.pyplot as plt
+
+    digits = str(value)
+
+    def draw(headings):
+        fig, ax = plt.subplots(
+            figsize=(min(3.0, 0.42 * len(digits) + 0.6), 1.5), dpi=DPI)
+        labels = []
+        for i, (heading, digit) in enumerate(zip(headings, digits)):
+            ax.add_patch(plt.Rectangle((i, 0), 1.0, 1.0, facecolor="none",
+                                       edgecolor=LINE_COLOR,
+                                       linewidth=LINE_WIDTH * 0.8))
+            ax.text(i + 0.5, 0.45, digit, ha="center", va="center",
+                    fontsize=f.label(13), color=LINE_COLOR)
+            labels.append(ax.text(i + 0.5, 1.12, heading, ha="center",
+                                  va="bottom", fontsize=f.label(7.5),
+                                  color=LINE_COLOR, linespacing=0.95))
+        ax.set_xlim(-0.1, len(digits) + 0.1)
+        # Headroom for a two-line heading, so "Hundred Thousands" is not
+        # clipped by the tight bounding box.
+        ax.set_ylim(-0.1, 1.95)
+        ax.axis("off")
+        return fig, ax, labels
+
+    words = list(reversed(_PV_WORDS[:len(digits)]))
+    fig, ax, labels = draw(words)
+    # Measured as drawn, against the column each one heads. A heading may use
+    # most of its own column and no more; the rest is the gap that tells a
+    # reader which digit it belongs to.
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    column_px = ax.get_window_extent().width / (len(digits) + 0.2)
+    widest = max(t.get_window_extent(renderer=renderer).width for t in labels)
+    if widest > column_px * 0.95:
+        plt.close(fig)
+        fig, ax, labels = draw(list(reversed(_PV_SHORT[:len(digits)])))
+    save_figure(fig, out, 0.05)
+
+
+def _place_value_blocks(value: int, spec: dict, out: Path, f: _Fonts) -> None:
+    """The 0-999 form: hundreds, tens and ones as base-ten blocks."""
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
 
-    value = int(spec.get("value", 0))
-    if not (0 <= value <= 999):
-        raise ValueError(f"place value blocks cover 0-999, got {value}")
     hundreds, rest = divmod(value, 100)
     tens, ones = divmod(rest, 10)
 
