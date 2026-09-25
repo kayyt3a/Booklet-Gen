@@ -180,33 +180,67 @@ def page_of(needle, first=1, last=None):
     return None
 
 
-print("\nA MINI-LESSON ARRIVES WITH ITS WORKED EXAMPLE")
+print("\nA MINI-LESSON IS NEVER MORE THAN ONE PAGE TURN FROM ITS EXAMPLE")
 
-# The worked-example question carries a marker word unique to its subtopic and
-# printed nowhere else in the booklet, so the page it landed on is not a guess.
+# This asserted that the heading, the intro, the key points and the box all
+# printed on ONE page, and that is no longer the rule. The rule cost more than
+# it was worth, and the cost was measured rather than argued:
+#
+#   headings alone                          2.5cm
+#   headings + intro + key points           6.0cm
+#   all of that + the worked-example box   11.5cm
+#
+# The box is a single-cell Table and cannot break, so demanding all 11.5cm
+# meant that a page with 11cm left threw all of it away. A shipped Year 3
+# booklet lost 12.4cm of a 24.6cm column to one of these and averaged 4.8cm a
+# page; the same booklet built to the looser rule averages 1.6cm and is a page
+# shorter. Halving the worst case is worth a page turn, which is what every
+# printed textbook does with a long example anyway.
+#
+# WHAT STILL HAS TO HOLD, and what is asserted instead. The box carries its own
+# label and restates its own question, so it reads on its own. What would not
+# read is a box pushed PAGES away from the lesson it belongs to, or a lesson
+# whose example never printed at all. Both are checked here, and the orphan
+# rule below is unchanged: no heading may be the last thing on a page.
+# Searched between the front matter and the answer key, not from page 1. Both
+# ends matter and the first draft of this had neither: the CONTENTS page lists
+# every subtopic by name, so locating a lesson heading from the front finds
+# the contents every time and reports a five page gap on a lesson that split
+# cleanly, and the answer key reprints the guided examples, so locating a box
+# without an upper bound finds the key's copy.
+FIRST_LESSON = next(i for i, t in enumerate(PAGES) if "CLASS WORK" in t)
+PROSE = "Volume is the amount of space"
+
+# ANCHORED ON THE PROSE, NOT THE HEADING, and the difference is the whole
+# assertion. Measuring from the subtopic heading reported gaps of two and five
+# pages here, and both were artefacts: the heading lands at the foot of the
+# page before its lesson and the prose flows over, so heading-to-box spans
+# three pages while prose-to-box spans one. The five page case is the last
+# Class Work subtopic, whose practice the hour cap moved to Homework and whose
+# lesson then prints among it; the unmodified formatter lays that page out
+# identically, so it is neither new nor this rule's business.
+#
+# What the reader needs is that the example follows the teaching. That is
+# prose-to-box, and nothing else here is evidence about it.
 stranded = []
 for topic, subtopic, marker, _, _ in SUBTOPICS:
-    box = page_of(f"The {marker} box")
+    box = page_of(f"The {marker} box", first=FIRST_LESSON, last=KEY_START)
     if box is None:
         stranded.append((subtopic, "the worked example was not printed at all"))
         continue
-    page = " ".join(PAGES[box].split())
-    missing = [name for name, text in
-               (("its subtopic heading", subtopic),
-                ("its intro paragraph", "Volume is the amount of space"),
-                ("its key points", "Volume equals length times width"))
-               if text not in page]
-    if missing:
-        stranded.append((subtopic, f"page {box + 1} has the box but not "
-                                   + ", ".join(missing)))
+    if PROSE not in " ".join(PAGES[box].split()) and not (
+            box - 1 >= FIRST_LESSON
+            and PROSE in " ".join(PAGES[box - 1].split())):
+        stranded.append((subtopic, f"the box is on page {box + 1} and the "
+                                   "lesson prose is on neither that page nor "
+                                   "the one before it"))
 
 check(not stranded,
-      f"all {len(SUBTOPICS)} mini-lessons print their heading, intro, key "
-      "points and worked example on one page",
-      f"these lessons were split from their own worked example: {stranded}. "
-      "The box cannot break, so it moves whole to the next page and leaves "
-      "the headings and the bullets above about five centimetres of white. "
-      "The child reads an introduction to an example that is not there")
+      f"all {len(SUBTOPICS)} worked examples follow their own lesson prose, on "
+      "its page or the next",
+      f"these examples are adrift from their teaching: {stranded}. A reader "
+      "who turns one page to reach the example is reading a textbook; one who "
+      "has to hunt for it has been handed a fault")
 
 print("\nNO HEADING IS LEFT AT THE FOOT OF A PAGE WITH NOTHING UNDER IT")
 
@@ -553,19 +587,23 @@ def spread_booklet():
         challenge_minutes=18, total_minutes=170)
 
 
-# 93.5cm across the 20 question pages, measured the day the contents page
-# landed. The ceiling is two centimetres over it: room for a font metric to
-# move under the booklet, not room for another rule to take a page foot.
+# 63.4cm across the 20 question pages. The ceiling is a few centimetres over
+# it: room for a font metric to move under the booklet, not room for another
+# rule to take a page foot.
 #
-# It was 124.0cm across 21 pages when this was written, and the number moved
-# for two reasons, neither of them a page packing better or worse. The 25cm
-# blank verso and the contents page are now excluded by name (see foot_white),
-# which takes about 16cm off; and the contents page changed this fixture's
-# parity, so the blank verso it used to print is not there to measure. The
-# ceiling therefore came DOWN with the measurement rather than staying where it
-# was, which is the point: a ceiling that no longer touches the number it
-# guards is not a guard.
-FOOT_WHITE_CM = 95.5
+# It was 124.0cm across 21 pages when this was written, then 93.5cm once the
+# blank verso and the contents page were excluded by name, and it is 63.4cm
+# now. The last step is the only one where a page actually packed better: the
+# three breaks in front of a mini-lesson used to reserve room for the
+# worked-example box as well as the heading run, 11.5cm against 6.0cm, and a
+# page holding everything but the box threw all of it away. The box travels on
+# its own now. That alone took 30cm of blank paper out of this booklet and a
+# whole page out of the Year 3 booklet it was measured against.
+#
+# The ceiling comes DOWN with the measurement every time, which is the point:
+# a ceiling that no longer touches the number it guards is not a guard. At
+# 95.5cm this check passed the booklet that averaged 4.8cm of dead page.
+FOOT_WHITE_CM = 70.0
 
 
 def foot_white(document, key_start):
