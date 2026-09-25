@@ -64,6 +64,42 @@ def _unit(dx: float, dy: float) -> tuple[float, float]:
 # "angles on a straight line, at a point and in a triangle" (Years 5-6).
 # ---------------------------------------------------------------------------
 
+# The clearance an angle label keeps between itself and the arc it names, in
+# the same units the arcs are drawn in.
+_ANGLE_LABEL_GAP = 0.10
+
+
+def _clear_the_arc(fig, ax, placed) -> None:
+    """Push each angle label out until it stops sitting on its own arc.
+
+    A Year 6 booklet printed a three-angle figure reading "120°" beside one
+    arc and "145" beside the next, and the degree symbol had not been dropped:
+    it was drawn exactly on the arc stroke and read as part of the circle.
+
+    The labels were centred at a FIXED radius, a set distance beyond the arc,
+    which is a rule about the label's middle and not about its edge. A label
+    pointing up or down approaches the arc with its line height, which is
+    small. One pointing left or right approaches with half its WIDTH, and
+    "145°" is wide enough to reach back over the arc it was measured from.
+    Both of the figure's labels obeyed the rule; only one of them cleared.
+
+    So the extent of the text along its own radius is measured and added. That
+    is the half-width where the label lies horizontally, the half-height where
+    it lies vertically, and the right blend in between.
+    """
+    if not placed:
+        return
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    for text, marked, am in placed:
+        box = text.get_window_extent(renderer=renderer).transformed(
+            ax.transData.inverted())
+        reach = (abs(box.width / 2 * math.cos(am))
+                 + abs(box.height / 2 * math.sin(am)))
+        radius = marked + _ANGLE_LABEL_GAP + reach
+        text.set_position((radius * math.cos(am), radius * math.sin(am)))
+
+
 def angle(spec: dict, out: Path, f: _Fonts) -> None:
     """One or more angles at a shared vertex, arcs marked and labelled.
 
@@ -116,6 +152,7 @@ def angle(spec: dict, out: Path, f: _Fonts) -> None:
 
     start = 0.0
     ray(start)
+    placed = []
     for i, v in enumerate(values):
         end = start + v
         ray(end)
@@ -127,22 +164,26 @@ def angle(spec: dict, out: Path, f: _Fonts) -> None:
             _right_angle_mark(ax, (0, 0),
                               (math.cos(a0), math.sin(a0)),
                               (math.cos(a1), math.sin(a1)), 0.16)
+            marked = 0.16
         else:
             r = 0.30 + 0.055 * i      # nested arcs stay apart when angles are small
             ax.add_patch(Arc((0, 0), 2 * r, 2 * r, theta1=start, theta2=end,
                              edgecolor=LINE_COLOR, linewidth=LINE_WIDTH * 0.8))
+            marked = r
         text = str(labels[i]) if i < len(labels) else f"{_pretty_num(v)}°"
         if text:
             rl = 0.52 + 0.055 * i
             am = math.radians(mid)
-            ax.text(rl * math.cos(am), rl * math.sin(am), text,
-                    ha="center", va="center", fontsize=f.label(11),
-                    color=LINE_COLOR)
+            placed.append((ax.text(rl * math.cos(am), rl * math.sin(am), text,
+                                   ha="center", va="center",
+                                   fontsize=f.label(11), color=LINE_COLOR),
+                           marked, am))
         start = end
 
     ax.add_patch(plt.Circle((0, 0), 0.035, facecolor=LINE_COLOR, edgecolor="none"))
     ax.set_xlim(-1.2 if base != "open" else -0.3, 1.2)
     ax.set_ylim(-1.2 if base == "point" else -0.3, 1.2)
+    _clear_the_arc(fig, ax, placed)
     # A figure drawn to scale hands over an angle the question is asking for,
     # exactly as a drawn-to-scale length would.
     _scale_note(ax, spec, f)
