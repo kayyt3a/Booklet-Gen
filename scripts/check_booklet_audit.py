@@ -192,6 +192,32 @@ check("key disagrees" not in kinds(clean),
       "is how the algorithm is taught and not a fault to report")
 
 
+print("\n== a subtopic taught and never set is caught ==")
+
+# The Year 6 booklet spent seventeen minutes on angles and set no angle
+# question for the week. Its own numbering gives it away: the homework run
+# reads TOPIC 1, TOPIC 3.
+missing = booklet(CLEAN_CHALLENGE)
+missing.sections[1].homework_questions = []
+found = audit_of(missing, "nohomework")
+check("taught, not set" in kinds(found, "SERIOUS"),
+      "a subtopic with class work and no homework is reported",
+      f"got {[(f.severity, f.kind) for f in found]}. The child works through "
+      "it in the lesson and never sees it again, which is the week the "
+      "booklet exists to plan")
+
+# The negative control, and the reason this check is built on the booklet's
+# own topic numbering. The first version read which BAND each page belonged
+# to, and the running header names the band that STARTS on a page, so a
+# Homework topic beginning on the page the Final Challenge also begins on was
+# filed under Final Challenge and reported as never set. That false alarm
+# fired on a booklet whose homework was complete.
+check("taught, not set" not in kinds(clean),
+      "and a booklet whose homework covers every topic is left alone",
+      "a complete booklet is reported as missing homework, which is the false "
+      "alarm that teaches a reader to ignore this tool")
+
+
 print("\n== a one-question Final Challenge is caught ==")
 
 stub = audit_of(booklet(CLEAN_CHALLENGE[:1]), "stub")

@@ -313,26 +313,39 @@ class Booklet:
                           else len(body)))
         return spans
 
-    def subtopics_in(self, band: str) -> list[str]:
-        """The subtopics a band teaches or sets, in order.
+    def topic_runs(self) -> list[list[tuple[int, str]]]:
+        """Every "TOPIC n OF m" heading, in reading order, grouped into runs.
 
-        Read off the "TOPIC n OF m" rule the booklet prints above each one,
-        because the line under it is the subtopic name in both Class Work and
-        Homework. Matching on the name alone would also catch the contents
-        page and the answer key, which name every subtopic in the booklet.
+        The booklet numbers its topics 1..m in Class Work and then starts at 1
+        again in Homework, so a run is everything up to the next reset. Class
+        Work is the first run and Homework the last, and a number missing from
+        the last run is a subtopic taught and never set.
+
+        NOT read off which band each PAGE belongs to, which is how the first
+        version worked and why it was wrong. The running header names the band
+        that STARTS on a page, so a Homework topic that begins on the page the
+        Final Challenge also begins on is filed under Final Challenge and
+        reads as missing. That produced a false alarm on a booklet whose
+        homework was complete. The booklet's own numbering does not care what
+        page anything landed on.
         """
-        out = []
-        for i, this in enumerate(self.bands):
-            if this != band:
-                continue
+        seen: list[tuple[int, str]] = []
+        for i, band in enumerate(self.bands):
+            if band == "ANSWERS":
+                break
             lines = [ln.strip() for ln in self.text[i].split("\n") if ln.strip()]
             for j, line in enumerate(lines[:-1]):
-                if re.fullmatch(r"TOPIC \d+ OF \d+", line):
+                m = re.fullmatch(r"TOPIC (\d+) OF \d+", line)
+                if m:
                     name = re.sub(r"\s*\(about \d+ min\)\s*$", "",
                                   lines[j + 1]).strip()
-                    if name and name not in out:
-                        out.append(name)
-        return out
+                    seen.append((int(m.group(1)), name))
+        runs: list[list[tuple[int, str]]] = []
+        for number, name in seen:
+            if not runs or number <= runs[-1][-1][0]:
+                runs.append([])
+            runs[-1].append((number, name))
+        return runs
 
     def questions(self) -> list[dict]:
         """Numbered questions off the child's pages, with the page they sit on.
@@ -419,8 +432,8 @@ def check_section_sizes(b: Booklet) -> list[Finding]:
         return [Finding("NOTE", "structure", "score box",
                         "could not be read",
                         "section sizes could not be checked from this file")]
-    taught = b.subtopics_in("CLASS WORK")
-    set_for_week = b.subtopics_in("HOMEWORK")
+    runs = b.topic_runs()
+    taught = [name for _, name in runs[0]] if runs else []
 
     try:
         from booklet_gen.timing import session_plan
@@ -439,8 +452,10 @@ def check_section_sizes(b: Booklet) -> list[Finding]:
     # same Year 6 booklet spent seventeen minutes on angles and set not one
     # angle question for homework, which no count of questions reveals on its
     # own: the booklet had homework, just none of it on that.
-    never_set = [name for name in taught if name not in set_for_week]
-    if taught and set_for_week and never_set:
+    set_numbers = {n for n, _ in runs[-1]} if len(runs) > 1 else set()
+    never_set = [name for n, name in (runs[0] if runs else [])
+                 if set_numbers and n not in set_numbers]
+    if never_set:
         found.append(Finding(
             "SERIOUS", "taught, not set", ", ".join(never_set)[:60],
             f"{len(never_set)} of {len(taught)} subtopics get no homework",
