@@ -12,7 +12,7 @@ from pathlib import Path
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from ..dbpool import advisory_lock, get_pool, is_postgres
+from ..dbpool import advisory_lock, get_pool, is_postgres, lock_public_tables
 
 log = logging.getLogger(__name__)
 
@@ -366,6 +366,10 @@ def init_db() -> None:
             )
             for statement in migrations:
                 conn.execute(statement)
+            # After every CREATE above, inside the same lock, so no table this
+            # schema defines is ever served over Supabase's public REST API.
+            # See dbpool.lock_public_tables for why no policies are needed.
+            lock_public_tables(conn)
             conn.execute(
                 """INSERT INTO credit_ledger
                    (user_id, delta, reason, reference, created_at)

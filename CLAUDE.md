@@ -40,6 +40,15 @@ cumulative "Final Challenge", with a verified answer key.
   SQLite + Chroma, which is fine locally but means a deployed instance loses
   accounts on restart and has no RAG. `scripts/migrate_rag_to_postgres.py`
   moves an existing Chroma library up without re-embedding.
+- **Row level security**: every table the app owns in `public` is put behind
+  RLS on every boot (`dbpool.lock_public_tables`), with NO policies. Supabase
+  serves `public` over a REST API keyed by the project's anon key, which is
+  public by design; with RLS off that key reads users and password hashes and
+  rewrites the credit ledger. The app is unaffected because it connects as
+  the tables' owner, and an owner is not subject to its own RLS. **Never use
+  `FORCE ROW LEVEL SECURITY`**: it applies RLS to the owner too, there are no
+  policies, and the app silently reads zero rows. `scripts/check_supabase_rls.py`
+  proves both against a real Postgres.
 - **Web app** (`booklet_gen/webapp/`): Flask, `db.py` (Postgres or SQLite),
   dropdown generate form. Accounts, email verification, credits, Stripe
   Checkout, queued generation, private file storage, customer legal pages, and

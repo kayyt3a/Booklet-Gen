@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 from typing import Optional, Sequence
 
-from ..dbpool import advisory_lock, get_pool, is_postgres
+from ..dbpool import advisory_lock, get_pool, is_postgres, lock_public_tables
 
 log = logging.getLogger(__name__)
 
@@ -134,6 +134,10 @@ class _PgVectorStore:
                     embedding  vector({EMBED_DIM})
                 )
             """)
+            # rag_chunks is created here, lazily, which can be after init_db
+            # has already locked everything else down on a fresh database. So
+            # it is locked where it is made rather than left for the next boot.
+            lock_public_tables(conn)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS rag_chunks_source_idx"
                 " ON rag_chunks (source_id)")
