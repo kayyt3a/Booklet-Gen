@@ -95,6 +95,57 @@ def advisory_lock(key: int):
             conn.execute("SELECT pg_advisory_unlock(%s)", (key,))
 
 
+# Every table this app owns in the public schema, not yet behind row level
+# security. Owned by current_user because ALTER TABLE needs ownership, and a
+# table someone made by hand in the dashboard would otherwise fail the
+# statement and take the whole boot down with it.
+_UNPROTECTED_TABLES_SQL = """
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tableowner = current_user
+      AND NOT rowsecurity
+"""
+
+
+def lock_public_tables(conn) -> list[str]:
+    """Put every table this app owns behind row level security.
+
+    Supabase serves every table in the `public` schema over a REST API at
+    https://<project>.supabase.co/rest/v1/, and that API authenticates with
+    the project's ANON key, which Supabase treats as public: it is meant to be
+    shipped inside browser code. With row level security off, that key reads,
+    edits and deletes every row. For this app that meant every customer's
+    email and password hash, the credit ledger (free booklets for anyone who
+    edits it), payments, and every stored PDF. Supabase flagged it as critical
+    on 27 September 2026. Nothing in this codebase had ever turned RLS on.
+
+    THIS APP NEVER USES THAT API. It talks to Postgres directly through
+    DATABASE_URL as the role that created the tables, and a table's owner is
+    not subject to its own row level security. So turning it on with NO
+    policies at all is exactly right: the REST API's anon and authenticated
+    roles see nothing, and the app sees everything it did before.
+
+    NOT `FORCE ROW LEVEL SECURITY`. That one clause is the difference between
+    this fix and a total outage. FORCE applies the policies to the owner as
+    well, there are no policies, and an owner with no policy granting it
+    anything reads zero rows: every login fails and every booklet is gone,
+    with no error anywhere, because an empty result is not an error.
+    scripts/check_supabase_rls.py refuses the word.
+
+    Run on every boot rather than once, and over every owned table rather than
+    a list of names, because the defect was never one table: it was that
+    creating a table in this schema made it public by default. A table added
+    next year is covered at the next restart without anyone remembering to.
+    """
+    locked = []
+    for (table,) in conn.execute(_UNPROTECTED_TABLES_SQL).fetchall():
+        conn.execute(f'ALTER TABLE public."{table}" ENABLE ROW LEVEL SECURITY')
+        locked.append(table)
+    if locked:
+        log.warning("db.rls_enabled", extra={"tables": ", ".join(locked)})
+    return locked
+
+
 def close_pool() -> None:
     """Close the pool. Mainly for tests."""
     global _pool
