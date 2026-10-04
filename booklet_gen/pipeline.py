@@ -59,6 +59,22 @@ CLASSWORK_CAP_MINUTES = int(os.environ.get("FOLIO_CLASSWORK_CAP_MINUTES", "60"))
 # that print.
 CHALLENGE_HEADROOM = int(os.environ.get("FOLIO_CHALLENGE_HEADROOM", "2"))
 
+# The same, for a practice subtopic, and for the same measured reason: the
+# guards drop about one question in three, and asking for exactly what prints
+# takes the whole shortfall out of the printed booklet. A Year 6 booklet
+# shipped six homework questions against a band of twelve.
+#
+# One subtopic is one generation call and one batched judge call however many
+# questions it holds, so a spare costs output tokens and no round trip.
+PRACTICE_HEADROOM = int(os.environ.get("FOLIO_PRACTICE_HEADROOM", "2"))
+
+# Class Work may not be trimmed below this to make room for Homework. Four
+# questions under every mini-lesson is the promise the classwork floor exists
+# for; three is where that gives, and it only gives when the alternative is a
+# subtopic taught in the lesson and never practised during the week.
+CLASSWORK_MIN_QUESTIONS = int(
+    os.environ.get("FOLIO_CLASSWORK_MIN_QUESTIONS", "3"))
+
 # Never teach fewer than this many subtopics in a session, even if the cap
 # says so. A booklet that teaches one thing is not worth an hour of a
 # tutor's time, and at that point the honest answer is a longer session.
@@ -1298,6 +1314,11 @@ class BookletPipeline:
                 log.info("pipeline.drop_impossible_constraints_recap",
                          extra={"subject": subject, "reason": impossible})
                 continue
+            untrustworthy = self._untrustworthy_key(q)
+            if untrustworthy:
+                log.info("pipeline.drop_untrustworthy_key_recap",
+                         extra={"subject": subject, "reason": untrustworthy})
+                continue
             # Attribute the warm-up to the engine that wrote it. The recap has
             # no section around it, so this is the only record of which half of
             # a two-subject booklet a question came from.
@@ -1382,6 +1403,23 @@ class BookletPipeline:
         # question carries a passage_id.
         validated = self._group_by_passage(validated)
         cut = self._passage_safe_split(validated, self._n_classwork)
+        # Class Work takes its share off the front and Homework gets the rest,
+        # which means a short set leaves Homework with NOTHING. That is how a
+        # Year 6 booklet taught angles for seventeen minutes and then set no
+        # angle question for the week at all: four questions survived the
+        # guards, class work is four, and the subtraction did the rest.
+        #
+        # Hand one back rather than print a topic the child never practises.
+        # Recomputed through _passage_safe_split rather than decremented,
+        # because the cut has to keep landing on a passage boundary: an English
+        # comprehension question moved across it is a question about a reading
+        # that is not on the page.
+        if cut >= len(validated) > CLASSWORK_MIN_QUESTIONS:
+            cut = self._passage_safe_split(
+                validated, max(CLASSWORK_MIN_QUESTIONS, self._n_classwork - 1))
+            log.info("pipeline.classwork_yielded_to_homework",
+                     extra={"subject": subject, "subtopic": subtopic.name,
+                            "survived": len(validated), "classwork": cut})
         classwork = validated[:cut]
         # Held to the year band's budget even when the model wrote more than it
         # was asked for, which it does often enough to matter: the count in the
@@ -1807,13 +1845,22 @@ class BookletPipeline:
         # checks drive this method on a bare pipeline that sets just the
         # attributes they exercise.
         cut_at = getattr(self, "_n_classwork", None)
-        # Ask for exactly what this year level will print. The agent is built
-        # once, before anyone knows whose booklet this is, so the number has to
-        # arrive per call: a Year 1 subtopic is set six questions and a Year 9
-        # one eight, and generating eight everywhere means paying to write and
-        # to validate two that are then thrown away.
+        # Sized per call, because the agent is built once, before anyone knows
+        # whose booklet this is: a Year 1 subtopic is set six questions and a
+        # Year 9 one eight.
+        #
+        # Plus headroom, for the same reason the Final Challenge carries it.
+        # This used to ask for exactly what it would print, and the guards drop
+        # roughly one in three, so the shortfall came straight off the printed
+        # count. A Year 6 booklet shipped with six homework questions against a
+        # band of twelve and its middle topic, seventeen minutes of angles in
+        # the lesson, set NO homework at all: four questions survived, class
+        # work takes its four off the front, and homework got what was left.
+        #
+        # The spares cost output tokens and no extra round trip, because the
+        # whole subtopic is one generation call and one batched judge call.
         n_classwork, n_homework = self._question_budget(year_level)
-        count = n_classwork + n_homework
+        count = n_classwork + n_homework + PRACTICE_HEADROOM
 
         def pooled(question_set):
             for p in getattr(question_set, "passages", None) or []:
@@ -1859,6 +1906,12 @@ class BookletPipeline:
                 log.info("pipeline.drop_impossible_constraints",
                          extra={"subject": subject, "subtopic": subtopic.name,
                                 "reason": impossible})
+                continue
+            untrustworthy = self._untrustworthy_key(q)
+            if untrustworthy:
+                log.info("pipeline.drop_untrustworthy_key",
+                         extra={"subject": subject, "subtopic": subtopic.name,
+                                "reason": untrustworthy})
                 continue
             selected.append(q)
             selected_norms.add(norm)
@@ -2178,6 +2231,11 @@ class BookletPipeline:
                 log.info("pipeline.drop_impossible_constraints_challenge",
                          extra={"subject": subject, "reason": impossible})
                 continue
+            untrustworthy = self._untrustworthy_key(q)
+            if untrustworthy:
+                log.info("pipeline.drop_untrustworthy_key_challenge",
+                         extra={"subject": subject, "reason": untrustworthy})
+                continue
             # Claim only once it is going to be kept, so a question dropped as
             # broken or figureless does not block a sound one later.
             if not seen.add(norm):
@@ -2262,8 +2320,47 @@ class BookletPipeline:
         return kept
 
     @staticmethod
+    def _untrustworthy_key(q) -> str | None:
+        """The reason this question's answer key cannot be printed, or None.
+
+        `_trusted` below has caught this class of fault since it was written,
+        and all it did was withhold the tick. A Year 4 booklet shipped with
+        "Answer: 128 m" above working whose every line concluded 112 m, and
+        the guard that noticed had no way to say more than "do not put a tick
+        on it". The question printed. A parent marking from that page marks a
+        correct child wrong, and a missing tick does not tell them which of
+        the two numbers to believe; it does not even tell them there is a
+        disagreement to notice.
+
+        This is the same shape as every other fault in this pipeline: the
+        detection worked and nothing acted on it. So it is a gate now, beside
+        the others, and the question is dropped. That is the cheaper loss by a
+        wide margin. One question fewer is a rounding error against an answer
+        key a parent cannot trust, and the year band floors are what stop the
+        drop emptying a section.
+
+        NARROWER THAN `_trusted`, on purpose, and the first version of this was
+        not. Dropping on everything that costs a question its tick emptied the
+        practice set of every fraction subtopic in the test suite, because a
+        key for "1/16 + 2/16" works on the numerators and never writes the
+        denominator, which reads as an answer appearing nowhere in its own
+        working. See `consistency.answer_is_unprintable` for what is left in
+        and what is deliberately left out.
+        """
+        from .agents.consistency import answer_is_unprintable
+        bad, why = answer_is_unprintable(
+            getattr(q, "answer", "") or "", getattr(q, "working", "") or "")
+        return (why or "the answer key is not printable") if bad else None
+
+    @staticmethod
     def _trusted(q, verified: bool) -> bool:
         """Withhold the verified mark when the working betrays the answer.
+
+        Kept as a backstop behind `_untrustworthy_key`, which drops these
+        before they reach here. It still earns its place: the exam paper builds
+        its own marking key down a separate path that the gates do not run on,
+        and a guard that costs one function call is worth more than the
+        tidiness of removing it.
 
         The judge grades the answer against the question, so it never sees
         working that disagrees with the answer it is supposedly justifying.
