@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import zipfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -98,13 +99,22 @@ def _generate(job: dict, args: dict) -> None:
     slug = f"{_slug(job.get('label') or 'booklet')}-{datetime.now():%Y%m%d}"
 
     if args.get("is_exam"):
+        stage_started = time.monotonic()
         paper = pipeline.run_exam(
             args["year"], args["name"], topic_focus=args.get("topic"),
         )
+        log.info("generation.stage_completed job=%s stage=pipeline duration_seconds=%.3f",
+                 job_id, time.monotonic() - stage_started)
         path = out_dir / f"{job_id}.pdf"
+        stage_started = time.monotonic()
         render_exam_pdf(paper, path)
+        log.info("generation.stage_completed job=%s stage=render duration_seconds=%.3f",
+                 job_id, time.monotonic() - stage_started)
+        stage_started = time.monotonic()
         db.save_job_file(job_id, user_id, f"{slug}.pdf",
                          "application/pdf", path.read_bytes())
+        log.info("generation.stage_completed job=%s stage=store duration_seconds=%.3f",
+                 job_id, time.monotonic() - stage_started)
         _finish_and_clean(job_id, path)
         return
 
@@ -123,6 +133,7 @@ def _generate(job: dict, args: dict) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         archive_path = out_dir / f"{job_id}.zip"
         weeks_written = 0
+        stage_started = time.monotonic()
         with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
             for data in pipeline.iter_term_plan(
                     args["program"], args["year"], args["name"],
@@ -142,14 +153,20 @@ def _generate(job: dict, args: dict) -> None:
                 del data
                 weeks_written += 1
                 log.info("term plan %s wrote week %d", job_id, weeks_written)
+        log.info("generation.stage_completed job=%s stage=pipeline_and_render duration_seconds=%.3f",
+                 job_id, time.monotonic() - stage_started)
         try:
+            stage_started = time.monotonic()
             db.save_job_file(job_id, user_id, f"{slug}.zip",
                              "application/zip", archive_path.read_bytes())
+            log.info("generation.stage_completed job=%s stage=store duration_seconds=%.3f",
+                     job_id, time.monotonic() - stage_started)
         finally:
             _clear_target(archive_path)
         _finish_and_clean(job_id, folder)
         return
 
+    stage_started = time.monotonic()
     plan_id = args.get("plan_id")
     if plan_id:
         data = _run_plan_week(pipeline, args, int(plan_id), job_id)
@@ -158,10 +175,18 @@ def _generate(job: dict, args: dict) -> None:
             args["program"], args["year"], args["name"],
             subject=args.get("subject"), topic=args.get("topic"),
         )
+    log.info("generation.stage_completed job=%s stage=pipeline duration_seconds=%.3f",
+             job_id, time.monotonic() - stage_started)
     path = out_dir / f"{job_id}.pdf"
+    stage_started = time.monotonic()
     render_pdf(data, path)
+    log.info("generation.stage_completed job=%s stage=render duration_seconds=%.3f",
+             job_id, time.monotonic() - stage_started)
+    stage_started = time.monotonic()
     db.save_job_file(job_id, user_id, f"{slug}.pdf",
                      "application/pdf", path.read_bytes())
+    log.info("generation.stage_completed job=%s stage=store duration_seconds=%.3f",
+             job_id, time.monotonic() - stage_started)
     _finish_and_clean(job_id, path)
 
 
