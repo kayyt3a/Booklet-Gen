@@ -22,6 +22,7 @@ from pathlib import Path
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
+from booklet_gen.formatter import PRINTED_BRAND
 from booklet_gen.visuals.cover import CoverSpec, VARIANTS, render_cover, variant_for
 
 
@@ -66,7 +67,7 @@ def main() -> None:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     c = canvas.Canvas(str(out), pagesize=A4)
-    render_cover(c, spec)
+    render_cover(c, spec, printed_brand=PRINTED_BRAND)
     c.showPage()
     c.save()
     print(f"variant: {variant}")

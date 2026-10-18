@@ -40,6 +40,7 @@ from reportlab.pdfgen import canvas
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from booklet_gen.formatter import PRINTED_BRAND                 # noqa: E402
 from booklet_gen.visuals.cover import (  # noqa: E402
     NAVY, BLUE_PALE, CoverSpec, render_cover, variant_for)
 from booklet_gen.webapp.covers import SAMPLES  # noqa: E402
@@ -85,7 +86,7 @@ def render_png(spec: CoverSpec, width_px: int, tmp: Path) -> Image.Image:
 
     pdf = tmp / "cover.pdf"
     c = canvas.Canvas(str(pdf), pagesize=A4)
-    render_cover(c, spec)
+    render_cover(c, spec, printed_brand=PRINTED_BRAND)
     c.showPage()
     c.save()
     doc = pymupdf.open(str(pdf))
