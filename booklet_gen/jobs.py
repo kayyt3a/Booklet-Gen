@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .programs import TERM_PLAN_WEEKS
+from .generation_timing import generation_context
 from .webapp import db
 
 log = logging.getLogger(__name__)
@@ -27,6 +28,16 @@ TERM_WEEKS = TERM_PLAN_WEEKS
 # because the right number depends on the API key's actual concurrent-request
 # ceiling, which this file cannot see.
 MAX_WORKERS = int(os.environ.get("FOLIO_MAX_WORKERS", "8"))
+
+
+def _generation_kind(args: dict) -> str:
+    if args.get("is_exam"):
+        return "exam"
+    if args.get("is_term"):
+        return "term"
+    if args.get("plan_id"):
+        return "plan_week"
+    return "program"
 
 
 def _slug(value: str) -> str:
@@ -69,7 +80,8 @@ def execute_claimed_job(job: dict) -> None:
         args = json.loads(job.get("request_json") or "{}")
         if not args:
             raise ValueError("The queued job has no generation request.")
-        _generate(job, args)
+        with generation_context(job_id, _generation_kind(args)):
+            _generate(job, args)
     except Exception as exc:
         log.exception("generation job %s failed", job_id)
         db.fail_job(job_id, str(exc))

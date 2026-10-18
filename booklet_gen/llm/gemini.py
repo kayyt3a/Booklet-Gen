@@ -24,6 +24,7 @@ import re
 import time
 
 from ..config import Config
+from ..generation_timing import timed
 from .base import LLMClient, Tier
 
 log = logging.getLogger(__name__)
@@ -80,59 +81,67 @@ class GeminiClient(LLMClient):
             # Loud, because the alternative is a silent downgrade.
             raise ValueError(f"unknown model tier {tier!r}; "
                              f"expected one of {sorted(self._models)}")
-        model = self._genai.GenerativeModel(model_name, system_instruction=system)
-        deadline = time.monotonic() + self._deadline_s
-        last_error: Exception | None = None
+        with timed(
+            "llm.gemini", "complete", llm_provider="gemini",
+            llm_model=model_name, llm_tier=tier,
+        ):
+            model = self._genai.GenerativeModel(model_name, system_instruction=system)
+            deadline = time.monotonic() + self._deadline_s
+            last_error: Exception | None = None
 
-        for attempt in range(1, _MAX_429_RETRIES + 1):
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            try:
-                response = model.generate_content(
-                    user,
-                    generation_config={"temperature": temperature},
-                    # retry=None: the SDK's backoff loop ignores this timeout,
-                    # so retrying is done here where the deadline is visible.
-                    request_options={
-                        "timeout": min(self._timeout_s, remaining),
-                        "retry": None,
-                    },
-                )
-                return (response.text or "").strip()
-            except Exception as e:
-                last_error = e
-                retryable = self._is_rate_limit(e) or self._is_transient(e)
-                if not retryable or attempt == _MAX_429_RETRIES:
-                    raise
-                if self._is_rate_limit(e):
-                    wait = self._extract_retry_delay(e) or (2 ** attempt)
-                    # Clamp to a sensible ceiling; retry hints can be ~60s.
-                    wait = min(max(wait, 1.0), 65.0)
-                    event = "gemini.rate_limited"
-                else:
-                    wait = min(2.0 ** attempt, 30.0)
-                    event = "gemini.transient_error"
-                # Sleeping past the deadline is the failure mode this exists
-                # to prevent, so give up now rather than wake up too late.
-                if time.monotonic() + wait >= deadline:
+            for attempt in range(1, _MAX_429_RETRIES + 1):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    with timed(
+                        "llm.gemini", "attempt", llm_provider="gemini",
+                        llm_model=model_name, llm_tier=tier, llm_attempt=attempt,
+                    ):
+                        response = model.generate_content(
+                            user,
+                            generation_config={"temperature": temperature},
+                            # retry=None: the SDK's backoff loop ignores this timeout,
+                            # so retrying is done here where the deadline is visible.
+                            request_options={
+                                "timeout": min(self._timeout_s, remaining),
+                                "retry": None,
+                            },
+                        )
+                    return (response.text or "").strip()
+                except Exception as e:
+                    last_error = e
+                    retryable = self._is_rate_limit(e) or self._is_transient(e)
+                    if not retryable or attempt == _MAX_429_RETRIES:
+                        raise
+                    if self._is_rate_limit(e):
+                        wait = self._extract_retry_delay(e) or (2 ** attempt)
+                        # Clamp to a sensible ceiling; retry hints can be ~60s.
+                        wait = min(max(wait, 1.0), 65.0)
+                        event = "gemini.rate_limited"
+                    else:
+                        wait = min(2.0 ** attempt, 30.0)
+                        event = "gemini.transient_error"
+                    # Sleeping past the deadline is the failure mode this exists
+                    # to prevent, so give up now rather than wake up too late.
+                    if time.monotonic() + wait >= deadline:
+                        log.warning(
+                            "gemini.deadline_reached",
+                            extra={"model": model_name, "attempt": attempt,
+                                   "error": str(e)[:200]},
+                        )
+                        raise
                     log.warning(
-                        "gemini.deadline_reached",
+                        event,
                         extra={"model": model_name, "attempt": attempt,
-                               "error": str(e)[:200]},
+                               "wait_s": wait, "error": str(e)[:200]},
                     )
-                    raise
-                log.warning(
-                    event,
-                    extra={"model": model_name, "attempt": attempt,
-                           "wait_s": wait, "error": str(e)[:200]},
-                )
-                time.sleep(wait)
+                    time.sleep(wait)
 
-        raise TimeoutError(
-            f"gemini call exceeded its {self._deadline_s:.0f}s budget"
-            + (f": {str(last_error)[:200]}" if last_error else "")
-        )
+            raise TimeoutError(
+                f"gemini call exceeded its {self._deadline_s:.0f}s budget"
+                + (f": {str(last_error)[:200]}" if last_error else "")
+            )
 
     @staticmethod
     def _is_rate_limit(e: Exception) -> bool:

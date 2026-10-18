@@ -8,6 +8,7 @@ import signal
 import time
 
 from .jobs import execute_claimed_job
+from .logging_setup import configure_generation_timing_logging
 from .dbpool import is_postgres
 from .webapp import db
 
@@ -30,6 +31,7 @@ def main() -> int:
         level=os.environ.get("LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    configure_generation_timing_logging()
     require_postgres = (os.environ.get("FOLIO_REQUIRE_POSTGRES") or "").strip().lower()
     if require_postgres in {"1", "true", "yes", "on"} and not is_postgres():
         log.error("FOLIO_REQUIRE_POSTGRES is enabled but DATABASE_URL is missing")
