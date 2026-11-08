@@ -136,6 +136,11 @@ def _validate_runtime_config() -> None:
 
 
 def create_app() -> Flask:
+    # First, so even a config failure below is logged with its reason. The
+    # web app never configured logging, and Render showed bare event names
+    # with every reason stripped off. See logging_setup.ReadableFormatter.
+    from ..logging_setup import configure_stderr_logging
+    configure_stderr_logging(os.environ.get("LOG_LEVEL", "INFO"))
     _validate_runtime_config()
     app = Flask(
         __name__,

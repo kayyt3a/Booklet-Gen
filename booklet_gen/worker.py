@@ -26,10 +26,8 @@ def main() -> int:
     parser.add_argument("--once", action="store_true",
                         help="Process at most one queued job, then exit")
     args = parser.parse_args()
-    logging.basicConfig(
-        level=os.environ.get("LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    from .logging_setup import configure_stderr_logging
+    configure_stderr_logging(os.environ.get("LOG_LEVEL", "INFO"))
     require_postgres = (os.environ.get("FOLIO_REQUIRE_POSTGRES") or "").strip().lower()
     if require_postgres in {"1", "true", "yes", "on"} and not is_postgres():
         log.error("FOLIO_REQUIRE_POSTGRES is enabled but DATABASE_URL is missing")
