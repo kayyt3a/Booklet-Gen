@@ -203,7 +203,13 @@ def render_diagram(spec: dict) -> Optional[Path]:
         _draw_legibly(renderer, spec, out, kind)
         return out
     except Exception as e:
-        log.warning("diagram.render_failed", extra={"type": kind, "error": str(e)[:200]})
+        # The spec as well as the error. A Year 3 booklet logged "int()
+        # argument must be ... not 'list'" for a bar_model, which says the
+        # model sent a list and not what list, so there was nothing to build
+        # support for. Truncated, because a spec is model output.
+        log.warning("diagram.render_failed",
+                    extra={"type": kind, "error": str(e)[:200],
+                           "spec": json.dumps(spec, default=str)[:400]})
         return None
 
 

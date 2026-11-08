@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import threading
@@ -58,6 +59,17 @@ CLASSWORK_CAP_MINUTES = int(os.environ.get("FOLIO_CLASSWORK_CAP_MINUTES", "60"))
 # still a question the model wrote instead of thinking harder about the ones
 # that print.
 CHALLENGE_HEADROOM = int(os.environ.get("FOLIO_CHALLENGE_HEADROOM", "2"))
+
+# The least a subtopic can cost the session, in minutes, used to decide how
+# many subtopics are worth generating at all. MEASURED, not quoted: a lean
+# lesson (three-step worked example, one guided example, one question) costs
+# 7.8 minutes by timing.classwork_section_minutes. An older comment's "about
+# twelve" was the first number tried here, and check_generate_only_what_fits
+# caught it as unsafe: with the floor above a real lesson's cost, the early
+# trim skips subtopics the session had room for. Six sits under the
+# measurement, so the trim can only skip what the cap would remove anyway.
+MIN_SUBTOPIC_SESSION_MINUTES = float(
+    os.environ.get("FOLIO_MIN_SUBTOPIC_SESSION_MINUTES", "6"))
 
 # The same, for a practice subtopic, and for the same measured reason: the
 # guards drop about one question in three, and asking for exactly what prints
@@ -224,14 +236,17 @@ class BookletPipeline:
         # already answered under one heading is not practice under another.
         seen = _SeenQuestions()
         sections, covered, rag_pool = self._generate_from_outline(outline, seen)
+        # Free-text booklets carry a year level too ("Year 8 maths, fractions"),
+        # so they are sized by it exactly as a program booklet is. Fitted
+        # BEFORE the recap and challenge are written, so neither can be built
+        # on a subtopic the fit removes: see run_program.
+        self._fit_classwork_to_cap(sections, session_plan(outline.year_level))
+        covered = [(s.topic, s.subtopic) for s in sections]
         recap = self._build_recap(outline.subject, outline.year_level, None,
                                   rag_pool, seen, covered=covered)
         challenge = self._build_challenge(
             outline.subject, outline.year_level, covered, rag_pool, seen,
         )
-        # Free-text booklets carry a year level too ("Year 8 maths, fractions"),
-        # so they are sized by it exactly as a program booklet is.
-        self._fit_classwork_to_cap(sections, session_plan(outline.year_level))
         t = self._timing(sections, challenge, recap)
         return BookletData(
             subject=outline.subject,
@@ -294,6 +309,7 @@ class BookletPipeline:
         # plan gets a fresh set per week, which is right, since revisiting a
         # skill a week later is the point of the recap.
         seen = _SeenQuestions()
+        contexts: dict[str, list[str]] = {}
         for subj in subjects:
             description = program.describe(subj, year_level, topic)
             # What this year level actually contains, per subject, appended
@@ -324,22 +340,34 @@ class BookletPipeline:
             for s in sections:
                 s.subject = subj
             all_sections.extend(sections)
-            # Recap revises the previous week (term plan) or earlier skills.
-            all_recap.extend(self._build_recap(subj, year_level, prev_focus,
-                                              generation_context, seen,
-                                              covered=covered))
-            all_challenge.extend(
-                self._build_challenge(
-                    subj, year_level, covered, generation_context, seen,
-                    alone=len(subjects) == 1,
-                )
-            )
+            contexts[subj] = generation_context
 
         # Sized for the student's year, not for a flat hour. A NAPLAN booklet
         # merges two subjects into one session, so the cap is applied to the
         # merged list once, after both halves exist.
         plan = session_plan(year_level)
         self._fit_classwork_to_cap(all_sections, plan)
+
+        # AFTER the fit, from what survived it. These used to be written inside
+        # the loop above, before the fitter ran, from every subtopic the outline
+        # planned, so a Final Challenge could test a subtopic the fitter then
+        # removed from the booklet: cumulative questions on a lesson the child
+        # was never given. `covered` is rebuilt from the sections that are
+        # actually printed.
+        for subj in subjects:
+            covered = [(s.topic, s.subtopic) for s in all_sections
+                       if s.subject == subj]
+            if not covered:
+                continue
+            all_recap.extend(self._build_recap(subj, year_level, prev_focus,
+                                              contexts[subj], seen,
+                                              covered=covered))
+            all_challenge.extend(
+                self._build_challenge(
+                    subj, year_level, covered, contexts[subj], seen,
+                    alone=len(subjects) == 1,
+                )
+            )
         log.info("pipeline.session_plan",
                  extra={"year_level": year_level, "band": plan.band,
                         "cap": self._session_cap(plan),
@@ -1523,6 +1551,59 @@ class BookletPipeline:
         cuts.append(n)
         return min(cuts, key=lambda c: (abs(c - target), -c))
 
+    @staticmethod
+    def _within_session_budget(tasks, year_level):
+        """The subtopics worth generating, before a single call is made.
+
+        A Year 3 booklet's outline came back with ten subtopics. All ten were
+        written, graded and illustrated, and then `_fit_classwork_to_cap`
+        dropped seven of them to fit a forty minute lesson. Roughly two thirds
+        of the booklet's Gemini spend and wall-clock time went on pages nobody
+        saw, which is a large part of why generation felt slow.
+
+        The fitter cannot simply run first: it needs real minutes, and those
+        only exist once a section has been written. But it can never keep more
+        subtopics than the cap divided by the cheapest a subtopic can possibly
+        cost, so anything past that number is certain to be thrown away.
+        MIN_SUBTOPIC_SESSION_MINUTES is set below the measured cost of a
+        mini-lesson on its own, so this trim can only ever remove subtopics the
+        fitter would have removed anyway. It is a ceiling on waste, not a
+        second opinion about the booklet.
+
+        Kept round-robin across topics, first subtopic of each topic before the
+        second of any, because the fitter holds a floor on how many TOPICS a
+        session covers and a trim that kept three subtopics of one topic would
+        leave it nothing to honour that floor with.
+        """
+        plan = session_plan(year_level)
+        cap = BookletPipeline._session_cap(plan)
+        keep = max(plan.min_subtopics,
+                   math.ceil(cap / MIN_SUBTOPIC_SESSION_MINUTES))
+        if len(tasks) <= keep:
+            return tasks
+        by_topic: dict = {}
+        for i, (topic, sub) in enumerate(tasks):
+            by_topic.setdefault(topic, []).append(i)
+        order: list[int] = []
+        depth = 0
+        while len(order) < keep:
+            added = False
+            for indices in by_topic.values():
+                if depth < len(indices) and len(order) < keep:
+                    order.append(indices[depth])
+                    added = True
+            if not added:
+                break
+            depth += 1
+        kept = [tasks[i] for i in sorted(order)]
+        log.info("pipeline.outline_trimmed",
+                 extra={"year_level": year_level, "planned": len(tasks),
+                        "generating": len(kept), "cap": cap,
+                        "skipped": "; ".join(st.name for i, (_, st)
+                                             in enumerate(tasks)
+                                             if i not in order)})
+        return kept
+
     def _generate_from_outline(self, outline, seen=None,
                                authoring_guidance=None, use_rag=True):
         """Run generation for every subtopic in a single-subject outline.
@@ -1532,7 +1613,9 @@ class BookletPipeline:
         (sections, covered, rag_pool)."""
         if seen is None:
             seen = _SeenQuestions()
-        tasks = [(t.name, st) for t in outline.topics for st in t.subtopics]
+        tasks = self._within_session_budget(
+            [(t.name, st) for t in outline.topics for st in t.subtopics],
+            outline.year_level)
         results: list = [None] * len(tasks)
         # Decided here, for the outline as a whole, because the target is four
         # readings per booklet and only this level knows how many subtopics
