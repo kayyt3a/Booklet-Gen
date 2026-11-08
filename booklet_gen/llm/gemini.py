@@ -81,7 +81,8 @@ class GeminiClient(LLMClient):
             raise ValueError(f"unknown model tier {tier!r}; "
                              f"expected one of {sorted(self._models)}")
         model = self._genai.GenerativeModel(model_name, system_instruction=system)
-        deadline = time.monotonic() + self._deadline_s
+        started = time.monotonic()
+        deadline = started + self._deadline_s
         last_error: Exception | None = None
 
         for attempt in range(1, _MAX_429_RETRIES + 1):
@@ -99,6 +100,16 @@ class GeminiClient(LLMClient):
                         "retry": None,
                     },
                 )
+                # Timed and logged per call. Generation was slow and nothing
+                # said which of the dozen calls in a booklet was the slow one,
+                # so the only answer to "is it the model?" was a guess. This
+                # line, with the model, tier and size of what was sent, is
+                # what turns that into a measurement.
+                log.info("gemini.call",
+                         extra={"model": model_name, "tier": tier,
+                                "seconds": round(time.monotonic() - started, 1),
+                                "attempts": attempt,
+                                "prompt_chars": len(system) + len(user)})
                 return (response.text or "").strip()
             except Exception as e:
                 last_error = e
