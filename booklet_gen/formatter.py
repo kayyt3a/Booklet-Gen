@@ -786,7 +786,18 @@ def solution_lines(working: str) -> list[str]:
     for raw in (working or "").splitlines():
         current = ""
         for part in _SOLUTION_SPLIT_RE.split(raw.strip()):
-            part = _strip_step_prefix(part.strip())
+            part = part.strip()
+            # A number straight after a colon is that label's VALUE, not a
+            # step number, and it is the answer more often than not. The split
+            # above breaks after a colon, so "the tens place: 70." arrives as
+            # "70." and looked exactly like a stray "2." enumerator. A Year 3
+            # key printed "The digit 7 is in the tens place:" over nothing, for
+            # the question whose answer was 70, while "hundreds place: 400."
+            # survived because three digits is not an enumerator's shape.
+            if current.endswith(":") and _BARE_ENUMERATOR_RE.match(part):
+                current = f"{current} {part}"
+                continue
+            part = _strip_step_prefix(part)
             if not part or _BARE_ENUMERATOR_RE.match(part):
                 continue
             if current and "=" in current:

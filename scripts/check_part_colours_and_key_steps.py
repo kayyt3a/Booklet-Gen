@@ -189,5 +189,24 @@ for pad in pads:
     assert pad >= 78, f"a reserved gap of {pad}px is too narrow for him"
 ok(f"the reserved gaps ({pads}) clear his widths ({widths})")
 
+print("\nA VALUE AFTER A COLON IS NOT A STEP NUMBER")
+
+# A Year 3 key printed "The digit 7 is in the tens place:" over nothing, for a
+# question whose answer was 70. The split breaks after a colon, so "70." came
+# through on its own and matched the stray-enumerator rule that removes "2."
+# from numbered Final Challenge working. "400." survived only because three
+# digits is not an enumerator's shape.
+from booklet_gen.formatter import solution_lines  # noqa: E402
+got = solution_lines("The digit 4 is in the hundreds place: 400.\n"
+                     "The digit 7 is in the tens place: 70.\n"
+                     "The digit 2 is in the ones place: 2.")
+assert got == ["The digit 4 is in the hundreds place: 400.",
+               "The digit 7 is in the tens place: 70.",
+               "The digit 2 is in the ones place: 2."], got
+ok("a one or two digit value after a colon is printed, not dropped")
+got = solution_lines("1. Multiply 3 x 4 = 12. 2. Add 5 = 17.")
+assert got == ["Multiply 3 x 4 = 12.", "Add 5 = 17."], got
+ok("and a real step number is still removed")
+
 print(f"\nALL {_passed} PRESENTATION CHECKS PASSED")
 sys.exit(0)
