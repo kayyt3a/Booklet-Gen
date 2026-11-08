@@ -61,7 +61,11 @@ def _frame(ax, f: _Fonts, x_label: str = "", y_label: str = "") -> float:
 # How far a category label is slanted when it will not fit upright. Anchored
 # at its own tick, so it runs back underneath the column to its left and the
 # labels sit on parallel lines rather than sharing one row.
-_LABEL_TILT = 30.0
+# 35, not the textbook 30: the gap between neighbouring slanted labels is the
+# column width times the sine of this, and at 30 a matplotlib upgrade left the
+# shipped Year 3 graph clear by six pixels at the size it prints. 35 buys about
+# fifteen per cent more room and still reads as a gentle slant.
+_LABEL_TILT = 35.0
 # A label may use this much of its own column. The remainder is the gap that
 # tells a reader where one label ends and the next begins.
 _LABEL_SHARE = 0.92
